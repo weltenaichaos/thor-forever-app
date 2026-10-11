@@ -6,6 +6,7 @@
 #include <sys/eventfd.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <errno.h>
 #include <string.h>
 #include <malloc.h>
 #include <jni.h>
@@ -233,4 +234,46 @@ Java_com_winlator_cmod_xconnector_XConnectorEpoll_pollEpollEvents(JNIEnv *env, j
 
     (*env)->ReleaseIntArrayElements(env, result, r, 0);
     return result;
+}
+
+// Non-blocking sends for X clients. A client that stops reading must not stall the
+// server, so these return 0 instead of waiting when the socket buffer is full.
+JNIEXPORT jint JNICALL
+Java_com_winlator_cmod_xconnector_ClientSocket_sendNonBlocking(JNIEnv *env, jobject obj, jint fd, jobject data,
+                                                          jint offset, jint length, jint ancillaryFd) {
+    char *dataAddr = (*env)->GetDirectBufferAddress(env, data);
+    struct iovec iovmsg = {.iov_base = dataAddr + offset, .iov_len = length};
+    struct {
+        struct cmsghdr align;
+        int fds[1];
+    } ctrlmsg;
+
+    struct msghdr msg = {
+        .msg_name = NULL,
+        .msg_namelen = 0,
+        .msg_iov = &iovmsg,
+        .msg_iovlen = 1,
+        .msg_flags = 0,
+        .msg_control = NULL,
+        .msg_controllen = 0
+    };
+
+    if (ancillaryFd >= 0) {
+        msg.msg_control = &ctrlmsg;
+        msg.msg_controllen = sizeof(struct cmsghdr) + sizeof(int);
+        struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+        cmsg->cmsg_level = SOL_SOCKET;
+        cmsg->cmsg_type = SCM_RIGHTS;
+        cmsg->cmsg_len = msg.msg_controllen;
+        ((int*)CMSG_DATA(cmsg))[0] = ancillaryFd;
+    }
+
+    int res = sendmsg(fd, &msg, MSG_DONTWAIT | MSG_NOSIGNAL);
+    if (res < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) return 0;
+    return res;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_winlator_cmod_xconnector_ClientSocket_dupFd(JNIEnv *env, jclass cls, jint fd) {
+    return dup(fd);
 }
