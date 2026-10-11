@@ -19,6 +19,8 @@ import com.winlator.cmod.xserver.extensions.SyncExtension;
 import com.winlator.cmod.xserver.extensions.XCompositeExtension;
 import java.nio.charset.Charset;
 import java.util.EnumMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class XServer {
@@ -44,6 +46,15 @@ public class XServer {
     private SHMSegmentManager shmSegmentManager;
     private WinHandler winHandler;
     private final EnumMap<Lockable, ReentrantLock> locks = new EnumMap<>(Lockable.class);
+    // Touch, mouse and key input arrives on Android's UI thread. Sending it to an X client
+    // can block when that client is busy and its socket is full (seen with Battle.net under
+    // FEX), and a blocked UI thread makes Android close the app ("not responding").
+    // One background thread keeps the events in order without ever blocking the UI.
+    private final ExecutorService inputExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "XServerInput");
+        thread.setDaemon(true);
+        return thread;
+    });
     private boolean relativeMouseMovement = false;
     private boolean simulateTouchScreen = false;
     private boolean disableMouse = false;
@@ -193,27 +204,35 @@ public class XServer {
     }
 
     public void injectPointerMove(int x, int y) {
-        try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
-            pointer.setPosition(x, y);
-        }
+        inputExecutor.execute(() -> {
+            try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
+                pointer.setPosition(x, y);
+            }
+        });
     }
 
     public void injectPointerMoveDelta(int dx, int dy) {
-        try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
-            pointer.setPosition(pointer.getX() + dx, pointer.getY() + dy);
-        }
+        inputExecutor.execute(() -> {
+            try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
+                pointer.setPosition(pointer.getX() + dx, pointer.getY() + dy);
+            }
+        });
     }
 
     public void injectPointerButtonPress(Pointer.Button buttonCode) {
-        try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
-            pointer.setButton(buttonCode, true);
-        }
+        inputExecutor.execute(() -> {
+            try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
+                pointer.setButton(buttonCode, true);
+            }
+        });
     }
 
     public void injectPointerButtonRelease(Pointer.Button buttonCode) {
-        try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
-            pointer.setButton(buttonCode, false);
-        }
+        inputExecutor.execute(() -> {
+            try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
+                pointer.setButton(buttonCode, false);
+            }
+        });
     }
 
     public void injectKeyPress(XKeycode xKeycode) {
@@ -221,15 +240,19 @@ public class XServer {
     }
 
     public void injectKeyPress(XKeycode xKeycode, int keysym) {
-        try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
-            keyboard.setKeyPress(xKeycode.id, keysym);
-        }
+        inputExecutor.execute(() -> {
+            try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
+                keyboard.setKeyPress(xKeycode.id, keysym);
+            }
+        });
     }
 
     public void injectKeyRelease(XKeycode xKeycode) {
-        try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
-            keyboard.setKeyRelease(xKeycode.id);
-        }
+        inputExecutor.execute(() -> {
+            try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
+                keyboard.setKeyRelease(xKeycode.id);
+            }
+        });
     }
 
     private void setupExtensions() {
