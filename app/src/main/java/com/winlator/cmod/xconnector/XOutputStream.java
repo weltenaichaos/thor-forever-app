@@ -92,12 +92,8 @@ public class XOutputStream {
     private void flush() throws IOException {
         if (buffer.position() != 0) {
             buffer.flip();
-            if (ancillaryFd != -1) {
-                clientSocket.sendAncillaryMsg(buffer, ancillaryFd);
-                ancillaryFd = -1;
-            } else {
-                clientSocket.write(buffer);
-            }
+            clientSocket.sendWithoutBlocking(buffer, ancillaryFd);
+            ancillaryFd = -1;
             buffer.clear();
         }
     }
