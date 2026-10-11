@@ -132,6 +132,21 @@ android {
         freeCompilerArgs += ['-opt-in=androidx.compose.material3.ExperimentalMaterial3Api']
     }
 
+    // Release builds are signed with our own fixed key when CI provides it (see the
+    // workflow), so a new APK installs over the old one and keeps its data.
+    // Without the key (local builds) the debug key is used, as before.
+    def thorKeystore = System.getenv("THOR_KEYSTORE_FILE")
+    signingConfigs {
+        if (thorKeystore) {
+            thor {
+                storeFile file(thorKeystore)
+                storePassword System.getenv("THOR_KEYSTORE_PASSWORD")
+                keyAlias "thor"
+                keyPassword System.getenv("THOR_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     // Keep Winlator’s buildTypes
     buildTypes {
         debug {
@@ -139,7 +154,7 @@ android {
         }
         release {
             minifyEnabled false
-            signingConfig signingConfigs.debug
+            signingConfig thorKeystore ? signingConfigs.thor : signingConfigs.debug
             crunchPngs false
         }
     }
