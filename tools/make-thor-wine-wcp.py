@@ -38,8 +38,11 @@ def build_prefix_pack(template_tzst, ours):
     out = io.BytesIO()
     removed = 0
     reader = zstandard.ZstdDecompressor().stream_reader(open(template_tzst, "rb"))
+    # The xz stream gets its own "with": tarfile does not close a fileobj it was
+    # handed, and an unclosed xz stream is missing its end marker.
     with tarfile.open(fileobj=reader, mode="r|") as src, \
-         tarfile.open(fileobj=lzma.open(out, "wb", preset=6), mode="w") as dst:
+         lzma.open(out, "wb", preset=6) as xz, \
+         tarfile.open(fileobj=xz, mode="w") as dst:
         for m in src:
             parts = m.name.split("/")
             if len(parts) == 5 and parts[:3] == [".wine", "drive_c", "windows"] \
