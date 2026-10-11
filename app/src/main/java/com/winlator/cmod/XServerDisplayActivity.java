@@ -1449,8 +1449,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         View btSubKeyboard = findViewById(R.id.BTSubKeyboard);
         if (btSubKeyboard != null) {
             btSubKeyboard.setOnClickListener(v -> {
-                AppUtils.showKeyboard(this);
                 drawerLayout.closeDrawers();
+                touchpadView.postDelayed(touchpadView::showSoftKeyboard, 500L);
             });
         }
 
