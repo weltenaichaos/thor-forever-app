@@ -49,6 +49,7 @@ import com.winlator.cmod.FileManagerFragment;
 import com.winlator.cmod.R;
 import com.winlator.cmod.contentdialog.ContentDialog;
 import com.winlator.cmod.core.Callback;
+import com.winlator.cmod.core.CrashReasonLogger;
 import com.winlator.cmod.core.ImageUtils;
 import com.winlator.cmod.core.PreloaderDialog;
 import com.winlator.cmod.container.ContainerManager;
@@ -101,6 +102,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+        CrashReasonLogger.install(this);
 
         // Persist the default value on first run so all other components
         // (dialogs, fragments) read the correct value instead of their own default
