@@ -85,6 +85,7 @@ import com.winlator.cmod.core.WineStartMenuCreator;
 import com.winlator.cmod.core.WineThemeManager;
 import com.winlator.cmod.core.WineUtils;
 import com.winlator.cmod.core.WinlatorLogcatLogger;
+import com.winlator.cmod.core.WowStartupAffinity;
 import com.winlator.cmod.inputcontrols.ControlsProfile;
 import com.winlator.cmod.inputcontrols.ExternalController;
 import com.winlator.cmod.inputcontrols.InputControlsManager;
@@ -195,6 +196,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
     public int textureFilter;
     private short taskAffinityMask = 0;
     private short taskAffinityMaskWoW64 = 0;
+    private WowStartupAffinity wowStartupAffinity;
     private String wineCpuTopologyValue = "";
     private int frameRatingWindowId = -1;
 
@@ -953,6 +955,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             winlatorLogcatLogger = null;
         }
         if (taskManagerSidebar != null) taskManagerSidebar.stop();
+        if (wowStartupAffinity != null) wowStartupAffinity.stop();
         super.onDestroy();
     }
 
@@ -1192,6 +1195,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
         environment.startEnvironmentComponents();
 
         winHandler.start();
+
+        // With esync, WoW starts on one core and gets all cores after its startup.
+        if ("1".equals(envVars.get("WINEESYNC"))) {
+            wowStartupAffinity = new WowStartupAffinity(winHandler, taskAffinityMask);
+            wowStartupAffinity.start();
+        }
 
         if (wineRequestHandler != null)
             wineRequestHandler.start();
@@ -3018,6 +3027,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
     }
 
     private void assignTaskAffinity(Window window) {
+        if (wowStartupAffinity != null && wowStartupAffinity.isPinned(window.getClassName()))
+            return;
         if (taskAffinityMask == 0 || taskAffinityMaskWoW64 == 0)
             return;
         int processId = window.getProcessId();
