@@ -197,6 +197,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
     private short taskAffinityMask = 0;
     private short taskAffinityMaskWoW64 = 0;
     private WowStartupAffinity wowStartupAffinity;
+    private final com.winlator.cmod.core.CpuDebugLog cpuDebugLog = new com.winlator.cmod.core.CpuDebugLog();
     private String wineCpuTopologyValue = "";
     private int frameRatingWindowId = -1;
 
@@ -956,6 +957,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         }
         if (taskManagerSidebar != null) taskManagerSidebar.stop();
         if (wowStartupAffinity != null) wowStartupAffinity.stop();
+        cpuDebugLog.stop();
         super.onDestroy();
     }
 
@@ -1195,6 +1197,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         environment.startEnvironmentComponents();
 
         winHandler.start();
+        cpuDebugLog.start();
 
         // With esync, WoW starts on one core and gets all cores after its startup.
         if ("1".equals(envVars.get("WINEESYNC"))) {
