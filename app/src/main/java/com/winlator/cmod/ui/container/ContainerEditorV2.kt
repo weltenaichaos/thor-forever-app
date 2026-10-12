@@ -310,7 +310,7 @@ private class ContainerEditorStateV2(
     }
 
     fun fingerprint(): String = listOf(
-        name, screen, audio, oboeProfile, oboeApi, oboeAdaptive, oboeExclusive, hudMode, locale, soundFont,
+        name, runtime, screen, audio, oboeProfile, oboeApi, oboeAdaptive, oboeExclusive, hudMode, locale, soundFont,
         fullscreen, desktopTheme, desktopBackground, wallpaperStamp, mouseWarp, drives,
         renderer, rendererPresentMode, rendererDriver, filterMode, surfaceFormat, trueDisplayX,
         displayXPerformanceMode, displayXPresentAtRefreshRate, displayXBackPressure,
@@ -484,6 +484,9 @@ internal fun ContainerEditorV2(editId: Int?, onBack: () -> Unit, onCreated: () -
         container.setDesktopTheme(containerDesktopThemeValueV2(state.desktopTheme, state.desktopBackground, state.wallpaperStamp))
         container.setMidiSoundFont(state.soundFont)
         container.setLC_ALL(state.locale)
+        if (state.runtime.isNotBlank() && state.runtime != container.wineVersion &&
+            !WineInfo.fromIdentifier(context, contents, state.runtime).path.isNullOrBlank())
+            container.setWineVersion(state.runtime)
         container.putExtra("hudMode", state.hudMode.toString())
         container.putExtra("mouseWarpOverride", state.mouseWarp)
         container.putExtra("openGlDefaultInitialized", if (state.openGlDefaultInitialized) "1" else "0")
@@ -572,7 +575,15 @@ internal fun ContainerEditorV2(editId: Int?, onBack: () -> Unit, onCreated: () -
         }
     }
 
-    val runtimeChoices = if (editing == null) runtimeOptions else runtimeOptions.filter { it.id == state.runtime }
+    // An existing container can switch to another installed runtime of the same type (Wine or
+    // Proton) and kind (ARM64 or x86-64), for example a fixed build of the same Wine; its
+    // prefix stays as it is.
+    val editingArm64 = editing?.wineVersion.orEmpty().contains("arm64ec", true)
+    val editingType = runtimeOptions.firstOrNull { it.id == editing?.wineVersion }?.type
+    val runtimeChoices = if (editing == null) runtimeOptions else runtimeOptions.filter {
+        it.id == state.runtime || it.id == editing.wineVersion ||
+            (it.installed && it.type == editingType && it.id.contains("arm64ec", true) == editingArm64)
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize().imePadding(),
