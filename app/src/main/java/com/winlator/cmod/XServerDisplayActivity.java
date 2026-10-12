@@ -84,6 +84,7 @@ import com.winlator.cmod.core.WineRequestHandler;
 import com.winlator.cmod.core.WineStartMenuCreator;
 import com.winlator.cmod.core.WineThemeManager;
 import com.winlator.cmod.core.WineUtils;
+import com.winlator.cmod.core.WowConfigDefaults;
 import com.winlator.cmod.core.WinlatorLogcatLogger;
 import com.winlator.cmod.inputcontrols.ControlsProfile;
 import com.winlator.cmod.inputcontrols.ExternalController;
@@ -1030,6 +1031,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
             container.putExtra("dxwrapper", dxwrapper);
             containerDataChanged = true;
         }
+
+        for (File config : WowConfigDefaults.apply(new File(imageFs.getRootDir(), ImageFs.WINEPREFIX + "/drive_c")))
+            Log.d(TAG, "Turned off WoW screen narration in " + config);
 
         String wincomponents = shortcut != null ? shortcut.getExtra("wincomponents", container.getWinComponents())
                 : container.getWinComponents();
