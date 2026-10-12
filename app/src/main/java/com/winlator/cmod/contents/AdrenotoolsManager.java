@@ -244,6 +244,10 @@ public class AdrenotoolsManager {
     public void setDriverById(EnvVars envVars, ImageFs imagefs, String adrenotoolsDriverId) {
         boolean isFromResources = isFromResources(adrenotoolsDriverId);
 
+        // A driver added to the assets after the system files were installed is extracted on first use.
+        if (isFromResources && !new File(getDriverPath(adrenotoolsDriverId)).isDirectory())
+            extractDriverFromResources(adrenotoolsDriverId);
+
         if (isFromResources || enumarateInstalledDrivers().contains(adrenotoolsDriverId)) {
             String driverPath = getDriverPath(adrenotoolsDriverId);
 
