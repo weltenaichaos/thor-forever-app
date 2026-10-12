@@ -12,6 +12,10 @@ Wine updates the rest of the prefix (registry) itself on first start.
 
 Usage:
   make-thor-wine-wcp.py WINE_RUNTIME_TAR PREFIX_TEMPLATE_TZST OUT.wcp [--version 11.0] [--code 1]
+                        [--ntdll-so NTDLL.SO --ntdll-dll NTDLL.DLL]
+
+--ntdll-so/--ntdll-dll swap in both halves of ntdll from the thor-forever-reforged
+"Build Wine" workflow (the same Wine plus the esync fix), as the launcher's WINE=test does.
 
 Needs: pip install zstandard
 """
@@ -60,7 +64,15 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--version", default="11.0")
     ap.add_argument("--code", type=int, default=1)
+    ap.add_argument("--ntdll-so")
+    ap.add_argument("--ntdll-dll")
     a = ap.parse_args()
+    if bool(a.ntdll_so) != bool(a.ntdll_dll):
+        sys.exit("--ntdll-so and --ntdll-dll must come from the same build; pass both")
+    swaps = {}
+    if a.ntdll_so:
+        swaps = {"lib/wine/aarch64-unix/ntdll.so": open(a.ntdll_so, "rb").read(),
+                 "lib/wine/aarch64-windows/ntdll.dll": open(a.ntdll_dll, "rb").read()}
 
     ours = windows_dlls(a.runtime_tar)
     if not ours["system32"]:
@@ -74,7 +86,7 @@ def main():
         "type": "Wine",
         "versionName": f"{a.version}-arm64ec",
         "versionCode": a.code,
-        "description": "Thor Forever Wine (ARM64, esync fixes)",
+        "description": "Thor Forever Wine (ARM64, esync fix)" if swaps else "Thor Forever Wine (ARM64)",
         "files": [],
         "wine": {"binPath": "bin", "libPath": "lib", "prefixPack": "prefixPack.txz"},
     }
@@ -93,7 +105,16 @@ def main():
             for m in t:
                 if m.name.startswith("../") or m.name.startswith("/"):
                     continue
+                name = m.name[2:] if m.name.startswith("./") else m.name
+                if m.isfile() and name in swaps:
+                    data = swaps.pop(name)
+                    m.size = len(data)
+                    out.addfile(m, io.BytesIO(data))
+                    print(f"swapped in {name}")
+                    continue
                 out.addfile(m, t.extractfile(m) if m.isfile() else None)
+        if swaps:
+            sys.exit(f"runtime tar has no {', '.join(swaps)}")
     print(f"wrote {a.out}")
 
 
