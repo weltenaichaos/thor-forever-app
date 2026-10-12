@@ -89,6 +89,7 @@ public class WindowManager extends XResourceManager {
     public void destroyWindow(int id) {
         Window window = getWindow(id);
         if (window != null && rootWindow.id != id) {
+            WindowDebugLog.log("destroy", window);
             unmapWindow(window);
             removeAllSubwindowsAndWindow(window);
             triggerOnDestroyWindow(window);
@@ -114,18 +115,23 @@ public class WindowManager extends XResourceManager {
             Window parent = window.getParent();
             if (!parent.hasEventListenerFor(Event.SUBSTRUCTURE_REDIRECT) || window.attributes.isOverrideRedirect()) {
                 window.attributes.setMapped(true);
+                WindowDebugLog.log("map", window);
                 window.sendEvent(Event.STRUCTURE_NOTIFY, new MapNotify(window, window));
                 parent.sendEvent(Event.SUBSTRUCTURE_NOTIFY, new MapNotify(parent, window));
                 window.sendEvent(Event.EXPOSURE, new Expose(window));
                 triggerOnMapWindow(window);
             }
-            else parent.sendEvent(Event.SUBSTRUCTURE_REDIRECT, new MapRequest(parent, window));
+            else {
+                WindowDebugLog.log("map-request", window);
+                parent.sendEvent(Event.SUBSTRUCTURE_REDIRECT, new MapRequest(parent, window));
+            }
         }
     }
 
     public void unmapWindow(Window window) {
         if (rootWindow.id != window.id && window.attributes.isMapped()) {
             window.attributes.setMapped(false);
+            WindowDebugLog.log("unmap", window);
             Window parent = window.getParent();
             window.sendEvent(Event.STRUCTURE_NOTIFY, new UnmapNotify(window, window));
             parent.sendEvent(Event.SUBSTRUCTURE_NOTIFY, new UnmapNotify(parent, window));
@@ -197,6 +203,7 @@ public class WindowManager extends XResourceManager {
         if (drawable != null) drawable.setOnDrawListener(() -> triggerOnUpdateWindowContent(window));
         windows.put(id, window);
         parent.addChild(window);
+        WindowDebugLog.log("create", window);
         triggerOnCreateResourceListener(window);
         triggerOnCreateWindow(window, parent);
         return window;
@@ -227,6 +234,7 @@ public class WindowManager extends XResourceManager {
             window.setWidth(width);
             window.setHeight(height);
             triggerOnUpdateWindowGeometry(window, resized);
+            WindowDebugLog.log(resized ? "resize" : "move", window);
         }
 
         if (resized && window.isInputOutput() && window.attributes.isMapped()) {
@@ -294,7 +302,10 @@ public class WindowManager extends XResourceManager {
             window.sendEvent(Event.STRUCTURE_NOTIFY, new ConfigureNotify(window, window, previousSibling, x, y, width, height, borderWidth, overrideRedirect));
             parent.sendEvent(Event.SUBSTRUCTURE_NOTIFY, new ConfigureNotify(parent, window, previousSibling, x, y, width, height, borderWidth, overrideRedirect));
         }
-        else parent.sendEvent(Event.SUBSTRUCTURE_REDIRECT, new ConfigureRequest(parent, window, window.previousSibling(), x, y, width, height, borderWidth, stackMode, valueMask));
+        else {
+            WindowDebugLog.log("configure-request " + width + "x" + height + "+" + x + "+" + y, window);
+            parent.sendEvent(Event.SUBSTRUCTURE_REDIRECT, new ConfigureRequest(parent, window, window.previousSibling(), x, y, width, height, borderWidth, stackMode, valueMask));
+        }
     }
 
     public void reparentWindow(Window window, Window newParent, short x, short y) {
@@ -308,6 +319,7 @@ public class WindowManager extends XResourceManager {
         if (oldParent != null) oldParent.sendEvent(Event.SUBSTRUCTURE_NOTIFY, new ReparentNotify(oldParent, window, newParent, x, y));
         newParent.sendEvent(Event.SUBSTRUCTURE_NOTIFY, new ReparentNotify(newParent, window, newParent, x, y));
         
+        WindowDebugLog.log("reparent", window);
         triggerOnReparentWindow(window, newParent, x, y);
     }
 
@@ -384,6 +396,8 @@ public class WindowManager extends XResourceManager {
     }
 
     public void triggerOnModifyWindowProperty(Window window, Property property) {
+        String atomName = Atom.getName(property.name);
+        if ("WM_NAME".equals(atomName) || "WM_CLASS".equals(atomName) || "_NET_WM_STATE".equals(atomName)) WindowDebugLog.log("property " + atomName + "=" + property, window);
         for (int i = onWindowModificationListeners.size()-1; i >= 0; i--) {
             onWindowModificationListeners.get(i).onModifyWindowProperty(window, property);
         }
