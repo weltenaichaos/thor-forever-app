@@ -11,3 +11,6 @@ app/src/main/assets/imagefs.txz
 app/src/main/assets/proton-9.0-arm64ec.txz
 app/src/main/assets/proton-9.0-x86_64.txz
 
+
+# Built by CI (turnip job) and bundled at APK build time
+app/src/main/assets/graphics_driver/adrenotools-thor-turnip-26.2.3.tzst
