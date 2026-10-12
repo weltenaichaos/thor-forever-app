@@ -334,6 +334,12 @@ public class DXVKConfigDialog extends ContentDialog {
         if (!asyncCache.isEmpty() && !asyncCache.equals("0"))
             envVars.put("DXVK_GPLASYNCCACHE", "1");
 
+        // The ARM64X build runs native ARM64 games such as WoW on Adreno; the Thor Forever launcher runs it with these off.
+        if (config.get("version").contains("arm64x")) {
+            if (!content.isEmpty()) content += "; ";
+            content += "dxvk.enableGraphicsPipelineLibrary = False; dxvk.tilerMode = False";
+        }
+
         if (!content.isEmpty())
             envVars.put("DXVK_CONFIG", content);
 

@@ -360,9 +360,11 @@ internal fun ContainerEditorV2(editId: Int?, onBack: () -> Unit, onCreated: () -
             if (arm64) {
                 if (state.emulator != "FEXCore" && state.emulator != "WOWBox64") state.emulator = "FEXCore"
                 if (state.boxVersion == DefaultVersion.BOX64) state.boxVersion = DefaultVersion.WOWBOX64
+                if (state.dxvkVersion == DefaultVersion.DXVK) state.selectDxvkVersion(DefaultVersion.DXVK_ARM64EC)
             } else {
                 state.emulator = "Box64"
                 if (state.boxVersion == DefaultVersion.WOWBOX64) state.boxVersion = DefaultVersion.BOX64
+                if (state.dxvkVersion == DefaultVersion.DXVK_ARM64EC) state.selectDxvkVersion(DefaultVersion.DXVK)
             }
         }
     }

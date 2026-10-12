@@ -7,6 +7,7 @@ public abstract class DefaultVersion {
     public static final String WRAPPER = "System";
     public static final String WRAPPER_ADRENO = "turnip26.2.0";
     public static final String DXVK = GPUInformation.getRenderer(null, null).contains("Mali") ? "1.10.3" : "2.3.1";
+    public static final String DXVK_ARM64EC = "2.6.2-arm64ec-arm64x";
     public static final String D8VK = "1.0";
     public static final String VKD3D = "None";
 }
