@@ -1089,9 +1089,11 @@ public class XServerDisplayActivity extends AppCompatActivity {
         boolean enableWineDebug = preferences.getBoolean("enable_wine_debug", false);
         String wineDebugChannels = preferences.getString("wine_debug_channels",
                 SettingsFragment.DEFAULT_WINE_DEBUG_CHANNELS);
-        envVars.put("WINEDEBUG", enableWineDebug && !wineDebugChannels.isEmpty()
+        // Debug build: tag every log line with its process id and time, and log which
+        // program each process is, so a crash can be tied to the program that crashed.
+        envVars.put("WINEDEBUG", (enableWineDebug && !wineDebugChannels.isEmpty()
                 ? "+" + wineDebugChannels.replace(",", ",+")
-                : "-all");
+                : "-all") + ",+pid,+timestamp,+loaddll");
 
         String rootPath = imageFs.getRootDir().getPath();
         FileUtils.clear(imageFs.getTmpDir());
