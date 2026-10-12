@@ -125,7 +125,8 @@ internal suspend fun loadWineRuntimeOptions(context: Context): List<WineRuntimeO
             val id = ContentsManager.getEntryName(profile)
             out[id] = WineRuntimeOption(
                 id = id,
-                label = profile.verName,
+                // Builds of the same Wine share a name, so the version code tells them apart.
+                label = if (profile.verCode > 0) "${profile.verName} (build ${profile.verCode})" else profile.verName,
                 type = type.toString(),
                 version = profile.verName,
                 installed = profile.remoteUrl == null
