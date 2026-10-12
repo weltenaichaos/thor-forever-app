@@ -26,6 +26,7 @@
         <item>v863</item>
         <item>turnip26.2.0</item>
         <item>thor-turnip-26.2.0</item>
+        <item>thor-turnip-26.2.3</item>
     </string-array>
     <string-array name="audio_driver_entries">
         <item>ALSA</item>

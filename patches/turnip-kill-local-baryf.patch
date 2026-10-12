@@ -1,0 +1,13 @@
+diff --git a/src/freedreno/ir3/ir3_sched.c b/src/freedreno/ir3/ir3_sched.c
+--- a/src/freedreno/ir3/ir3_sched.c
++++ b/src/freedreno/ir3/ir3_sched.c
+@@ -505,6 +505,9 @@ check_instr(struct ir3_sched_ctx *ctx, struct ir3_sched_notes *notes,
+          struct ir3_instruction *baryf = ir->baryfs[i];
+          if (baryf->flags & IR3_INSTR_UNUSED)
+             continue;
++         /* Only wait for varying fetches in the block being scheduled. */
++         if (baryf->block != ctx->block)
++            continue;
+          if (!is_scheduled(baryf)) {
+             notes->blocked_kill = true;
+             return false;
