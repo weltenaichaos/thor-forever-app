@@ -19,8 +19,9 @@ import java.util.concurrent.TimeUnit;
  * sometimes crashes at startup (a stack overflow, then a black window) when its startup
  * threads run on several cores at once; on one core that did not happen in testing.
  *
- * Only the CPU affinity of WoW's process is changed, through Wine's SetProcessAffinityMask
- * (the same call the task manager uses), so threads WoW starts later follow it too.
+ * Only the CPU affinity of WoW's process is changed: at once for all its threads with
+ * Android's taskset, and through Wine's SetProcessAffinityMask (the same call the task
+ * manager uses), so threads WoW starts later follow it too.
  */
 public class WowStartupAffinity {
     private static final String TAG = "WowStartupAffinity";
@@ -81,6 +82,7 @@ public class WowStartupAffinity {
             pinnedNames.add(key);
         }
         Log.d(TAG, "Starting " + exeName + " (pid " + pid + ") on one core, mask 0x" + Integer.toHexString(startupMask));
+        setThreadsAffinity(pid, startupMask);
         winHandler.setProcessAffinity(exeName, startupMask);
         for (long delay : RELEASE_AFTER_MS) {
             ScheduledExecutorService ex;
@@ -89,8 +91,29 @@ public class WowStartupAffinity {
             ex.schedule(() -> {
                 synchronized (this) { pinnedNames.remove(key); }
                 Log.d(TAG, "Freeing all cores for " + exeName + ", mask 0x" + Integer.toHexString(releaseMask));
+                setThreadsAffinity(pid, releaseMask);
                 winHandler.setProcessAffinity(exeName, releaseMask);
             }, delay, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /**
+     * Sets the cores of every thread of the process right away with Android's taskset. The
+     * request through Wine alone sometimes arrived seconds late or not at all, after WoW had
+     * already crashed. Wine's processes run as this app's user, so this is allowed.
+     */
+    private static void setThreadsAffinity(int pid, int mask) {
+        try {
+            Process process = new ProcessBuilder("taskset", "-a", "-p", Integer.toHexString(mask), String.valueOf(pid))
+                    .redirectErrorStream(true).start();
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[256];
+            for (int n; (n = process.getInputStream().read(buffer)) > 0; ) bytes.write(buffer, 0, n);
+            String output = bytes.toString().trim();
+            int exit = process.waitFor();
+            Log.d(TAG, "taskset pid " + pid + " mask 0x" + Integer.toHexString(mask) + " exit " + exit + (output.isEmpty() ? "" : ": " + output));
+        } catch (Exception e) {
+            Log.w(TAG, "taskset failed for pid " + pid, e);
         }
     }
 
