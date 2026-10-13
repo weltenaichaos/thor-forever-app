@@ -122,8 +122,9 @@ public class WowStartupAffinity {
     /**
      * WoW does most of its work on its main thread, which is the limit in crowded places. On
      * the fastest core (the prime core on Snapdragon chips) a crowded city ran at about 25 fps
-     * instead of about 21. So the main thread gets the fastest core to itself, and WoW's other threads use the
-     * rest, together with Wine's server. Checked every 2 seconds, because new threads and Wine
+     * instead of about 21. So the main thread gets the fastest core to itself. Wine's server, which
+     * the main thread waits for, gets the next fast core to itself: that took the city to 30-45 fps.
+     * WoW's other threads use the rest. Checked every 2 seconds, because new threads and Wine
      * can change the cores.
      */
     private void keepMainThreadOnFastCore(int pid, int restMask) {
