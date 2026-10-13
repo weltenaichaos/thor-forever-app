@@ -107,6 +107,7 @@ data class SettingsModel(
     val shareClipboard: Boolean,
     val pauseWine: Boolean,
     val removeLoadingBar: Boolean,
+    val closeWhenWowExits: Boolean,
     val gameSavesAllShortcuts: Boolean,
     val wineDebug: Boolean,
     val wineDebugChannels: String,
@@ -302,6 +303,8 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                     ToggleRow(stringResource(R.string.high_refresh_rate), model.highRefreshRate) { callbacks.onBooleanChanged("high_refresh_rate_mode", it) }
                     GroupDivider()
                     ToggleRow(stringResource(R.string.remove_loading_bar_when_booting_games), model.removeLoadingBar) { callbacks.onBooleanChanged("remove_loading_bar_when_booting_games", it) }
+                    GroupDivider()
+                    ToggleRow("Close the app when World of Warcraft quits", model.closeWhenWowExits) { callbacks.onBooleanChanged("close_when_wow_exits", it) }
                 }
             }
             item("contents-url") { EditableValueCard("Downloadable Contents URL", model.contentsUrl, callbacks::onContentsUrlChanged) }
