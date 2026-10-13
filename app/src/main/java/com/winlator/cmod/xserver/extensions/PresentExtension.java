@@ -181,6 +181,7 @@ public class PresentExtension implements Extension, XResourceManager.OnResourceL
         final Pixmap pixmap = client.xServer.pixmapManager.getPixmap(pixmapId);
         if (pixmap == null) throw new BadPixmap(pixmapId);
 
+        com.winlator.cmod.xserver.FramePacingStats.onPresent();
         int targetFps = client.xServer.getXServerView() != null
                 ? client.xServer.getXServerView().getFpsLimit() : 0;
         if (targetFps > 1000) targetFps = 1000;
