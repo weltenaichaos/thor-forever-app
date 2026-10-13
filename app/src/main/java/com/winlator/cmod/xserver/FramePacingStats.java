@@ -18,6 +18,7 @@ public final class FramePacingStats {
     public static synchronized void onPresent() {
         long now = System.nanoTime();
         if (last != 0 && count < MAX) intervals[count++] = now - last;
+        if (last != 0) com.winlator.cmod.core.HitchProbe.onFrame(now, now - last);
         last = now;
     }
 

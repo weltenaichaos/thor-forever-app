@@ -58,10 +58,12 @@ public final class CpuDebugLog {
         stackThread = new Thread(this::sampleStacks, "CpuDebugStacks");
         stackThread.setDaemon(true);
         stackThread.start();
+        HitchProbe.start();
     }
 
     public synchronized void stop() {
         running = false;
+        HitchProbe.stop();
         if (thread != null) thread.interrupt();
         if (stackThread != null) stackThread.interrupt();
         thread = null;
