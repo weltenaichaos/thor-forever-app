@@ -115,7 +115,8 @@ data class SettingsModel(
     val customApiKeyEnabled: Boolean,
     val customApiKey: String,
     val contentsUrl: String,
-    val wineDebugOptions: List<String>
+    val wineDebugOptions: List<String>,
+    val skipHiddenDraws: Boolean
 )
 
 @Stable
@@ -302,6 +303,12 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                     ToggleRow(stringResource(R.string.high_refresh_rate), model.highRefreshRate) { callbacks.onBooleanChanged("high_refresh_rate_mode", it) }
                     GroupDivider()
                     ToggleRow(stringResource(R.string.remove_loading_bar_when_booting_games), model.removeLoadingBar) { callbacks.onBooleanChanged("remove_loading_bar_when_booting_games", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Skip drawing hidden desktop",
+                        model.skipHiddenDraws,
+                        "Don't copy what Windows draws behind a full-screen game. Saves CPU. Applies on next game start."
+                    ) { callbacks.onBooleanChanged("skip_hidden_draws", it) }
                 }
             }
             item("contents-url") { EditableValueCard("Downloadable Contents URL", model.contentsUrl, callbacks::onContentsUrlChanged) }
