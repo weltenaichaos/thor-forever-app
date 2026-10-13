@@ -473,7 +473,8 @@ public class SettingsFragment extends Fragment {
                 preferences.getString("downloadable_contents_url", ContentsManager.REMOTE_PROFILES),
                 wineDebugOptions,
                 preferences.getBoolean("skip_hidden_draws", true),
-                preferences.getBoolean("show_wine_taskbar", false)
+                preferences.getBoolean("show_wine_taskbar", false),
+                preferences.getBoolean("wow_fast_main_core", true)
         );
     }
 

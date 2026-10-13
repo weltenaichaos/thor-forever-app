@@ -39,4 +39,12 @@ public class WowStartupAffinityTest {
         assertEquals(0xad, WowStartupAffinity.parseCpuRanges("0,2-3,5,7"));
         assertEquals(0, WowStartupAffinity.parseCpuRanges(""));
     }
+
+    @Test
+    public void readsCpusAllowedMasks() {
+        assertEquals(0xff, WowStartupAffinity.parseHexMask("ff"));
+        assertEquals(0x80, WowStartupAffinity.parseHexMask("00000000,00000080"));
+        assertEquals(0x7f, WowStartupAffinity.parseHexMask(" 7f\n"));
+        assertEquals(0, WowStartupAffinity.parseHexMask(""));
+    }
 }

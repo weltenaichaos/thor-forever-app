@@ -1208,7 +1208,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         // With esync, WoW starts on one core and gets all cores after its startup.
         if ("1".equals(envVars.get("WINEESYNC"))) {
-            wowStartupAffinity = new WowStartupAffinity(winHandler, taskAffinityMask);
+            boolean fastMainCore = preferences.getBoolean("wow_fast_main_core", true);
+            Log.i("XServerDisplayActivity", "WoW main thread on fastest core: " + (fastMainCore ? "on" : "off"));
+            wowStartupAffinity = new WowStartupAffinity(winHandler, taskAffinityMask, fastMainCore);
             wowStartupAffinity.start();
         }
 

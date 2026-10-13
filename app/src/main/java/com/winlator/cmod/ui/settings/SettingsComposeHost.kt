@@ -118,7 +118,8 @@ data class SettingsModel(
     val contentsUrl: String,
     val wineDebugOptions: List<String>,
     val skipHiddenDraws: Boolean,
-    val showWineTaskbar: Boolean
+    val showWineTaskbar: Boolean,
+    val wowFastMainCore: Boolean
 )
 
 @Stable
@@ -317,6 +318,12 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                         model.showWineTaskbar,
                         "The Start button bar at the bottom. Off saves a lot of CPU in full-screen games. Applies on next game start."
                     ) { callbacks.onBooleanChanged("show_wine_taskbar", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "WoW: fastest core for the main thread",
+                        model.wowFastMainCore,
+                        "Gives WoW's busiest thread the fastest CPU core to itself, from one minute after start. Applies on next game start."
+                    ) { callbacks.onBooleanChanged("wow_fast_main_core", it) }
                 }
             }
             item("contents-url") { EditableValueCard("Downloadable Contents URL", model.contentsUrl, callbacks::onContentsUrlChanged) }
