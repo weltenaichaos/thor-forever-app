@@ -168,6 +168,7 @@ public class XClientRequestHandler implements RequestHandler {
         client.setRequestData(requestData);
         client.setRequestLength(requestLength);
 
+        long requestStart = System.nanoTime();
         try {
             switch (opcode) {
                 case ClientOpcodes.CREATE_WINDOW:
@@ -459,6 +460,7 @@ public class XClientRequestHandler implements RequestHandler {
             client.skipRequest();
             e.sendError(client, opcode);
         }
+        XRequestStats.record(client.resourceIDBase, opcode, requestData, requestLength, System.nanoTime() - requestStart);
 
         return true;
     }

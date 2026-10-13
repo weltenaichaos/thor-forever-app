@@ -1,6 +1,7 @@
 package com.winlator.cmod.core;
 
 import com.winlator.cmod.SettingsFragment;
+import com.winlator.cmod.xserver.XRequestStats;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -11,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -18,7 +20,9 @@ import java.util.Set;
 /**
  * Debug build only: every few seconds writes which threads use the most CPU, on which core
  * they last ran, the core speeds, and (once per process) the cpuset and allowed cores of
- * every process we can see, to Winlator/logs/cpu_<time>.txt. Only reads /proc and /sys.
+ * every process we can see, to Winlator/logs/cpu_<time>.txt. It also counts the X requests
+ * the X server handles, and for this app's own busiest threads samples their Java stacks
+ * (20 times a second) to show which code they are in. Only reads, changes nothing.
  */
 public final class CpuDebugLog {
     private static final long INTERVAL_MS = 5000;
@@ -28,8 +32,11 @@ public final class CpuDebugLog {
 
     private final Map<Integer, Long> lastTicks = new HashMap<>();
     private final Set<Integer> describedPids = new HashSet<>();
+    private final Map<String, Integer> stackCounts = new HashMap<>();
+    private volatile Set<String> hotThreadNames = new HashSet<>();
     private volatile boolean running;
     private Thread thread;
+    private Thread stackThread;
 
     public synchronized void start() {
         if (thread != null) return;
@@ -37,12 +44,17 @@ public final class CpuDebugLog {
         thread = new Thread(this::run, "CpuDebugLog");
         thread.setDaemon(true);
         thread.start();
+        stackThread = new Thread(this::sampleStacks, "CpuDebugStacks");
+        stackThread.setDaemon(true);
+        stackThread.start();
     }
 
     public synchronized void stop() {
         running = false;
         if (thread != null) thread.interrupt();
+        if (stackThread != null) stackThread.interrupt();
         thread = null;
+        stackThread = null;
     }
 
     private static final class Sample {
@@ -136,11 +148,69 @@ public final class CpuDebugLog {
         double scale = 100.0 / (TICKS_PER_SECOND * INTERVAL_MS / 1000.0);
         writer.println(String.format(Locale.US, "%8.1f total=%.0f%% MHz(now/max):%s", seconds, busy * scale, freqs));
         samples.sort((a, b) -> Long.compare(b.delta, a.delta));
+        int myPid = android.os.Process.myPid();
+        Set<String> hot = new HashSet<>();
         for (int i = 0; i < Math.min(TOP_THREADS, samples.size()); i++) {
             Sample s = samples.get(i);
             if (s.delta == 0) break;
             writer.println(String.format(Locale.US, "           %5.1f%% cpu%d nice=%d %s(%d) / %s(%d)",
                     s.delta * scale, s.cpu, s.nice, s.process, s.pid, s.thread, s.tid));
+            if (s.pid == myPid && s.delta * scale >= 10) hot.add(s.thread);
+        }
+        hotThreadNames = hot;
+
+        for (String line : XRequestStats.drain(INTERVAL_MS / 1000.0, 12)) writer.println("           " + line);
+
+        List<Map.Entry<String, Integer>> stacks;
+        int stackTotal = 0;
+        synchronized (stackCounts) {
+            stacks = new ArrayList<>(stackCounts.entrySet());
+            stackCounts.clear();
+        }
+        for (Map.Entry<String, Integer> e : stacks) stackTotal += e.getValue();
+        stacks.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
+        for (int i = 0; i < Math.min(8, stacks.size()); i++) {
+            writer.println(String.format(Locale.US, "           stack %3.0f%% %s",
+                    100.0 * stacks.get(i).getValue() / stackTotal, stacks.get(i).getKey()));
+        }
+    }
+
+    /** Samples where this app's busiest threads are in their Java code (Linux names are cut to 15 characters). */
+    private void sampleStacks() {
+        Map<String, Thread> byName = new HashMap<>();
+        long lastLookup = 0;
+        while (running) {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                return;
+            }
+            Set<String> hot = hotThreadNames;
+            if (hot.isEmpty()) continue;
+            long now = System.currentTimeMillis();
+            if (now - lastLookup > INTERVAL_MS) {
+                lastLookup = now;
+                byName.clear();
+                for (Thread t : Thread.getAllStackTraces().keySet()) {
+                    String name = t.getName();
+                    byName.put(name.length() > 15 ? name.substring(0, 15) : name, t);
+                }
+            }
+            for (String name : hot) {
+                Thread t = byName.get(name);
+                if (t == null) continue;
+                StackTraceElement[] trace = t.getStackTrace();
+                StringBuilder key = new StringBuilder(name).append(':');
+                for (int i = 0; i < Math.min(6, trace.length); i++) {
+                    StackTraceElement f = trace[i];
+                    String cls = f.getClassName();
+                    key.append(' ').append(cls.substring(cls.lastIndexOf('.') + 1)).append('.').append(f.getMethodName())
+                            .append(':').append(f.getLineNumber());
+                }
+                synchronized (stackCounts) {
+                    stackCounts.merge(key.toString(), 1, Integer::sum);
+                }
+            }
         }
     }
 

@@ -54,7 +54,8 @@ public class XConnectorEpoll implements Runnable {
             throw new RuntimeException("Failed to add shutdown fd to epoll.");
         }
 
-        epollThread = new Thread(this);
+        String socketName = new java.io.File(socketConfig.path).getName();
+        epollThread = new Thread(this, "XConn " + socketName);
     }
 
     public synchronized void start() {
