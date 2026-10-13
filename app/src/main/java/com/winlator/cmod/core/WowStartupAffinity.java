@@ -120,10 +120,11 @@ public class WowStartupAffinity {
     }
 
     /**
-     * WoW does most of its work on its main thread. On the fastest core (the prime core on
-     * Snapdragon chips) it ran at about 40 fps in a crowded city, on the other cores at about
-     * 25. So the main thread gets the fastest core to itself, and WoW's other threads use the
-     * rest. Checked every 2 seconds, because new threads and Wine can change the cores.
+     * WoW does most of its work on its main thread, which is the limit in crowded places. On
+     * the fastest core (the prime core on Snapdragon chips) a crowded city ran at about 25 fps
+     * instead of about 21. So the main thread gets the fastest core to itself, and WoW's other threads use the
+     * rest, together with Wine's server. Checked every 2 seconds, because new threads and Wine
+     * can change the cores.
      */
     private void keepMainThreadOnFastCore(int pid, int restMask) {
         File[] tasks = new File("/proc/" + pid + "/task").listFiles();
@@ -135,6 +136,27 @@ public class WowStartupAffinity {
             int current = parseHexMask(statusField(readText(new File(task, "status")), "Cpus_allowed:"));
             if (current != wanted) setThreadAffinity(tid, wanted);
         }
+        // Wine's server process answers WoW's calls all the time; it ran on the fast core too.
+        if (wineserverPid == 0) wineserverPid = findProcess("wineserver");
+        if (wineserverPid > 0) {
+            int current = parseHexMask(statusField(readText(new File("/proc/" + wineserverPid + "/status")), "Cpus_allowed:"));
+            if (current != 0 && current != restMask) setThreadsAffinity(wineserverPid, restMask);
+        }
+    }
+
+    private int wineserverPid;
+
+    private static int findProcess(String comm) {
+        File[] dirs = new File("/proc").listFiles();
+        if (dirs == null) return 0;
+        for (File dir : dirs) {
+            String name = dir.getName();
+            if (name.isEmpty() || !Character.isDigit(name.charAt(0))) continue;
+            if (comm.equals(readText(new File(dir, "comm")).trim())) {
+                try { return Integer.parseInt(name); } catch (NumberFormatException e) { return 0; }
+            }
+        }
+        return 0;
     }
 
     /**
