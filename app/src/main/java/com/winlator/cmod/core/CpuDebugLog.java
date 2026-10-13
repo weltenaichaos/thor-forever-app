@@ -58,7 +58,7 @@ public final class CpuDebugLog {
         stackThread = new Thread(this::sampleStacks, "CpuDebugStacks");
         stackThread.setDaemon(true);
         stackThread.start();
-        HitchProbe.start();
+        // HitchProbe.start(); kept WoW from starting in builds 45 and 46
     }
 
     public synchronized void stop() {
