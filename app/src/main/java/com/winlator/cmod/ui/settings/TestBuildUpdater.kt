@@ -1,0 +1,363 @@
+package com.winlator.cmod.ui.settings
+
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import com.winlator.cmod.BuildConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
+import java.util.zip.ZipInputStream
+
+/**
+ * Lists the newest successful CI builds of this app on GitHub, downloads the APK of the one
+ * picked and opens Android's installer for it. GitHub only hands out build files to a
+ * signed-in user, so this needs a GitHub access token, which is kept in this app's private
+ * no-backup folder: it stays on this device, survives app updates and is gone on uninstall.
+ */
+object TestBuildUpdater {
+    private const val REPO = "weltenaichaos/thor-forever-app"
+    private const val RUNS_URL = "https://api.github.com/repos/$REPO/actions/workflows/build.yml/runs?status=success&per_page=10"
+    private const val FILE_PROVIDER = "com.winlator.cmod.tileprovider"
+    private const val TOKEN_FILE = "github-token"
+    private const val APK_ARTIFACT_PREFIX = "Bionic-Build-"
+
+    data class CiBuild(val runId: Long, val buildNumber: Int, val branch: String, val title: String, val finishedAt: String)
+
+    /** This app's CI build number, 0 for a local build. */
+    val installedBuild: Int get() = BuildConfig.CI_BUILD_NUMBER
+
+    fun loadToken(context: Context): String =
+        File(context.noBackupFilesDir, TOKEN_FILE).takeIf { it.exists() }?.readText()?.trim().orEmpty()
+
+    fun saveToken(context: Context, token: String) {
+        File(context.noBackupFilesDir, TOKEN_FILE).writeText(token.trim())
+    }
+
+    @JvmStatic
+    fun parseRuns(json: String): List<CiBuild> {
+        val runs = JSONObject(json).optJSONArray("workflow_runs") ?: return emptyList()
+        return (0 until runs.length()).map { i ->
+            val run = runs.getJSONObject(i)
+            CiBuild(
+                runId = run.getLong("id"),
+                buildNumber = run.optInt("run_number"),
+                branch = run.optString("head_branch"),
+                title = run.optJSONObject("head_commit")?.optString("message").orEmpty().lineSequence().firstOrNull().orEmpty(),
+                finishedAt = run.optString("updated_at")
+            )
+        }
+    }
+
+    /** The download address of the run's APK artifact, or null when it has none (or it expired). */
+    @JvmStatic
+    fun apkArtifactUrl(json: String): Pair<String, Long>? {
+        val artifacts = JSONObject(json).optJSONArray("artifacts") ?: return null
+        for (i in 0 until artifacts.length()) {
+            val artifact = artifacts.getJSONObject(i)
+            if (!artifact.optString("name").startsWith(APK_ARTIFACT_PREFIX) || artifact.optBoolean("expired")) continue
+            return artifact.getString("archive_download_url") to artifact.optLong("size_in_bytes")
+        }
+        return null
+    }
+
+    private fun get(url: String, token: String): String {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 15000
+            connection.readTimeout = 15000
+            connection.setRequestProperty("Accept", "application/vnd.github+json")
+            connection.setRequestProperty("Authorization", "Bearer $token")
+            when (val code = connection.responseCode) {
+                200 -> return connection.inputStream.bufferedReader().use { it.readText() }
+                401 -> throw IllegalStateException("GitHub did not accept the token. Check that it is copied completely and not expired.")
+                403, 404 -> throw IllegalStateException("The token has no access to the builds (GitHub answered $code). It needs read access to Actions on $REPO.")
+                else -> throw IllegalStateException("GitHub answered $code")
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    fun fetchBuilds(token: String): List<CiBuild> = parseRuns(get(RUNS_URL, token))
+
+    /**
+     * Downloads the build's zip and unpacks only the APK from it while downloading, into our
+     * own cache folder, replacing the previous download.
+     */
+    fun download(context: Context, build: CiBuild, token: String, onProgress: (Float) -> Unit): File {
+        val (zipUrl, zipSize) = apkArtifactUrl(get("https://api.github.com/repos/$REPO/actions/runs/${build.runId}/artifacts", token))
+            ?: throw IllegalStateException("This build has no APK any more (GitHub keeps build files for a limited time).")
+
+        // GitHub answers with a redirect to a storage address that must be fetched without the token.
+        val first = URL(zipUrl).openConnection() as HttpURLConnection
+        val location: String
+        try {
+            first.instanceFollowRedirects = false
+            first.connectTimeout = 15000
+            first.readTimeout = 15000
+            first.setRequestProperty("Authorization", "Bearer $token")
+            val code = first.responseCode
+            location = first.getHeaderField("Location")
+                ?: throw IllegalStateException("Download failed (GitHub answered $code)")
+        } finally {
+            first.disconnect()
+        }
+
+        val dir = File(context.cacheDir, "test-build").apply { mkdirs() }
+        val apk = File(dir, "thor-forever-test.apk")
+        val connection = URL(location).openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 15000
+            connection.readTimeout = 60000
+            if (connection.responseCode != 200) throw IllegalStateException("Download failed (${connection.responseCode})")
+            val total = connection.contentLengthLong.takeIf { it > 0 } ?: zipSize
+            val counting = CountingStream(connection.inputStream) { done ->
+                if (total > 0) onProgress((done.toFloat() / total).coerceAtMost(1f))
+            }
+            ZipInputStream(counting).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: throw IllegalStateException("The build's zip has no APK in it.")
+                    if (entry.isDirectory || !entry.name.endsWith(".apk", ignoreCase = true)) continue
+                    apk.outputStream().use { zip.copyTo(it, 64 * 1024) }
+                    return apk
+                }
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /** Android asks once whether this app may install apps; until then we open that setting. */
+    fun canInstall(context: Context): Boolean = context.packageManager.canRequestPackageInstalls()
+
+    fun openInstallPermission(context: Context) {
+        context.startActivity(
+            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + context.packageName))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+
+    fun openInstaller(context: Context, apk: File) {
+        val uri = FileProvider.getUriForFile(context, FILE_PROVIDER, apk)
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+
+    /** "2026-10-13T15:41:50Z" -> "13 Oct 17:41" in the phone's time zone. */
+    @JvmStatic
+    fun shortTime(iso: String): String = try {
+        val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        SimpleDateFormat("d MMM HH:mm", Locale.getDefault()).format(parser.parse(iso)!!)
+    } catch (e: Exception) {
+        iso
+    }
+
+    private class CountingStream(private val input: java.io.InputStream, private val onCount: (Long) -> Unit) : java.io.FilterInputStream(input) {
+        private var count = 0L
+        private var lastReported = 0L
+
+        override fun read(): Int = super.read().also { if (it >= 0) add(1) }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { if (it > 0) add(it.toLong()) }
+
+        private fun add(n: Long) {
+            count += n
+            if (count - lastReported >= 1024 * 1024) {
+                lastReported = count
+                onCount(count)
+            }
+        }
+    }
+}
+
+private sealed interface UpdaterState {
+    data object NeedsToken : UpdaterState
+    data object Checking : UpdaterState
+    data class Listed(val builds: List<TestBuildUpdater.CiBuild>) : UpdaterState
+    data class Downloading(val build: TestBuildUpdater.CiBuild, val progress: Float) : UpdaterState
+    data class Ready(val build: TestBuildUpdater.CiBuild, val apk: File) : UpdaterState
+    data class Failed(val message: String) : UpdaterState
+}
+
+@Composable
+fun TestBuildUpdateDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var token by remember { mutableStateOf(TestBuildUpdater.loadToken(context)) }
+    var state by remember { mutableStateOf<UpdaterState>(if (token.isEmpty()) UpdaterState.NeedsToken else UpdaterState.Checking) }
+    var refresh by remember { mutableIntStateOf(0) }
+    val installed = TestBuildUpdater.installedBuild
+
+    LaunchedEffect(refresh, token) {
+        if (token.isEmpty()) return@LaunchedEffect
+        state = UpdaterState.Checking
+        state = try {
+            UpdaterState.Listed(withContext(Dispatchers.IO) { TestBuildUpdater.fetchBuilds(token) })
+        } catch (e: Exception) {
+            UpdaterState.Failed(e.message ?: "Could not reach GitHub.")
+        }
+    }
+
+    fun install(apk: File) {
+        if (!TestBuildUpdater.canInstall(context)) {
+            TestBuildUpdater.openInstallPermission(context)
+            return
+        }
+        try {
+            TestBuildUpdater.openInstaller(context, apk)
+        } catch (e: ActivityNotFoundException) {
+            state = UpdaterState.Failed("No installer found on this device.")
+        }
+    }
+
+    fun download(build: TestBuildUpdater.CiBuild) {
+        state = UpdaterState.Downloading(build, 0f)
+        scope.launch {
+            state = try {
+                val apk = withContext(Dispatchers.IO) {
+                    TestBuildUpdater.download(context, build, token) { progress ->
+                        scope.launch { if (state is UpdaterState.Downloading) state = UpdaterState.Downloading(build, progress) }
+                    }
+                }
+                UpdaterState.Ready(build, apk)
+            } catch (e: Exception) {
+                UpdaterState.Failed(e.message ?: "Download failed.")
+            }
+        }
+    }
+
+    val current = state
+    var tokenDraft by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = { if (current !is UpdaterState.Downloading) onDismiss() },
+        title = { Text("Test builds") },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(if (installed > 0) "Installed: build $installed (${BuildConfig.CI_BRANCH})" else "Installed: local build")
+                when (current) {
+                    UpdaterState.NeedsToken -> {
+                        Text(
+                            "GitHub only gives build files to a signed-in user, so this needs a GitHub access token once. " +
+                                "Create a fine-grained token on github.com (Settings › Developer settings › Personal access tokens), " +
+                                "for the repository thor-forever-app only, with \"Actions: Read-only\". " +
+                                "It is stored only in this app on this device and is deleted when you uninstall the app.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        OutlinedTextField(
+                            value = tokenDraft,
+                            onValueChange = { tokenDraft = it },
+                            label = { Text("GitHub token") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    UpdaterState.Checking -> Text("Checking GitHub for builds…")
+                    is UpdaterState.Listed -> {
+                        if (current.builds.isEmpty()) Text("No successful builds found.")
+                        else Text("Tap a build to download and install it:", style = MaterialTheme.typography.bodySmall)
+                        current.builds.forEachIndexed { index, build ->
+                            if (index > 0) HorizontalDivider()
+                            BuildRow(build, installed) { download(build) }
+                        }
+                    }
+                    is UpdaterState.Downloading -> {
+                        Text("Downloading build ${current.build.buildNumber}… ${(current.progress * 100).toInt()}%")
+                        LinearProgressIndicator(progress = { current.progress }, modifier = Modifier.fillMaxWidth())
+                    }
+                    is UpdaterState.Ready -> Text(
+                        if (TestBuildUpdater.canInstall(context)) "Build ${current.build.buildNumber} downloaded. Tap Install, then confirm in Android's installer. Your containers and settings stay."
+                        else "Build ${current.build.buildNumber} downloaded. Android first needs your OK to let this app install apps: tap Allow, switch it on, come back and tap Install."
+                    )
+                    is UpdaterState.Failed -> Text(current.message, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            when (current) {
+                UpdaterState.NeedsToken -> TextButton(
+                    enabled = tokenDraft.isNotBlank(),
+                    onClick = {
+                        TestBuildUpdater.saveToken(context, tokenDraft)
+                        token = tokenDraft.trim()
+                        tokenDraft = ""
+                    }
+                ) { Text("Save") }
+                is UpdaterState.Ready -> TextButton(onClick = { install(current.apk) }) {
+                    Text(if (TestBuildUpdater.canInstall(context)) "Install" else "Allow")
+                }
+                is UpdaterState.Failed, is UpdaterState.Listed -> TextButton(onClick = { refresh++ }) { Text("Refresh") }
+                else -> {}
+            }
+        },
+        dismissButton = {
+            if (current !is UpdaterState.Downloading) {
+                Column {
+                    if (current is UpdaterState.Failed || current is UpdaterState.Listed) {
+                        TextButton(onClick = { tokenDraft = ""; state = UpdaterState.NeedsToken }) { Text("Change token") }
+                    }
+                    TextButton(onClick = onDismiss) { Text("Close") }
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun BuildRow(build: TestBuildUpdater.CiBuild, installed: Int, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp)) {
+        val marker = when {
+            build.buildNumber == installed -> "  (installed)"
+            build.buildNumber > installed -> "  (newer)"
+            else -> ""
+        }
+        Text("Build ${build.buildNumber}$marker", fontWeight = FontWeight.SemiBold)
+        Text("${build.branch} · ${TestBuildUpdater.shortTime(build.finishedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (build.title.isNotBlank()) Text(build.title, style = MaterialTheme.typography.bodySmall)
+    }
+}
