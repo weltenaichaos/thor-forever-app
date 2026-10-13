@@ -39,6 +39,7 @@ import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -312,6 +313,16 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
             item("about-title") { SectionTitle("ABOUT") }
             item("about") {
                 NavigationRow(Icons.Outlined.Info, "About", null) { activity?.showAboutDialog() }
+            }
+            item("test-build") {
+                var showUpdater by remember { mutableStateOf(false) }
+                val installed = TestBuildUpdater.installedBuild
+                NavigationRow(
+                    Icons.Outlined.SystemUpdate,
+                    "Check for test build",
+                    if (installed > 0) "Installed: build $installed" else "Installed: local build"
+                ) { showUpdater = true }
+                if (showUpdater) TestBuildUpdateDialog { showUpdater = false }
             }
         }
     }
