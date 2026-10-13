@@ -1108,7 +1108,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
             guestProgramLauncherComponent.setContainer(this.container);
             guestProgramLauncherComponent.setWineInfo(this.wineInfo);
 
-            String guestExecutable = "wine explorer /desktop=shell," + xServer.screenInfo + " " + getWineStartCommand();
+            // Wine's taskbar only exists on a desktop named "shell". With a full-screen game it
+            // can get stuck redrawing every window, many times a second, so it is off by default.
+            boolean showTaskbar = preferences.getBoolean("show_wine_taskbar", false);
+            Log.i("XServerDisplayActivity", "Windows taskbar: " + (showTaskbar ? "on" : "off"));
+            String desktopName = showTaskbar ? "shell" : "Default";
+            String guestExecutable = "wine explorer /desktop=" + desktopName + "," + xServer.screenInfo + " " + getWineStartCommand();
 
             guestProgramLauncherComponent.setGuestExecutable(guestExecutable);
 

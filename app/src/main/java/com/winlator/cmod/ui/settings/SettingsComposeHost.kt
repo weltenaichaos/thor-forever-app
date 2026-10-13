@@ -115,7 +115,8 @@ data class SettingsModel(
     val customApiKeyEnabled: Boolean,
     val customApiKey: String,
     val contentsUrl: String,
-    val wineDebugOptions: List<String>
+    val wineDebugOptions: List<String>,
+    val showWineTaskbar: Boolean
 )
 
 @Stable
@@ -302,6 +303,12 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                     ToggleRow(stringResource(R.string.high_refresh_rate), model.highRefreshRate) { callbacks.onBooleanChanged("high_refresh_rate_mode", it) }
                     GroupDivider()
                     ToggleRow(stringResource(R.string.remove_loading_bar_when_booting_games), model.removeLoadingBar) { callbacks.onBooleanChanged("remove_loading_bar_when_booting_games", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Show Windows taskbar",
+                        model.showWineTaskbar,
+                        "The Start button bar at the bottom. Off saves a lot of CPU in full-screen games. Applies on next game start."
+                    ) { callbacks.onBooleanChanged("show_wine_taskbar", it) }
                 }
             }
             item("contents-url") { EditableValueCard("Downloadable Contents URL", model.contentsUrl, callbacks::onContentsUrlChanged) }
