@@ -11,8 +11,8 @@ import java.util.TreeMap;
 
 /**
  * Debug build only: finds out what WoW's main thread is doing when a frame takes very long.
- * 50 times a second it reads the main thread's state (running, waiting, or waiting for the
- * disk), what it waits in (wchan) and its current system call, and Wine's server's state.
+ * From one minute after WoW starts, 50 times a second it reads the main thread's state
+ * (running, waiting, or waiting for the disk), what it waits in (wchan), and Wine's server's.
  * Every quarter second it also keeps the CPU time of all WoW threads. When a frame took
  * longer than half a second, it writes a summary of that stretch to the CPU log: how the
  * main thread spent it and which threads were busy meanwhile. Only reads, changes nothing.
@@ -32,7 +32,9 @@ public final class HitchProbe {
     private static volatile boolean running;
     private static Thread thread;
 
+    private static final long START_DELAY_NS = 60_000_000_000L;
     private static int wowPid;
+    private static long wowSeenAt;
     private static int serverPid;
     private static long lastThreadsAt;
     /** Snapshots of all WoW threads' CPU ticks, oldest first: time, then tid -> ticks. */
@@ -73,8 +75,12 @@ public final class HitchProbe {
             if (wowPid == 0 || !new File("/proc/" + wowPid).exists()) {
                 wowPid = findProcess("wow");
                 serverPid = findProcess("wineserver");
+                wowSeenAt = now;
                 if (wowPid == 0) continue;
             }
+            // Leave WoW's startup alone: build 45 read its threads from the first moment and
+            // WoW then did not start.
+            if (now - wowSeenAt < START_DELAY_NS) continue;
             String main = describe("/proc/" + wowPid + "/task/" + wowPid);
             String server = serverPid > 0 ? describe("/proc/" + serverPid + "/task/" + serverPid) : "?";
             synchronized (HitchProbe.class) {
@@ -104,10 +110,7 @@ public final class HitchProbe {
         String state = close > 0 && close + 2 < stat.length() ? stat.substring(close + 2, close + 3) : "?";
         if (state.equals("R")) return "R";
         String wchan = read(taskDir + "/wchan").trim();
-        String syscall = read(taskDir + "/syscall").trim();
-        int space = syscall.indexOf(' ');
-        if (space > 0) syscall = syscall.substring(0, space);
-        return state + " " + (wchan.isEmpty() || wchan.equals("0") ? "-" : wchan) + (syscall.isEmpty() ? "" : " sc" + syscall);
+        return state + " " + (wchan.isEmpty() || wchan.equals("0") ? "-" : wchan);
     }
 
     private static void report(long start, long end) {
