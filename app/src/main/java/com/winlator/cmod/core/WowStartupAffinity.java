@@ -33,6 +33,7 @@ public class WowStartupAffinity {
     private final int releaseMask;
     private final Set<Integer> handledPids = new HashSet<>();
     private final Set<String> pinnedNames = new HashSet<>();
+    private final Set<String> startedNames = new HashSet<>();
     private ScheduledExecutorService executor;
 
     /** cpuMask: the cores the container lets programs use (0 = all). */
@@ -71,6 +72,13 @@ public class WowStartupAffinity {
             String comm = readText(new File(dir, "comm")).trim();
             if (!isWowComm(comm)) continue;
             String exeName = exeNameFromCmdline(readText(new File(dir, "cmdline")), comm);
+            synchronized (this) {
+                handledPids.add(pid);
+                // Only the game's first start: WoW later starts more processes under its own
+                // name (for its voice chat and error reports). Pinning by name then put the
+                // running game back on one core for 30 seconds each time.
+                if (!startedNames.add(exeName.toLowerCase(Locale.ROOT))) continue;
+            }
             pin(pid, exeName);
         }
     }
