@@ -93,8 +93,12 @@ public abstract class DrawRequests {
         return false;
     }
 
+    /**
+     * A window redirected with XComposite is not shown on screen: Wine renders the game's
+     * Vulkan child offscreen and copies the frames into the parent, so it hides nothing.
+     */
     private static boolean covers(Window window, int x, int y, int width, int height) {
-        return window.attributes.isMapped() && window.isInputOutput() &&
+        return window.attributes.isMapped() && window.isInputOutput() && !window.isCompositeRedirected() &&
             window.getX() <= x && window.getY() <= y &&
             window.getX() + window.getWidth() >= x + width && window.getY() + window.getHeight() >= y + height;
     }
