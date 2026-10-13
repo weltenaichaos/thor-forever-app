@@ -323,7 +323,7 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                     ToggleRow(
                         "WoW: fastest core for the main thread",
                         model.wowFastMainCore,
-                        "Gives WoW's busiest thread the fastest CPU core to itself, from one minute after start. Applies on next game start."
+                        "Gives WoW's busiest thread the fastest CPU core to itself, and Wine's server the next fast core, from 30 seconds after start. Applies on next game start."
                     ) { callbacks.onBooleanChanged("wow_fast_main_core", it) }
                     GroupDivider()
                     ToggleRow("Close the app when World of Warcraft quits", model.closeWhenWowExits) { callbacks.onBooleanChanged("close_when_wow_exits", it) }

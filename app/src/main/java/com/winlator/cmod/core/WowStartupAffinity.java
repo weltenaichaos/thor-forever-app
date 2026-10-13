@@ -27,7 +27,8 @@ public class WowStartupAffinity {
     private static final String TAG = "WowStartupAffinity";
     private static final long POLL_MS = 100;
     private static final long[] RELEASE_AFTER_MS = {30000, 60000};
-    private static final long FAST_CORE_START_MS = 61000;
+    /** When the main thread gets the fast core: just after the first release, during login. */
+    private static final long FAST_CORE_START_MS = 31000;
     private static final long FAST_CORE_CHECK_MS = 2000;
 
     private final WinHandler winHandler;
@@ -96,7 +97,12 @@ public class WowStartupAffinity {
         Log.d(TAG, "Starting " + exeName + " (pid " + pid + ") on one core, mask 0x" + Integer.toHexString(startupMask));
         setThreadsAffinity(pid, startupMask);
         winHandler.setProcessAffinity(exeName, startupMask);
+        int restMask = releaseMask & ~startupMask;
+        boolean split = mainThreadOnFastCore && restMask != 0;
         for (long delay : RELEASE_AFTER_MS) {
+            // The split below keeps the cores right from then on. A second release would spread
+            // all threads out in the middle of the game, only to move them back 2 seconds later.
+            if (split && delay > RELEASE_AFTER_MS[0]) break;
             ScheduledExecutorService ex;
             synchronized (this) { ex = executor; }
             if (ex == null) return;
@@ -107,8 +113,7 @@ public class WowStartupAffinity {
                 winHandler.setProcessAffinity(exeName, releaseMask);
             }, delay, TimeUnit.MILLISECONDS);
         }
-        int restMask = releaseMask & ~startupMask;
-        if (mainThreadOnFastCore && restMask != 0) {
+        if (split) {
             ScheduledExecutorService ex;
             synchronized (this) { ex = executor; }
             if (ex == null) return;
@@ -122,20 +127,29 @@ public class WowStartupAffinity {
     /**
      * WoW does most of its work on its main thread, which is the limit in crowded places. On
      * the fastest core (the prime core on Snapdragon chips) a crowded city ran at about 25 fps
-     * instead of about 21. So the main thread gets the fastest core to itself, and WoW's other threads use the
-     * rest, together with Wine's server. Checked every 2 seconds, because new threads and Wine
+     * instead of about 21. So the main thread gets the fastest core to itself. Wine's server, which
+     * the main thread waits for, gets the next fast core to itself: that took the city to 30-45 fps.
+     * WoW's other threads use the rest. Checked every 2 seconds, because new threads and Wine
      * can change the cores.
      */
     private void keepMainThreadOnFastCore(int pid, int restMask) {
         File[] tasks = new File("/proc/" + pid + "/task").listFiles();
         if (tasks == null) throw new RuntimeException("WoW exited"); // ends this repeating task
+        StringBuilder moves = new StringBuilder();
+        int count = 0;
         for (File task : tasks) {
             int tid;
             try { tid = Integer.parseInt(task.getName()); } catch (NumberFormatException e) { continue; }
             int wanted = tid == pid ? startupMask : threadsMask(restMask);
             int current = parseHexMask(statusField(readText(new File(task, "status")), "Cpus_allowed:"));
-            if (current != wanted) setThreadAffinity(tid, wanted);
+            if (current != wanted) {
+                moves.append("taskset -p ").append(Integer.toHexString(wanted)).append(' ').append(tid).append(" >/dev/null;");
+                count++;
+            }
         }
+        // One shell for all threads: starting a program per thread took about half a second
+        // for WoW's 80 threads and stalled the game for a moment.
+        if (count > 0) runShell(moves.toString(), "moved " + count + " threads of pid " + pid);
         // Wine's server process answers WoW's calls all the time, and the main thread waits for
         // its answers. It gets the fastest of the remaining cores to itself.
         if (wineserverPid == 0) wineserverPid = findProcess("wineserver");
@@ -182,9 +196,17 @@ public class WowStartupAffinity {
         runTaskset(pid, mask, true);
     }
 
-    /** Sets the cores of one thread. */
-    private static void setThreadAffinity(int tid, int mask) {
-        runTaskset(tid, mask, false);
+    private static void runShell(String script, String what) {
+        try {
+            Process process = new ProcessBuilder("sh", "-c", script).redirectErrorStream(true).start();
+            byte[] buffer = new byte[256];
+            while (process.getInputStream().read(buffer) > 0) { /* drain */ }
+            int exit = process.waitFor();
+            Log.d(TAG, what + ", exit " + exit);
+            CpuDebugLog.note(what + ", exit " + exit);
+        } catch (Exception e) {
+            Log.w(TAG, "shell failed: " + what, e);
+        }
     }
 
     private static void runTaskset(int pid, int mask, boolean allThreads) {
