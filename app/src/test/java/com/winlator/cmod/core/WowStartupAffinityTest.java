@@ -47,4 +47,12 @@ public class WowStartupAffinityTest {
         assertEquals(0x7f, WowStartupAffinity.parseHexMask(" 7f\n"));
         assertEquals(0, WowStartupAffinity.parseHexMask(""));
     }
+
+    @Test
+    public void givesWineServerTheHighestRemainingCore() {
+        assertEquals(0x40, WowStartupAffinity.serverMask(0x7f));
+        assertEquals(0x3f, WowStartupAffinity.threadsMask(0x7f));
+        assertEquals(0x1, WowStartupAffinity.serverMask(0x1));
+        assertEquals(0x1, WowStartupAffinity.threadsMask(0x1));
+    }
 }
