@@ -171,6 +171,7 @@ public final class CpuDebugLog {
         for (Sample s : samples) busy += s.delta;
         double scale = 100.0 / (TICKS_PER_SECOND * INTERVAL_MS / 1000.0);
         writer.println(String.format(Locale.US, "%8.1f total=%.0f%% MHz(now/max):%s", seconds, busy * scale, freqs));
+        writer.println("           " + gpuAndHeat());
         samples.sort((a, b) -> Long.compare(b.delta, a.delta));
         int myPid = android.os.Process.myPid();
         Set<String> hot = new HashSet<>();
@@ -242,6 +243,43 @@ public final class CpuDebugLog {
                 }
             }
         }
+    }
+
+    /** GPU speed and the hottest temperature sensors, to see when the device slows down from heat. */
+    private static String gpuAndHeat() {
+        StringBuilder line = new StringBuilder("gpu:");
+        String[][] gpuFiles = {
+                {"MHz", "/sys/class/kgsl/kgsl-3d0/gpuclk"},
+                {"maxMHz", "/sys/class/kgsl/kgsl-3d0/max_gpuclk"},
+                {"busy", "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage"},
+                {"level", "/sys/class/kgsl/kgsl-3d0/thermal_pwrlevel"},
+        };
+        for (String[] f : gpuFiles) {
+            String v = read(f[1]).trim();
+            if (v.isEmpty()) continue;
+            if (f[0].endsWith("MHz")) {
+                try { v = String.valueOf(Long.parseLong(v) / 1000000); } catch (NumberFormatException ignored) {}
+            }
+            line.append(' ').append(f[0]).append('=').append(v);
+        }
+        List<String> temps = new ArrayList<>();
+        for (int i = 0; i < 120; i++) {
+            String t = read("/sys/class/thermal/thermal_zone" + i + "/temp").trim();
+            if (t.isEmpty()) continue;
+            try {
+                long milli = Long.parseLong(t);
+                if (milli < 1000 || milli > 150000) continue;
+                String type = read("/sys/class/thermal/thermal_zone" + i + "/type").trim();
+                temps.add(String.format(Locale.US, "%05.1f %s", milli / 1000.0, type));
+            } catch (NumberFormatException ignored) {}
+        }
+        temps.sort((a, b) -> b.compareTo(a));
+        line.append("  hottest:");
+        for (int i = 0; i < Math.min(6, temps.size()); i++) {
+            String[] parts = temps.get(i).split(" ", 2);
+            line.append(' ').append(parts[1]).append('=').append(parts[0].replaceFirst("^0", "")).append('C');
+        }
+        return line.toString();
     }
 
     private static String statusField(String status, String key) {
