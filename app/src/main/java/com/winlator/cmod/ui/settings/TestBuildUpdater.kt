@@ -55,7 +55,9 @@ import java.util.zip.ZipInputStream
  */
 object TestBuildUpdater {
     private const val REPO = "weltenaichaos/thor-forever-app"
-    private const val RUNS_URL = "https://api.github.com/repos/$REPO/actions/workflows/build.yml/runs?status=success&per_page=10"
+    /** Only builds of the test branch are listed: other branches' builds are CI checks for pull requests. */
+    const val TEST_BRANCH = "debug/window-log"
+    private const val RUNS_URL = "https://api.github.com/repos/$REPO/actions/workflows/build.yml/runs?status=success&per_page=10&branch=$TEST_BRANCH"
     private const val FILE_PROVIDER = "com.winlator.cmod.tileprovider"
     private const val TOKEN_FILE = "github-token"
     private const val APK_ARTIFACT_PREFIX = "Bionic-Build-"
@@ -300,7 +302,7 @@ fun TestBuildUpdateDialog(onDismiss: () -> Unit) {
                     UpdaterState.Checking -> Text("Checking GitHub for builds…")
                     is UpdaterState.Listed -> {
                         if (current.builds.isEmpty()) Text("No successful builds found.")
-                        else Text("Tap a build to download and install it:", style = MaterialTheme.typography.bodySmall)
+                        else Text("Test builds (${TestBuildUpdater.TEST_BRANCH}). Tap one to download and install it:", style = MaterialTheme.typography.bodySmall)
                         current.builds.forEachIndexed { index, build ->
                             if (index > 0) HorizontalDivider()
                             BuildRow(build, installed) { download(build) }
