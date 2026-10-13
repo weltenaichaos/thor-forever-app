@@ -117,7 +117,8 @@ data class SettingsModel(
     val customApiKey: String,
     val contentsUrl: String,
     val wineDebugOptions: List<String>,
-    val skipHiddenDraws: Boolean
+    val skipHiddenDraws: Boolean,
+    val showWineTaskbar: Boolean
 )
 
 @Stable
@@ -310,6 +311,12 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                         model.skipHiddenDraws,
                         "Don't copy what Windows draws behind a full-screen game. Saves CPU. Applies on next game start."
                     ) { callbacks.onBooleanChanged("skip_hidden_draws", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Show Windows taskbar",
+                        model.showWineTaskbar,
+                        "The Start button bar at the bottom. Off saves a lot of CPU in full-screen games. Applies on next game start."
+                    ) { callbacks.onBooleanChanged("show_wine_taskbar", it) }
                 }
             }
             item("contents-url") { EditableValueCard("Downloadable Contents URL", model.contentsUrl, callbacks::onContentsUrlChanged) }
