@@ -108,6 +108,7 @@ data class SettingsModel(
     val shareClipboard: Boolean,
     val pauseWine: Boolean,
     val removeLoadingBar: Boolean,
+    val closeWhenWowExits: Boolean,
     val gameSavesAllShortcuts: Boolean,
     val wineDebug: Boolean,
     val wineDebugChannels: String,
@@ -324,6 +325,8 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                         model.wowFastMainCore,
                         "Gives WoW's busiest thread the fastest CPU core to itself, from one minute after start. Applies on next game start."
                     ) { callbacks.onBooleanChanged("wow_fast_main_core", it) }
+                    GroupDivider()
+                    ToggleRow("Close the app when World of Warcraft quits", model.closeWhenWowExits) { callbacks.onBooleanChanged("close_when_wow_exits", it) }
                 }
             }
             item("contents-url") { EditableValueCard("Downloadable Contents URL", model.contentsUrl, callbacks::onContentsUrlChanged) }

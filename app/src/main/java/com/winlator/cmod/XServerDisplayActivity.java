@@ -83,6 +83,7 @@ import com.winlator.cmod.core.WineRegistryEditor;
 import com.winlator.cmod.core.WineRequestHandler;
 import com.winlator.cmod.core.WineStartMenuCreator;
 import com.winlator.cmod.core.WineThemeManager;
+import com.winlator.cmod.core.WowExitWatcher;
 import com.winlator.cmod.core.WineUtils;
 import com.winlator.cmod.core.WinlatorLogcatLogger;
 import com.winlator.cmod.core.WowStartupAffinity;
@@ -147,6 +148,7 @@ import cn.sherlock.com.sun.media.sound.SF2Soundbank;
 public class XServerDisplayActivity extends AppCompatActivity {
 
     private static final boolean DISABLE_TOUCHSCREEN_AUTO_HIDE = true;
+    private WowExitWatcher wowExitWatcher;
     private static final HashMap<String, Boolean> WINE_XRANDR_SUPPORT_CACHE = new HashMap<>();
     private final AtomicBoolean exiting = new AtomicBoolean(false);
 
@@ -894,6 +896,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
     private void exit() {
         if (!exiting.compareAndSet(false, true)) return;
+        if (wowExitWatcher != null) wowExitWatcher.stop();
         NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID);
         boolean removeLoadingBar = PreferenceManager.getDefaultSharedPreferences(this)
                 .getBoolean("remove_loading_bar_when_booting_games", false);
@@ -960,6 +963,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (taskManagerSidebar != null) taskManagerSidebar.stop();
         if (wowStartupAffinity != null) wowStartupAffinity.stop();
         cpuDebugLog.stop();
+        if (wowExitWatcher != null) wowExitWatcher.stop();
         super.onDestroy();
     }
 
@@ -1202,6 +1206,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
         }
 
         environment.startEnvironmentComponents();
+
+        // WoW leaves Blizzard's agent running after it quits, which keeps Wine's desktop open.
+        if (preferences.getBoolean("close_when_wow_exits", true)) {
+            wowExitWatcher = new WowExitWatcher(() -> runOnUiThread(this::exit));
+            wowExitWatcher.start();
+        }
 
         winHandler.start();
         cpuDebugLog.start();
