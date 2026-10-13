@@ -132,16 +132,30 @@ public class WowStartupAffinity {
         for (File task : tasks) {
             int tid;
             try { tid = Integer.parseInt(task.getName()); } catch (NumberFormatException e) { continue; }
-            int wanted = tid == pid ? startupMask : restMask;
+            int wanted = tid == pid ? startupMask : threadsMask(restMask);
             int current = parseHexMask(statusField(readText(new File(task, "status")), "Cpus_allowed:"));
             if (current != wanted) setThreadAffinity(tid, wanted);
         }
-        // Wine's server process answers WoW's calls all the time; it ran on the fast core too.
+        // Wine's server process answers WoW's calls all the time, and the main thread waits for
+        // its answers. It gets the fastest of the remaining cores to itself.
         if (wineserverPid == 0) wineserverPid = findProcess("wineserver");
         if (wineserverPid > 0) {
+            int wanted = serverMask(restMask);
             int current = parseHexMask(statusField(readText(new File("/proc/" + wineserverPid + "/status")), "Cpus_allowed:"));
-            if (current != 0 && current != restMask) setThreadsAffinity(wineserverPid, restMask);
+            if (current != 0 && current != wanted) setThreadsAffinity(wineserverPid, wanted);
         }
+    }
+
+    /** The highest core of the mask, which is one of the fast ones; 0 when the mask has one core. */
+    static int serverMask(int restMask) {
+        int highest = Integer.highestOneBit(restMask);
+        return highest == restMask ? restMask : highest;
+    }
+
+    /** The cores for WoW's other threads: all remaining ones except Wine's server core. */
+    static int threadsMask(int restMask) {
+        int server = serverMask(restMask);
+        return server == restMask ? restMask : restMask & ~server;
     }
 
     private int wineserverPid;
