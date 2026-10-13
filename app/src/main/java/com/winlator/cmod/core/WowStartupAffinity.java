@@ -79,10 +79,11 @@ public class WowStartupAffinity {
             String exeName = exeNameFromCmdline(readText(new File(dir, "cmdline")), comm);
             synchronized (this) {
                 handledPids.add(pid);
-                // Only the game's first start: WoW later starts more processes under its own
-                // name (for its voice chat and error reports). Pinning by name then put the
-                // running game back on one core for 30 seconds each time.
-                if (!startedNames.add(exeName.toLowerCase(Locale.ROOT))) continue;
+                // Only the game's first start: WoW later starts more processes whose names also
+                // begin with "Wow" (its voice chat WowVoiceProxy, error reports). Pinning those put
+                // the running game back on one core, or put voice chat on the game's fast core.
+                if (!startedNames.isEmpty()) continue;
+                startedNames.add(exeName.toLowerCase(Locale.ROOT));
             }
             pin(pid, exeName);
         }
