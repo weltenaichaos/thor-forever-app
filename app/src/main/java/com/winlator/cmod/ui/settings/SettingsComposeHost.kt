@@ -307,7 +307,7 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                     ToggleRow(
                         "WoW: fastest core for the main thread",
                         model.wowFastMainCore,
-                        "Gives WoW's busiest thread the fastest CPU core to itself, and Wine's server the next fast core, from one minute after start. Applies on next game start."
+                        "Gives WoW's busiest thread the fastest CPU core to itself, and Wine's server the next fast core, from 30 seconds after start. Applies on next game start."
                     ) { callbacks.onBooleanChanged("wow_fast_main_core", it) }
                 }
             }
