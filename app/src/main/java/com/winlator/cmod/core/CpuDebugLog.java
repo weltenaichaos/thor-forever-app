@@ -30,6 +30,17 @@ public final class CpuDebugLog {
     private static final int MAX_SAMPLES = 2000;
     private static final double TICKS_PER_SECOND = 100.0;
 
+    private static final List<String> notes = new ArrayList<>();
+    private static final long START = System.currentTimeMillis();
+
+    /** Records something the app did (like changing a program's cores), with the time, for the next log line. */
+    public static void note(String text) {
+        synchronized (notes) {
+            if (notes.size() < 200) notes.add(String.format(Locale.US, "%s %s",
+                    new SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(new Date()), text));
+        }
+    }
+
     private final Map<Integer, Long> lastTicks = new HashMap<>();
     private final Set<Integer> describedPids = new HashSet<>();
     private final Map<String, Integer> stackCounts = new HashMap<>();
@@ -88,6 +99,7 @@ public final class CpuDebugLog {
 
     private void sample(PrintWriter writer, double seconds, boolean report) {
         ArrayList<Sample> samples = new ArrayList<>();
+        List<String> affinityLines = new ArrayList<>();
         Map<Integer, Long> ticks = new HashMap<>();
         File[] procs = new File("/proc").listFiles();
         if (procs == null) return;
@@ -106,7 +118,12 @@ public final class CpuDebugLog {
                         statusField(read(new File(proc, "status")), "Cpus_allowed_list:"),
                         read(new File(proc, "cgroup")).trim().replace('\n', ' ')));
             }
+            Map<String, Integer> allowedCounts = null;
+            if (report && processName.toLowerCase(Locale.ROOT).startsWith("wow")) allowedCounts = new HashMap<>();
             for (File task : tasks) {
+                if (allowedCounts != null) {
+                    allowedCounts.merge(statusField(read(new File(task, "status")), "Cpus_allowed_list:"), 1, Integer::sum);
+                }
                 String stat = read(new File(task, "stat"));
                 int close = stat.lastIndexOf(')');
                 int open = stat.indexOf('(');
@@ -127,6 +144,13 @@ public final class CpuDebugLog {
                     s.delta = last != null ? total - last : 0;
                     samples.add(s);
                 } catch (NumberFormatException ignored) {}
+            }
+            if (allowedCounts != null) {
+                StringBuilder line = new StringBuilder("allowed cores ").append(processName).append('(').append(pid).append("):");
+                for (Map.Entry<String, Integer> e : allowedCounts.entrySet()) {
+                    line.append(' ').append(e.getKey()).append(" x").append(e.getValue());
+                }
+                affinityLines.add(line.toString());
             }
         }
         lastTicks.clear();
@@ -159,6 +183,11 @@ public final class CpuDebugLog {
         }
         hotThreadNames = hot;
 
+        for (String line : affinityLines) writer.println("           " + line);
+        synchronized (notes) {
+            for (String note : notes) writer.println("           app: " + note);
+            notes.clear();
+        }
         for (String line : XRequestStats.drain(INTERVAL_MS / 1000.0, 12)) writer.println("           " + line);
         writer.println("           " + com.winlator.cmod.xserver.FramePacingStats.drain());
 

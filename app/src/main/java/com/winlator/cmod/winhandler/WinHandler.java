@@ -197,6 +197,7 @@ public class WinHandler {
     }
 
     public void setProcessAffinity(final String processName, final int affinityMask) {
+        com.winlator.cmod.core.CpuDebugLog.note("Wine affinity " + processName + " mask 0x" + Integer.toHexString(affinityMask));
         addAction(() -> {
             byte[] bytes = processName.getBytes();
             sendData.rewind();
@@ -211,6 +212,7 @@ public class WinHandler {
     }
 
     public void setProcessAffinity(final int pid, final int affinityMask) {
+        com.winlator.cmod.core.CpuDebugLog.note("Wine affinity pid " + pid + " mask 0x" + Integer.toHexString(affinityMask));
         addAction(() -> {
             sendData.rewind();
             sendData.put(RequestCodes.SET_PROCESS_AFFINITY);

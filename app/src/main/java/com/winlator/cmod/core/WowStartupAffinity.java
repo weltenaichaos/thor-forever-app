@@ -112,6 +112,7 @@ public class WowStartupAffinity {
             String output = bytes.toString().trim();
             int exit = process.waitFor();
             Log.d(TAG, "taskset pid " + pid + " mask 0x" + Integer.toHexString(mask) + " exit " + exit + (output.isEmpty() ? "" : ": " + output));
+            CpuDebugLog.note("taskset pid " + pid + " mask 0x" + Integer.toHexString(mask) + " exit " + exit);
         } catch (Exception e) {
             Log.w(TAG, "taskset failed for pid " + pid, e);
         }
