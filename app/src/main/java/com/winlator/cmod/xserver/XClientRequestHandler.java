@@ -169,6 +169,7 @@ public class XClientRequestHandler implements RequestHandler {
         client.setRequestLength(requestLength);
 
         long requestStart = System.nanoTime();
+        long skippedBefore = client.xServer.skippedHiddenDraws;
         try {
             switch (opcode) {
                 case ClientOpcodes.CREATE_WINDOW:
@@ -460,7 +461,8 @@ public class XClientRequestHandler implements RequestHandler {
             client.skipRequest();
             e.sendError(client, opcode);
         }
-        XRequestStats.record(client.resourceIDBase, opcode, requestData, requestLength, System.nanoTime() - requestStart);
+        XRequestStats.record(client.resourceIDBase, opcode, requestData, requestLength, System.nanoTime() - requestStart,
+                client.xServer.skippedHiddenDraws != skippedBefore);
 
         return true;
     }

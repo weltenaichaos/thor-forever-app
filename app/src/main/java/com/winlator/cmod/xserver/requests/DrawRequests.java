@@ -39,6 +39,7 @@ public abstract class DrawRequests {
 
         Drawable drawable =  client.xServer.drawableManager.getDrawable(drawableId);
         if (drawable == null) throw new BadDrawable(drawableId);
+        com.winlator.cmod.xserver.XRequestStats.setPutImageTarget(drawableId);
 
         GraphicsContext graphicsContext = client.xServer.graphicsContextManager.getGraphicsContext(gcId);
         if (graphicsContext == null) throw new BadGraphicsContext(gcId);

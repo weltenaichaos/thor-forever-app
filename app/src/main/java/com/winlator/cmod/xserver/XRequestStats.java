@@ -24,8 +24,18 @@ public final class XRequestStats {
 
     private XRequestStats() {}
 
-    static void record(int clientBase, byte opcode, byte minor, int length, long nanos) {
-        String key = String.format(Locale.US, "client=0x%x %s", clientBase, name(opcode, minor));
+    private static int lastPutImageTarget;
+
+    /** Remembers which drawable the current PutImage goes to, for the log. */
+    public static void setPutImageTarget(int drawableId) {
+        lastPutImageTarget = drawableId;
+    }
+
+    static void record(int clientBase, byte opcode, byte minor, int length, long nanos, boolean skipped) {
+        String name = name(opcode, minor);
+        if (opcode == ClientOpcodes.PUT_IMAGE) name += String.format(Locale.US, " to 0x%x", lastPutImageTarget);
+        if (skipped) name += " (hidden, skipped)";
+        String key = String.format(Locale.US, "client=0x%x %s", clientBase, name);
         synchronized (entries) {
             Entry entry = entries.get(key);
             if (entry == null) entries.put(key, entry = new Entry());
@@ -51,7 +61,7 @@ public final class XRequestStats {
         lines.add(String.format(Locale.US, "X requests: %.0f ms busy per second", total / 1e6 / seconds));
         for (int i = 0; i < Math.min(max, list.size()); i++) {
             Entry e = list.get(i).getValue();
-            lines.add(String.format(Locale.US, "  %-40s %7.1f/s %8.1f KB/s %6.1f ms/s",
+            lines.add(String.format(Locale.US, "  %-52s %7.1f/s %8.1f KB/s %6.1f ms/s",
                     list.get(i).getKey(), e.count / seconds, e.bytes / 1024.0 / seconds, e.nanos / 1e6 / seconds));
         }
         return lines;
