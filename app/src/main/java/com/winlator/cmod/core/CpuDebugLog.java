@@ -281,6 +281,21 @@ public final class CpuDebugLog {
             String[] parts = temps.get(i).split(" ", 2);
             line.append(' ').append(parts[1]).append('=').append(parts[0].replaceFirst("^0", "")).append('C');
         }
+        // Memory bus and cache speeds: a game's main thread waits on memory a lot, so a slower
+        // bus makes every frame take longer even at the same CPU speed.
+        File[] buses = new File("/sys/class/devfreq").listFiles();
+        if (buses != null) {
+            line.append("  bus MHz:");
+            for (File bus : buses) {
+                String cur = read(new File(bus, "cur_freq")).trim();
+                if (cur.isEmpty()) continue;
+                try {
+                    long hz = Long.parseLong(cur);
+                    long mhz = hz >= 1_000_000 ? hz / 1_000_000 : hz >= 1000 ? hz / 1000 : hz;
+                    line.append(' ').append(bus.getName()).append('=').append(mhz);
+                } catch (NumberFormatException ignored) {}
+            }
+        }
         return line.toString();
     }
 
