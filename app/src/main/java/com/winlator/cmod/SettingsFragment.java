@@ -471,7 +471,8 @@ public class SettingsFragment extends Fragment {
                 preferences.getBoolean("enable_custom_api_key", false),
                 preferences.getString("custom_api_key", ""),
                 preferences.getString("downloadable_contents_url", ContentsManager.REMOTE_PROFILES),
-                wineDebugOptions
+                wineDebugOptions,
+                preferences.getBoolean("wow_fast_main_core", true)
         );
     }
 

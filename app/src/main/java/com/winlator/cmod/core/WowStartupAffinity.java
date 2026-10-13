@@ -27,18 +27,22 @@ public class WowStartupAffinity {
     private static final String TAG = "WowStartupAffinity";
     private static final long POLL_MS = 100;
     private static final long[] RELEASE_AFTER_MS = {30000, 60000};
+    private static final long FAST_CORE_START_MS = 61000;
+    private static final long FAST_CORE_CHECK_MS = 2000;
 
     private final WinHandler winHandler;
     private final int startupMask;
     private final int releaseMask;
+    private final boolean mainThreadOnFastCore;
     private final Set<Integer> handledPids = new HashSet<>();
     private final Set<String> pinnedNames = new HashSet<>();
     private final Set<String> startedNames = new HashSet<>();
     private ScheduledExecutorService executor;
 
     /** cpuMask: the cores the container lets programs use (0 = all). */
-    public WowStartupAffinity(WinHandler winHandler, int cpuMask) {
+    public WowStartupAffinity(WinHandler winHandler, int cpuMask, boolean mainThreadOnFastCore) {
         this.winHandler = winHandler;
+        this.mainThreadOnFastCore = mainThreadOnFastCore;
         int online = readOnlineMask();
         this.releaseMask = cpuMask != 0 ? cpuMask : online;
         this.startupMask = startupCoreMask(releaseMask, online);
@@ -103,6 +107,34 @@ public class WowStartupAffinity {
                 winHandler.setProcessAffinity(exeName, releaseMask);
             }, delay, TimeUnit.MILLISECONDS);
         }
+        int restMask = releaseMask & ~startupMask;
+        if (mainThreadOnFastCore && restMask != 0) {
+            ScheduledExecutorService ex;
+            synchronized (this) { ex = executor; }
+            if (ex == null) return;
+            Log.d(TAG, "Keeping the main thread of " + exeName + " on mask 0x" + Integer.toHexString(startupMask)
+                    + ", its other threads on 0x" + Integer.toHexString(restMask));
+            ex.scheduleWithFixedDelay(() -> keepMainThreadOnFastCore(pid, restMask),
+                    FAST_CORE_START_MS, FAST_CORE_CHECK_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /**
+     * WoW does most of its work on its main thread. On the fastest core (the prime core on
+     * Snapdragon chips) it ran at about 40 fps in a crowded city, on the other cores at about
+     * 25. So the main thread gets the fastest core to itself, and WoW's other threads use the
+     * rest. Checked every 2 seconds, because new threads and Wine can change the cores.
+     */
+    private void keepMainThreadOnFastCore(int pid, int restMask) {
+        File[] tasks = new File("/proc/" + pid + "/task").listFiles();
+        if (tasks == null) throw new RuntimeException("WoW exited"); // ends this repeating task
+        for (File task : tasks) {
+            int tid;
+            try { tid = Integer.parseInt(task.getName()); } catch (NumberFormatException e) { continue; }
+            int wanted = tid == pid ? startupMask : restMask;
+            int current = parseHexMask(statusField(readText(new File(task, "status")), "Cpus_allowed:"));
+            if (current != wanted) setThreadAffinity(tid, wanted);
+        }
     }
 
     /**
@@ -111,8 +143,19 @@ public class WowStartupAffinity {
      * already crashed. Wine's processes run as this app's user, so this is allowed.
      */
     private static void setThreadsAffinity(int pid, int mask) {
+        runTaskset(pid, mask, true);
+    }
+
+    /** Sets the cores of one thread. */
+    private static void setThreadAffinity(int tid, int mask) {
+        runTaskset(tid, mask, false);
+    }
+
+    private static void runTaskset(int pid, int mask, boolean allThreads) {
         try {
-            Process process = new ProcessBuilder("taskset", "-a", "-p", Integer.toHexString(mask), String.valueOf(pid))
+            Process process = (allThreads
+                    ? new ProcessBuilder("taskset", "-a", "-p", Integer.toHexString(mask), String.valueOf(pid))
+                    : new ProcessBuilder("taskset", "-p", Integer.toHexString(mask), String.valueOf(pid)))
                     .redirectErrorStream(true).start();
             java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
             byte[] buffer = new byte[256];
@@ -150,6 +193,21 @@ public class WowStartupAffinity {
         return Integer.highestOneBit(usable);
     }
 
+    /** Parses a Cpus_allowed value like "ff" or "00000000,000000ff" into a bit mask (0 if unreadable). */
+    static int parseHexMask(String hex) {
+        String digits = hex.replace(",", "").trim();
+        if (digits.isEmpty()) return 0;
+        if (digits.length() > 7) digits = digits.substring(digits.length() - 7);
+        try { return Integer.parseInt(digits, 16); } catch (NumberFormatException e) { return 0; }
+    }
+
+    private static String statusField(String status, String key) {
+        for (String line : status.split("\n")) {
+            if (line.startsWith(key)) return line.substring(key.length()).trim();
+        }
+        return "";
+    }
+
     /** Parses a CPU list like "0-3,5,7" into a bit mask. */
     static int parseCpuRanges(String list) {
         int mask = 0;
@@ -174,9 +232,10 @@ public class WowStartupAffinity {
 
     private static String readText(File file) {
         try (FileInputStream in = new FileInputStream(file)) {
-            byte[] buffer = new byte[1024];
-            int count = in.read(buffer);
-            return count > 0 ? new String(buffer, 0, count) : "";
+            byte[] buffer = new byte[4096];
+            int count = 0;
+            for (int n; count < buffer.length && (n = in.read(buffer, count, buffer.length - count)) > 0; ) count += n;
+            return new String(buffer, 0, count);
         } catch (Exception e) {
             return "";
         }
