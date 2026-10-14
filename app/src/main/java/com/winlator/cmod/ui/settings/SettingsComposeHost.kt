@@ -124,7 +124,8 @@ data class SettingsModel(
     val skipHiddenDraws: Boolean,
     val showWineTaskbar: Boolean,
     val wowFastMainCore: Boolean,
-    val traceWineServer: Boolean
+    val traceWineServer: Boolean,
+    val timeWineServer: Boolean
 )
 
 @Stable
@@ -345,6 +346,12 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                         model.traceWineServer,
                         "For one short test only, it slows the game down. Needs Wine debug logs on. The counts go into the cpu log."
                     ) { callbacks.onBooleanChanged("trace_wine_server", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Debug: time Wine server calls",
+                        model.timeWineServer,
+                        "Wine's server writes every 5 seconds how much CPU it used, how long it waited, and which calls took longest. Costs almost nothing. Needs Wine debug logs on and the Thor Forever Wine build 5 or newer. The lines go into the Wine log. Applies on next game start."
+                    ) { callbacks.onBooleanChanged("time_wine_server", it) }
                     GroupDivider()
                     ToggleRow(
                         "Sync FPS cap to the screen",

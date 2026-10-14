@@ -479,7 +479,8 @@ public class SettingsFragment extends Fragment {
                 preferences.getBoolean("skip_hidden_draws", false),
                 preferences.getBoolean("show_wine_taskbar", false),
                 preferences.getBoolean("wow_fast_main_core", true),
-                preferences.getBoolean("trace_wine_server", false)
+                preferences.getBoolean("trace_wine_server", false),
+                preferences.getBoolean("time_wine_server", false)
         );
     }
 

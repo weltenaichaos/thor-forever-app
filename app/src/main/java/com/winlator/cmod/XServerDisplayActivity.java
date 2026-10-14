@@ -1136,6 +1136,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 : "-all") + ",+pid,+timestamp,+loaddll"
                 + (traceWineServer ? ",+server" : ""));
         ServerRequestStats.setEnabled(traceWineServer);
+        // Debug: Wine's server (build 5+) prints where its time goes every 5 seconds.
+        if (enableWineDebug && preferences.getBoolean("time_wine_server", false)) envVars.put("WINESERVER_STATS", "1");
 
         String rootPath = imageFs.getRootDir().getPath();
         FileUtils.clear(imageFs.getTmpDir());
