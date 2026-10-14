@@ -120,7 +120,8 @@ data class SettingsModel(
     val wineDebugOptions: List<String>,
     val skipHiddenDraws: Boolean,
     val showWineTaskbar: Boolean,
-    val wowFastMainCore: Boolean
+    val wowFastMainCore: Boolean,
+    val traceWineServer: Boolean
 )
 
 @Stable
@@ -327,6 +328,12 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                     ) { callbacks.onBooleanChanged("wow_fast_main_core", it) }
                     GroupDivider()
                     ToggleRow("Close the app when World of Warcraft quits", model.closeWhenWowExits) { callbacks.onBooleanChanged("close_when_wow_exits", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Debug: count Wine server requests",
+                        model.traceWineServer,
+                        "For one short test only, it slows the game down. Needs Wine debug logs on. The counts go into the cpu log."
+                    ) { callbacks.onBooleanChanged("trace_wine_server", it) }
                 }
             }
             item("contents-url") { EditableValueCard("Downloadable Contents URL", model.contentsUrl, callbacks::onContentsUrlChanged) }

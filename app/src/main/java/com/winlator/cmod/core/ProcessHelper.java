@@ -130,6 +130,7 @@ public abstract class ProcessHelper {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     if (PRINT_DEBUG) System.out.println(line);
+                    if (ServerRequestStats.consume(line)) continue;
                     synchronized (debugCallbacks) {
                         if (!debugCallbacks.isEmpty()) {
                             for (Callback<String> callback : debugCallbacks) callback.call(line);

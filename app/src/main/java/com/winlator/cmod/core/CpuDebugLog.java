@@ -193,6 +193,7 @@ public final class CpuDebugLog {
         }
         for (String line : XRequestStats.drain(INTERVAL_MS / 1000.0, 12)) writer.println("           " + line);
         writer.println("           " + com.winlator.cmod.xserver.FramePacingStats.drain());
+        for (String line : ServerRequestStats.drain(INTERVAL_MS / 1000.0)) writer.println("           " + line);
 
         List<Map.Entry<String, Integer>> stacks;
         int stackTotal = 0;

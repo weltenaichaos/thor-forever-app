@@ -84,6 +84,7 @@ import com.winlator.cmod.core.WineRequestHandler;
 import com.winlator.cmod.core.WineStartMenuCreator;
 import com.winlator.cmod.core.WineThemeManager;
 import com.winlator.cmod.core.WowExitWatcher;
+import com.winlator.cmod.core.ServerRequestStats;
 import com.winlator.cmod.core.WineUtils;
 import com.winlator.cmod.core.WinlatorLogcatLogger;
 import com.winlator.cmod.core.WowStartupAffinity;
@@ -1098,13 +1099,17 @@ public class XServerDisplayActivity extends AppCompatActivity {
         envVars.put("WINEPREFIX", imageFs.wineprefix);
 
         boolean enableWineDebug = preferences.getBoolean("enable_wine_debug", false);
+        // Debug: Wine's server writes every request; ServerRequestStats counts them for the CPU log.
+        boolean traceWineServer = enableWineDebug && preferences.getBoolean("trace_wine_server", false);
         String wineDebugChannels = preferences.getString("wine_debug_channels",
                 SettingsFragment.DEFAULT_WINE_DEBUG_CHANNELS);
         // Debug build: tag every log line with its process id and time, and log which
         // program each process is, so a crash can be tied to the program that crashed.
         envVars.put("WINEDEBUG", (enableWineDebug && !wineDebugChannels.isEmpty()
                 ? "+" + wineDebugChannels.replace(",", ",+")
-                : "-all") + ",+pid,+timestamp,+loaddll");
+                : "-all") + ",+pid,+timestamp,+loaddll"
+                + (traceWineServer ? ",+server" : ""));
+        ServerRequestStats.setEnabled(traceWineServer);
 
         String rootPath = imageFs.getRootDir().getPath();
         FileUtils.clear(imageFs.getTmpDir());

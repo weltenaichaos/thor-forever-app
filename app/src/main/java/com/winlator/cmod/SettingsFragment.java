@@ -475,7 +475,8 @@ public class SettingsFragment extends Fragment {
                 wineDebugOptions,
                 preferences.getBoolean("skip_hidden_draws", true),
                 preferences.getBoolean("show_wine_taskbar", false),
-                preferences.getBoolean("wow_fast_main_core", true)
+                preferences.getBoolean("wow_fast_main_core", true),
+                preferences.getBoolean("trace_wine_server", false)
         );
     }
 
