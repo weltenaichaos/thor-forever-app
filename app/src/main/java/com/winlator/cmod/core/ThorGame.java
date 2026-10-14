@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -34,15 +35,22 @@ public final class ThorGame {
         this.flavorDir = flavorDir;
     }
 
-    /** The first shortcut that starts WoW, or null when there is none yet. */
+    /** The WoW shortcut started last (or the first one), or null when there is none yet. */
     public static ThorGame find(ContainerManager manager) {
-        List<Shortcut> shortcuts = manager.loadShortcuts();
-        for (Shortcut shortcut : shortcuts) {
+        Shortcut best = null;
+        long bestRun = -1;
+        for (Shortcut shortcut : manager.loadShortcuts()) {
             if (!isWowExe(shortcut.path)) continue;
-            File exe = toAndroidPath(shortcut.container, shortcut.path);
-            return new ThorGame(shortcut, exe != null ? exe.getParentFile() : null);
+            long lastRun;
+            try { lastRun = Long.parseLong(shortcut.getExtra("lastRunAt", "0")); } catch (NumberFormatException e) { lastRun = 0; }
+            if (lastRun > bestRun) {
+                best = shortcut;
+                bestRun = lastRun;
+            }
         }
-        return null;
+        if (best == null) return null;
+        File exe = toAndroidPath(best.container, best.path);
+        return new ThorGame(best, exe != null ? exe.getParentFile() : null);
     }
 
     /** True for WoW's own .exe (Wow.exe, WowB-ARM64.exe, ...), not its voice chat or other tools. */
@@ -104,16 +112,21 @@ public final class ThorGame {
     /** Battle.net's launcher in this container as a Windows path, or null when it isn't installed. */
     public String battleNetPath() {
         Container container = shortcut.container;
-        String[] candidates = {
-                "C:\\Program Files (x86)\\Battle.net\\Battle.net Launcher.exe",
-                "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe",
-                "C:\\Program Files\\Battle.net\\Battle.net Launcher.exe",
-                "C:\\Program Files\\Battle.net\\Battle.net.exe"
-        };
-        for (String candidate : candidates) {
-            File file = toAndroidPath(container, candidate);
-            if (file != null && file.isFile()) return candidate;
-        }
+        List<String> drives = new ArrayList<>();
+        drives.add("C");
+        for (String[] drive : container.drivesIterator()) drives.add(drive[0].toUpperCase(Locale.ROOT));
+        // The game's own drive first: Battle.net is often installed next to it.
+        if (shortcut.path != null && shortcut.path.length() > 1 && shortcut.path.charAt(1) == ':')
+            drives.add(0, String.valueOf(Character.toUpperCase(shortcut.path.charAt(0))));
+        String[] folders = { "Program Files (x86)\\Battle.net", "Program Files\\Battle.net", "Battle.net" };
+        String[] names = { "Battle.net Launcher.exe", "Battle.net.exe" };
+        for (String drive : drives)
+            for (String folder : folders)
+                for (String name : names) {
+                    String candidate = drive + ":\\" + folder + "\\" + name;
+                    File file = toAndroidPath(container, candidate);
+                    if (file != null && file.isFile()) return candidate;
+                }
         return null;
     }
 
