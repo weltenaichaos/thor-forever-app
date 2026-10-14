@@ -29,17 +29,21 @@ public final class ThorGame {
     public final Shortcut shortcut;
     /** The game's folder on Android, like .../World of Warcraft/_classic_beta_, or null. */
     public final File flavorDir;
+    /** The player's own Battle.net shortcut, with its settings, or null. */
+    public final Shortcut battleNetShortcut;
 
-    private ThorGame(Shortcut shortcut, File flavorDir) {
+    private ThorGame(Shortcut shortcut, File flavorDir, Shortcut battleNetShortcut) {
         this.shortcut = shortcut;
         this.flavorDir = flavorDir;
+        this.battleNetShortcut = battleNetShortcut;
     }
 
     /** The WoW shortcut started last (or the first one), or null when there is none yet. */
     public static ThorGame find(ContainerManager manager) {
         Shortcut best = null;
         long bestRun = -1;
-        for (Shortcut shortcut : manager.loadShortcuts()) {
+        List<Shortcut> shortcuts = manager.loadShortcuts();
+        for (Shortcut shortcut : shortcuts) {
             if (!isWowExe(shortcut.path)) continue;
             long lastRun;
             try { lastRun = Long.parseLong(shortcut.getExtra("lastRunAt", "0")); } catch (NumberFormatException e) { lastRun = 0; }
@@ -49,8 +53,14 @@ public final class ThorGame {
             }
         }
         if (best == null) return null;
+        // A Battle.net shortcut, the one in the game's container first.
+        Shortcut battleNet = null;
+        for (Shortcut shortcut : shortcuts) {
+            if (!isBattleNetExe(shortcut.path)) continue;
+            if (battleNet == null || shortcut.container == best.container) battleNet = shortcut;
+        }
         File exe = toAndroidPath(best.container, best.path);
-        return new ThorGame(best, exe != null ? exe.getParentFile() : null);
+        return new ThorGame(best, exe != null ? exe.getParentFile() : null, battleNet);
     }
 
     /** True for WoW's own .exe (Wow.exe, WowB-ARM64.exe, ...), not its voice chat or other tools. */
@@ -61,6 +71,13 @@ public final class ThorGame {
         if (quote < 0) return false;
         String exe = path.substring(path.lastIndexOf('\\', quote) + 1, quote + 4).toLowerCase(Locale.ROOT);
         return exe.startsWith("wow") && !exe.startsWith("wowvoice");
+    }
+
+    /** True for Battle.net's own launcher or app. */
+    static boolean isBattleNetExe(String dosPath) {
+        if (dosPath == null) return false;
+        String path = dosPath.toLowerCase(Locale.ROOT);
+        return path.contains("battle.net launcher.exe") || path.contains("battle.net.exe");
     }
 
     /** The installed game version, like 5.0.1.70009, or "" when it can't be read. */

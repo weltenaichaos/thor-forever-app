@@ -38,4 +38,12 @@ public class ThorGameTest {
         assertFalse(ThorGame.isWowExe("C:\\Program Files (x86)\\Battle.net\\Battle.net Launcher.exe"));
         assertFalse(ThorGame.isWowExe(null));
     }
+
+    @Test
+    public void findsBattleNet() {
+        assertTrue(ThorGame.isBattleNetExe("C:\\Program Files (x86)\\Battle.net\\Battle.net Launcher.exe"));
+        assertTrue(ThorGame.isBattleNetExe("C:\\Program Files (x86)\\Battle.net\\Battle.net.exe"));
+        assertFalse(ThorGame.isBattleNetExe("E:\\World of Warcraft\\_classic_beta_\\WowB-ARM64.exe"));
+        assertFalse(ThorGame.isBattleNetExe(null));
+    }
 }
