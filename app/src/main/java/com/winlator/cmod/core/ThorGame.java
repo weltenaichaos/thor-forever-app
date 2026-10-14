@@ -80,6 +80,23 @@ public final class ThorGame {
         return path.contains("battle.net launcher.exe") || path.contains("battle.net.exe");
     }
 
+    /**
+     * Gives the WoW shortcut the Thor Forever picture in the library, unless the player
+     * already picked their own: writes Winlator/icons/<shortcut>.user.png, the file the
+     * library uses for a player's own picture.
+     */
+    public void applyCoverArt(Context context) {
+        File dir = new File(android.os.Environment.getExternalStorageDirectory(), "Winlator/icons");
+        File cover = new File(dir, FileUtils.getBasename(shortcut.file.getPath()) + ".user.png");
+        if (cover.exists()) return;
+        try (java.io.InputStream in = context.getResources().openRawResource(com.winlator.cmod.R.drawable.thor_cover)) {
+            dir.mkdirs();
+            Files.copy(in, cover.toPath());
+        } catch (Exception e) {
+            android.util.Log.w("ThorGame", "Could not write the cover picture", e);
+        }
+    }
+
     /** The installed game version, like 5.0.1.70009, or "" when it can't be read. */
     public String installedVersion() {
         if (flavorDir == null) return "";
