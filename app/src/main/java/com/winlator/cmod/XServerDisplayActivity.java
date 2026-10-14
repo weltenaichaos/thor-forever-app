@@ -85,6 +85,8 @@ import com.winlator.cmod.core.WineStartMenuCreator;
 import com.winlator.cmod.core.WineThemeManager;
 import com.winlator.cmod.core.WowExitWatcher;
 import com.winlator.cmod.core.WowVoiceCloser;
+import com.winlator.cmod.core.BattleNetWindowWatcher;
+import com.winlator.cmod.core.ThorGame;
 import com.winlator.cmod.core.WineUtils;
 import com.winlator.cmod.core.WinlatorLogcatLogger;
 import com.winlator.cmod.inputcontrols.ControlsProfile;
@@ -150,6 +152,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
     private static final boolean DISABLE_TOUCHSCREEN_AUTO_HIDE = true;
     private WowExitWatcher wowExitWatcher;
     private WowVoiceCloser wowVoiceCloser;
+    private BattleNetWindowWatcher battleNetWindowWatcher;
     private static final HashMap<String, Boolean> WINE_XRANDR_SUPPORT_CACHE = new HashMap<>();
     private final AtomicBoolean exiting = new AtomicBoolean(false);
 
@@ -895,6 +898,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (!exiting.compareAndSet(false, true)) return;
         if (wowExitWatcher != null) wowExitWatcher.stop();
         if (wowVoiceCloser != null) wowVoiceCloser.stop();
+        if (battleNetWindowWatcher != null) battleNetWindowWatcher.stop();
         NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID);
         boolean removeLoadingBar = PreferenceManager.getDefaultSharedPreferences(this)
                 .getBoolean("remove_loading_bar_when_booting_games", false);
@@ -961,6 +965,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (taskManagerSidebar != null) taskManagerSidebar.stop();
         if (wowExitWatcher != null) wowExitWatcher.stop();
         if (wowVoiceCloser != null) wowVoiceCloser.stop();
+        if (battleNetWindowWatcher != null) battleNetWindowWatcher.stop();
         super.onDestroy();
     }
 
@@ -1206,6 +1211,11 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (preferences.getBoolean("close_wow_voice_chat", true)) {
             wowVoiceCloser = new WowVoiceCloser();
             wowVoiceCloser.start();
+        }
+        // Started from the start screen's "Update with Battle.net": back to it once Battle.net closes.
+        if (getIntent().getBooleanExtra(ThorGame.EXTRA_UPDATE_SESSION, false)) {
+            battleNetWindowWatcher = new BattleNetWindowWatcher(xServer, () -> runOnUiThread(this::exit));
+            battleNetWindowWatcher.start();
         }
 
         winHandler.start();

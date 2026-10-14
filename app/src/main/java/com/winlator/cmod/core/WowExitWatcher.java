@@ -68,7 +68,7 @@ public class WowExitWatcher {
         return false;
     }
 
-    private static List<String> runningProcessNames() {
+    static List<String> runningProcessNames() {
         List<String> names = new ArrayList<>();
         File[] dirs = new File("/proc").listFiles();
         if (dirs == null) return names;
