@@ -7,6 +7,9 @@ import android.view.KeyEvent as AndroidKeyEvent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,6 +42,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.KeyEventType
@@ -93,6 +97,12 @@ class ThorStartActivity : ComponentActivity() {
             openWinlator(menuItem)
             finish()
             return
+        }
+        // Full screen like the game, without Android's navigation bar.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         setContent { StartScreen() }
     }
@@ -188,16 +198,18 @@ class ThorStartActivity : ComponentActivity() {
             val u = (maxHeight / 24).coerceAtLeast(16.dp)
             val panelWidth = (maxWidth * 3 / 5).coerceAtLeast(u * 24).coerceAtMost(maxWidth)
             val headerHeight = u * 17 / 4
+            val px = onePx()
+            // The old screen's frame, in screen pixels: gold, dark bronze, and 3 pixels in, sky blue.
             Box(
                 Modifier.width(panelWidth).height(headerHeight + u * 11)
                     .background(Background)
-                    .border(1.dp, Gold)
-                    .padding(1.dp).border(1.dp, Color(74, 52, 24))
+                    .border(px, Gold)
+                    .padding(px).border(px, Color(74, 52, 24))
             ) {
                 Header(u, Modifier.fillMaxWidth().height(headerHeight))
-                Box(Modifier.fillMaxSize().padding(4.dp).border(1.dp, SkyDark))
+                Box(Modifier.fillMaxSize().padding(px * 3).border(px, SkyDark))
                 Column(Modifier.fillMaxSize().padding(start = u, end = u, top = headerHeight + u / 2)) {
-                    val body = TextStyle(fontSize = textSize(u * 2 / 3), lineHeight = textSize(u))
+                    val body = TextStyle(fontFamily = FontFamily(Font(R.font.wine_tahoma)), fontSize = textSize(u * 2 / 3), lineHeight = textSize(u))
                     Text(if (version.isEmpty()) "Installed game version: unknown" else "Installed game version: $version",
                         style = body, color = GoldLight, modifier = Modifier.height(u))
                     Text(status, style = body, color = TextColor, modifier = Modifier.height(u * 2))
@@ -222,6 +234,10 @@ class ThorStartActivity : ComponentActivity() {
         }
     }
 
+    /** One screen pixel, for the thin frames of the old design. */
+    @Composable
+    private fun onePx(): Dp = with(LocalDensity.current) { 1f.toDp() }
+
     @Composable
     private fun textSize(size: Dp): TextUnit = with(LocalDensity.current) { size.toSp() }
 
@@ -242,6 +258,7 @@ class ThorStartActivity : ComponentActivity() {
         if (pressed) { val t = top; top = bottom; bottom = t }
         if (focused && enabled) edge = GoldLight
         val heading = FontFamily(Font(R.font.cinzel_bold, FontWeight.Bold))
+        val px = onePx()
         var modifier = Modifier.width(width).height(u * 5 / 2)
         if (focusRequester != null) modifier = modifier.focusRequester(focusRequester)
         Box(
@@ -255,18 +272,25 @@ class ThorStartActivity : ComponentActivity() {
                 }
                 .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
                 .background(Brush.verticalGradient(listOf(top, bottom)))
-                .border(1.dp, edge)
-                .padding(1.dp).border(1.dp, Color(9, 24, 38)),
+                .border(px, edge)
+                .padding(px).border(px, Color(9, 24, 38)),
             contentAlignment = Alignment.Center
         ) {
             if (label != null) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(label, color = if (enabled) Sky else ink, fontFamily = heading, fontSize = textSize(u / 2))
-                    Text(text, color = if (enabled) GoldLight else ink, fontFamily = heading, fontSize = textSize(u * 2 / 3))
+                // As in the old screen: the label at the bottom of the top 9/20, the value
+                // centred in the next 9/20.
+                Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxWidth().weight(9f), contentAlignment = Alignment.BottomCenter) {
+                        Text(label, color = if (enabled) Sky else ink, fontFamily = heading, fontSize = textSize(u / 2))
+                    }
+                    Box(Modifier.fillMaxWidth().weight(9f), contentAlignment = Alignment.Center) {
+                        Text(text, color = if (enabled) GoldLight else ink, fontFamily = heading, fontSize = textSize(u * 2 / 3))
+                    }
+                    Spacer(Modifier.weight(2f))
                 }
             } else {
                 Text(text, color = ink, fontFamily = heading, fontSize = textSize(u * 2 / 3),
-                    textAlign = TextAlign.Center, lineHeight = textSize(u * 9 / 10), modifier = Modifier.padding(horizontal = 4.dp))
+                    textAlign = TextAlign.Center, lineHeight = textSize(u * 9 / 10), modifier = Modifier.padding(horizontal = px * 4))
             }
         }
     }
@@ -279,8 +303,8 @@ class ThorStartActivity : ComponentActivity() {
         Canvas(modifier) {
             val unit = u.toPx()
             drawRect(Brush.verticalGradient(listOf(HeaderTop, Background)))
-            logoWord(measurer, "WORLD OF WARCRAFT", heading, unit * 21 / 20, unit / 12, size.width / 2, unit, GoldMetal)
-            val forever = logoWord(measurer, "FOREVER", heading, unit * 31 / 20, unit / 8, size.width / 2, unit * 46 / 20, WhiteMetal)
+            logoWord(measurer, "WORLD OF WARCRAFT", heading, unit * 21 / 20, unit / 12, size.width / 2, unit, unit, GoldMetal)
+            val forever = logoWord(measurer, "FOREVER", heading, unit * 31 / 20, unit / 8, size.width / 2, unit * 46 / 20, unit, WhiteMetal)
             val device = TextStyle(fontFamily = heading, fontWeight = FontWeight.Bold, fontSize = (unit / 2).toSp(), letterSpacing = (unit / 40).toSp())
             val small = measurer.measure("on the AYN Thor", device)
             val x0 = size.width / 2 + forever.first / 2 + unit / 3
@@ -292,22 +316,25 @@ class ThorStartActivity : ComponentActivity() {
         }
     }
 
-    /** A word like the game's logo: metal gradient, bronze outline, soft shadow. Returns width and baseline. */
+    /**
+     * A word like the game's logo: metal gradient, a thin dark edge, a bronze outline and a
+     * soft shadow below, as in the old start screen. Returns its width and baseline.
+     */
     private fun DrawScope.logoWord(
         measurer: TextMeasurer, word: String, family: FontFamily, size: Float, spacing: Float,
-        cx: Float, cy: Float, metal: List<Color>
+        cx: Float, cy: Float, unit: Float, metal: List<Color>
     ): Pair<Float, Float> {
-        val base = TextStyle(fontFamily = family, fontWeight = FontWeight.Bold, fontSize = size.toSp(), letterSpacing = spacing.toSp())
-        val layout = measurer.measure(word, base)
+        val style = TextStyle(fontFamily = family, fontWeight = FontWeight.Bold, fontSize = size.toSp(), letterSpacing = spacing.toSp())
+        val layout = measurer.measure(word, style)
         val topLeft = Offset(cx - layout.size.width / 2f, cy - layout.size.height / 2f)
-        val px = size / 30
-        drawText(measurer, word, topLeft + Offset(0f, px * 1.2f), base.copy(color = Color(10, 22, 34), drawStyle = Stroke(px * 3f)))
-        drawText(measurer, word, topLeft, base.copy(color = Color(138, 102, 52), drawStyle = Stroke(px * 2.2f)))
-        drawText(measurer, word, topLeft, base.copy(color = Color(42, 26, 12), drawStyle = Stroke(px * 1.1f)))
-        val top = topLeft.y
+        // Outline widths of the old screen at 1080p (u = 45 px): shadow 3 px, bronze 2.5, dark 1.5.
+        val px = unit / 45
+        drawText(layout, Color(10, 22, 34), topLeft + Offset(0f, 2 * px), drawStyle = Stroke(6 * px))
+        drawText(layout, Color(138, 102, 52), topLeft, drawStyle = Stroke(5 * px))
+        drawText(layout, Color(42, 26, 12), topLeft, drawStyle = Stroke(3 * px))
+        // The brush is in the word's own coordinates: from its top (0) to its bottom.
         val h = layout.size.height.toFloat()
-        drawText(measurer, word, topLeft, base.copy(brush = Brush.verticalGradient(
-            0f to metal[0], 0.5f to metal[1], 1f to metal[2], startY = top, endY = top + h)))
+        drawText(layout, Brush.verticalGradient(0f to metal[0], 0.5f to metal[1], 1f to metal[2], startY = 0f, endY = h), topLeft)
         return layout.size.width.toFloat() to (topLeft.y + layout.firstBaseline)
     }
 
@@ -316,7 +343,7 @@ class ThorStartActivity : ComponentActivity() {
         val colors = listOf(Color(8, 22, 34), Color(214, 210, 200), Color.White)
         val steps = 720
         for (pass in 0..2) {
-            val grow = if (pass == 0) 0.6f else 0f
+            val grow = if (pass == 0) thickness * 22 / 30 else 0f
             val shrink = if (pass == 2) 0.35f else 1f
             val lift = if (pass == 2) 0.35f else 0f
             for (i in 0 until steps) {
@@ -330,15 +357,26 @@ class ThorStartActivity : ComponentActivity() {
         }
     }
 
-    /** The lines left and right of the infinity sign, tapering to a point. */
+    /** The lines left and right of the infinity sign, tapering to a sharp point. */
     private fun DrawScope.swashTails(cx: Float, cy: Float, start: Float, length: Float, r0: Float) {
-        val steps = 120
-        for (side in listOf(-1f, 1f)) for (i in 0 until steps) {
-            val f = i / steps.toFloat()
-            val r = r0 * (1 - f).toDouble().pow(1.4).toFloat()
-            val x = cx + side * (start + f * length)
-            drawCircle(Color(8, 22, 34).copy(alpha = 0.8f), r + 0.7f * (1 - f), Offset(x, cy))
-            drawCircle(Color(226, 222, 212), r, Offset(x, cy))
+        val steps = 60
+        for (side in listOf(-1f, 1f)) {
+            for ((color, extra) in listOf(Color(8, 22, 34).copy(alpha = 0.8f) to 0.7f, Color(226, 222, 212) to 0f)) {
+                val path = Path()
+                for (i in 0..steps) {
+                    val f = i / steps.toFloat()
+                    val r = r0 * (1 - f).toDouble().pow(1.4).toFloat() + extra * (1 - f)
+                    val x = cx + side * (start + f * length)
+                    if (i == 0) path.moveTo(x, cy - r) else path.lineTo(x, cy - r)
+                }
+                for (i in steps downTo 0) {
+                    val f = i / steps.toFloat()
+                    val r = r0 * (1 - f).toDouble().pow(1.4).toFloat() + extra * (1 - f)
+                    path.lineTo(cx + side * (start + f * length), cy + r)
+                }
+                path.close()
+                drawPath(path, color)
+            }
         }
     }
 
