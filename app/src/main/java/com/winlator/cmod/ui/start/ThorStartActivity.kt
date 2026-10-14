@@ -94,6 +94,7 @@ class ThorStartActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.winlator.cmod.core.CrashReasonLogger.install(this)
         // Before the first setup, after an app update that needs new system files, and when
         // the app restarts itself onto one of its own pages, the normal Winlator screen takes over.
         val menuItem = intent.getIntExtra("selected_menu_item_id", 0)
