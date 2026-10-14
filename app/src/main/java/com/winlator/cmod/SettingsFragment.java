@@ -458,6 +458,7 @@ public class SettingsFragment extends Fragment {
                 preferences.getBoolean("use_xr", true),
                 XrActivity.isSupported(),
                 preferences.getBoolean("high_refresh_rate_mode", false),
+                preferences.getBoolean("game_at_60hz", true),
                 preferences.getBoolean("enable_file_provider", true),
                 preferences.getBoolean("open_with_android_browser", false),
                 preferences.getBoolean("share_android_clipboard", false),

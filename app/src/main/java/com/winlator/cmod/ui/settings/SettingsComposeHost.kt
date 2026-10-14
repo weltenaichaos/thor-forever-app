@@ -102,6 +102,7 @@ data class SettingsModel(
     val useXr: Boolean,
     val xrSupported: Boolean,
     val highRefreshRate: Boolean,
+    val gameAt60Hz: Boolean,
     val fileProvider: Boolean,
     val openInBrowser: Boolean,
     val shareClipboard: Boolean,
@@ -300,6 +301,12 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                     ToggleRow(stringResource(R.string.pause_resume_wine), model.pauseWine) { callbacks.onBooleanChanged("pause_resume_wine", it) }
                     GroupDivider()
                     ToggleRow(stringResource(R.string.high_refresh_rate), model.highRefreshRate) { callbacks.onBooleanChanged("high_refresh_rate_mode", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Run games at 60 Hz",
+                        model.gameAt60Hz,
+                        "Switches a 120 Hz screen to 60 Hz while a game runs. Smoother frame pacing below 60 fps and less work for the graphics chip. High Refresh Rate Mode wins when both are on."
+                    ) { callbacks.onBooleanChanged("game_at_60hz", it) }
                     GroupDivider()
                     ToggleRow(stringResource(R.string.remove_loading_bar_when_booting_games), model.removeLoadingBar) { callbacks.onBooleanChanged("remove_loading_bar_when_booting_games", it) }
                 }
