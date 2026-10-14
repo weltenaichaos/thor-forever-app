@@ -345,6 +345,8 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                         model.traceWineServer,
                         "For one short test only, it slows the game down. Needs Wine debug logs on. The counts go into the cpu log."
                     ) { callbacks.onBooleanChanged("trace_wine_server", it) }
+                    GroupDivider()
+                    ToggleRow(
                         "Sync FPS cap to the screen",
                         model.fpsCapVsync,
                         "Lets the game draw only on a screen refresh, so every frame stays on screen equally long. The cap rounds down to a rate the screen can show evenly: 45 becomes 40 at 120 Hz and 30 at 60 Hz. Applies on next game start."
