@@ -1,13 +1,14 @@
 import sys, math
-# Draws the Thor Forever cover picture for the WoW shortcut in the library
-# (app/src/main/res/drawable-nodpi/thor_cover.png).
-# Usage: python3 tools/make_thor_cover.py app/src/main/res/font/cinzel_bold.ttf out.png
+# Draws the Thor Forever pictures for the WoW shortcut: the library cover (720x1000,
+# app/src/main/res/drawable-nodpi/thor_cover.png) and the loading screen banner
+# (1920x1080, thor_banner.png).
+# Usage: python3 tools/make_thor_cover.py app/src/main/res/font/cinzel_bold.ttf out.png [width height]
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
 font_path = sys.argv[1]; out = sys.argv[2]
 S = 3                      # draw 3x larger, then shrink (smooth edges, like the old screen)
-W, H = 720, 1000
+W, H = (int(sys.argv[3]), int(sys.argv[4])) if len(sys.argv) > 4 else (720, 1000)
 w, h = W*S, H*S
-u = 60*S                   # design unit
+u = 60*S if H >= W else (H*S)//12   # design unit
 def grad(size, top, bottom, mid=None):
     g = Image.new("RGB", (1, size[1]))
     for y in range(size[1]):
@@ -52,7 +53,7 @@ def word(text, size, spacing, cx, cy, metal):
 
 gold = [(255,253,242),(241,228,194),(176,140,84)]
 white = [(255,255,255),(244,242,236),(184,180,170)]
-cy0 = int(h*0.30)
+cy0 = int(h*0.30) if H >= W else int(h*0.27)
 word("WORLD OF WARCRAFT", int(u*0.74), u//16, w//2, cy0, gold)
 word("FOREVER", int(u*1.55), u//8, w//2, cy0 + int(u*1.45), white)
 f = ImageFont.truetype(font_path, int(u*0.5))
