@@ -59,6 +59,7 @@ public class WowVoiceCloser {
                 closes++;
                 android.os.Process.killProcess(pid);
                 Log.i(TAG, "Closed WoW's voice chat, pid " + pid);
+                CpuDebugLog.note("closed WoW's voice chat, pid " + pid + " (" + closes + ". time)");
                 if (closes >= MAX_CLOSES) {
                     Log.i(TAG, "WoW keeps restarting its voice chat, leaving it running");
                     stop();
