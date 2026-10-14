@@ -173,13 +173,19 @@ public class WowStartupAffinity {
         synchronized (this) { side = new ArrayList<>(sidePids); }
         int sideMask = Integer.lowestOneBit(restMask);
         for (int sidePid : side) {
-            String status = readText(new File("/proc/" + sidePid + "/status"));
-            if (status.isEmpty()) {
+            File[] sideTasks = new File("/proc/" + sidePid + "/task").listFiles();
+            if (sideTasks == null) {
                 synchronized (this) { sidePids.remove(sidePid); }
                 continue;
             }
-            int current = parseHexMask(statusField(status, "Cpus_allowed:"));
-            if (current != 0 && current != sideMask) setThreadsAffinity(sidePid, sideMask);
+            // Every thread, not only the first: voice chat starts its threads before it is
+            // found, and those kept all cores, the main thread's fast core included.
+            boolean move = false;
+            for (File task : sideTasks) {
+                int current = parseHexMask(statusField(readText(new File(task, "status")), "Cpus_allowed:"));
+                if (current != 0 && current != sideMask) move = true;
+            }
+            if (move) setThreadsAffinity(sidePid, sideMask);
         }
     }
 
