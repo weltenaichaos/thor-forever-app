@@ -6,7 +6,9 @@ import com.winlator.cmod.winhandler.WinHandler;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.Executors;
@@ -38,6 +40,8 @@ public class WowStartupAffinity {
     private final Set<Integer> handledPids = new HashSet<>();
     private final Set<String> pinnedNames = new HashSet<>();
     private final Set<String> startedNames = new HashSet<>();
+    /** WoW's side processes (voice chat, error reports), kept off the game's fast cores. */
+    private final Set<Integer> sidePids = new HashSet<>();
     private ScheduledExecutorService executor;
 
     /** cpuMask: the cores the container lets programs use (0 = all). */
@@ -82,7 +86,10 @@ public class WowStartupAffinity {
                 // Only the game's first start: WoW later starts more processes whose names also
                 // begin with "Wow" (its voice chat WowVoiceProxy, error reports). Pinning those put
                 // the running game back on one core, or put voice chat on the game's fast core.
-                if (!startedNames.isEmpty()) continue;
+                if (!startedNames.isEmpty()) {
+                    if (mainThreadOnFastCore) sidePids.add(pid);
+                    continue;
+                }
                 startedNames.add(exeName.toLowerCase(Locale.ROOT));
             }
             pin(pid, exeName);
@@ -158,6 +165,21 @@ public class WowStartupAffinity {
             int wanted = serverMask(restMask);
             int current = parseHexMask(statusField(readText(new File("/proc/" + wineserverPid + "/status")), "Cpus_allowed:"));
             if (current != 0 && current != wanted) setThreadsAffinity(wineserverPid, wanted);
+        }
+        // WoW's voice chat (WowVoiceProxy) keeps running even when nobody uses voice chat, and
+        // no game setting turns it off. It gets the slowest core, so it never takes time from
+        // the main thread's or Wine's server's core.
+        List<Integer> side;
+        synchronized (this) { side = new ArrayList<>(sidePids); }
+        int sideMask = Integer.lowestOneBit(restMask);
+        for (int sidePid : side) {
+            String status = readText(new File("/proc/" + sidePid + "/status"));
+            if (status.isEmpty()) {
+                synchronized (this) { sidePids.remove(sidePid); }
+                continue;
+            }
+            int current = parseHexMask(statusField(status, "Cpus_allowed:"));
+            if (current != 0 && current != sideMask) setThreadsAffinity(sidePid, sideMask);
         }
     }
 
