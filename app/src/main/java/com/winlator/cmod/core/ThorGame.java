@@ -81,19 +81,31 @@ public final class ThorGame {
     }
 
     /**
-     * Gives the WoW shortcut the Thor Forever picture in the library, unless the player
-     * already picked their own: writes Winlator/icons/<shortcut>.user.png, the file the
-     * library uses for a player's own picture.
+     * Gives the WoW shortcut the Thor Forever pictures: the tall one in the library, unless the
+     * player already picked their own (Winlator/icons/<shortcut>.user.png), and the wide one
+     * on the loading screen (Winlator/banners/<shortcut>.png, where Winlator otherwise keeps a
+     * picture it downloaded by the shortcut's name).
      */
     public void applyCoverArt(Context context) {
-        File dir = new File(android.os.Environment.getExternalStorageDirectory(), "Winlator/icons");
-        File cover = new File(dir, FileUtils.getBasename(shortcut.file.getPath()) + ".user.png");
-        if (cover.exists()) return;
-        try (java.io.InputStream in = context.getResources().openRawResource(com.winlator.cmod.R.drawable.thor_cover)) {
-            dir.mkdirs();
-            Files.copy(in, cover.toPath());
+        File storage = android.os.Environment.getExternalStorageDirectory();
+        String name = FileUtils.getBasename(shortcut.file.getPath());
+        File cover = new File(storage, "Winlator/icons/" + name + ".user.png");
+        if (!cover.exists()) copyResource(context, com.winlator.cmod.R.drawable.thor_cover, cover);
+        copyResource(context, com.winlator.cmod.R.drawable.thor_banner, new File(storage, "Winlator/banners/" + name + ".png"));
+    }
+
+    /** Writes the picture unless the file already holds exactly it. */
+    private static void copyResource(Context context, int id, File target) {
+        try (java.io.InputStream in = context.getResources().openRawResource(id)) {
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[65536];
+            for (int n; (n = in.read(buffer)) > 0; ) bytes.write(buffer, 0, n);
+            byte[] data = bytes.toByteArray();
+            if (target.isFile() && java.util.Arrays.equals(Files.readAllBytes(target.toPath()), data)) return;
+            target.getParentFile().mkdirs();
+            Files.write(target.toPath(), data);
         } catch (Exception e) {
-            android.util.Log.w("ThorGame", "Could not write the cover picture", e);
+            android.util.Log.w("ThorGame", "Could not write " + target, e);
         }
     }
 

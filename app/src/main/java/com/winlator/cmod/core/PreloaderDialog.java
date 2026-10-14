@@ -147,7 +147,10 @@ public class PreloaderDialog {
         boolean hasUserArtwork = isUsableImageFile(userArtwork);
         File banner = getLaunchBannerFile();
         boolean hasBanner = isUsableImageFile(banner);
-        File artwork = hasUserArtwork ? userArtwork
+        // A tall picture of the player's own is cut to a thin strip on the wide loading screen;
+        // a wide banner fits it, so that one is used when there is one.
+        boolean preferBanner = hasBanner && hasUserArtwork && isPortrait(userArtwork) && !isPortrait(banner);
+        File artwork = hasUserArtwork && !preferBanner ? userArtwork
                 : hasBanner ? banner : getLaunchCoverFile();
         if (isUsableImageFile(artwork)) artworkBitmap = decodeArtwork(artwork);
 
@@ -254,6 +257,13 @@ public class PreloaderDialog {
         String baseName = resolveLaunchBaseName();
         if (TextUtils.isEmpty(baseName)) return null;
         return new File(new File(Environment.getExternalStorageDirectory(), "Winlator/covers"), baseName + ".png");
+    }
+
+    private static boolean isPortrait(File file) {
+        android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        android.graphics.BitmapFactory.decodeFile(file.getPath(), options);
+        return options.outHeight > options.outWidth;
     }
 
     private boolean isUsableImageFile(File file) {
