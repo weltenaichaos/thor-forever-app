@@ -107,6 +107,7 @@ data class SettingsModel(
     val shareClipboard: Boolean,
     val pauseWine: Boolean,
     val removeLoadingBar: Boolean,
+    val fpsCapVsync: Boolean,
     val gameSavesAllShortcuts: Boolean,
     val wineDebug: Boolean,
     val wineDebugChannels: String,
@@ -302,6 +303,12 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                     ToggleRow(stringResource(R.string.high_refresh_rate), model.highRefreshRate) { callbacks.onBooleanChanged("high_refresh_rate_mode", it) }
                     GroupDivider()
                     ToggleRow(stringResource(R.string.remove_loading_bar_when_booting_games), model.removeLoadingBar) { callbacks.onBooleanChanged("remove_loading_bar_when_booting_games", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Sync FPS cap to the screen",
+                        model.fpsCapVsync,
+                        "Lets the game draw only on a screen refresh, so every frame stays on screen equally long. The cap rounds down to a rate the screen can show evenly: 45 becomes 40 at 120 Hz and 30 at 60 Hz. Applies on next game start."
+                    ) { callbacks.onBooleanChanged("fps_cap_vsync", it) }
                 }
             }
             item("contents-url") { EditableValueCard("Downloadable Contents URL", model.contentsUrl, callbacks::onContentsUrlChanged) }

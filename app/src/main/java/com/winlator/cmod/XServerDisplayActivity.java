@@ -117,6 +117,7 @@ import com.winlator.cmod.xserver.Drawable;
 import com.winlator.cmod.xserver.Pointer;
 import com.winlator.cmod.xserver.Property;
 import com.winlator.cmod.xserver.ScreenInfo;
+import com.winlator.cmod.xserver.VsyncClock;
 import com.winlator.cmod.xserver.Window;
 import com.winlator.cmod.xserver.WindowManager;
 import com.winlator.cmod.xserver.XServer;
@@ -315,6 +316,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             android.view.Display display = getWindowManager().getDefaultDisplay();
             refreshRate = display.getRefreshRate();
         }
+        if (preferences.getBoolean("fps_cap_vsync", true)) VsyncClock.start(getWindowManager().getDefaultDisplay());
 
         cursorLock = preferences.getBoolean("cursor_lock", true);
 
@@ -953,6 +955,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             winlatorLogcatLogger = null;
         }
         if (taskManagerSidebar != null) taskManagerSidebar.stop();
+        VsyncClock.stop();
         super.onDestroy();
     }
 
