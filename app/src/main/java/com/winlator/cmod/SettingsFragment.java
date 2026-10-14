@@ -466,6 +466,7 @@ public class SettingsFragment extends Fragment {
                 preferences.getBoolean("remove_loading_bar_when_booting_games", false),
                 preferences.getBoolean("close_when_wow_exits", true),
                 preferences.getBoolean("close_wow_voice_chat", false),
+                preferences.getBoolean("fps_cap_vsync", true),
                 preferences.getBoolean("game_saves_all_shortcuts", false),
                 preferences.getBoolean("enable_wine_debug", false),
                 preferences.getString("wine_debug_channels", DEFAULT_WINE_DEBUG_CHANNELS),
