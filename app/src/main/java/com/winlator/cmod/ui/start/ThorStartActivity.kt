@@ -66,7 +66,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.winlator.cmod.MainActivity
 import com.winlator.cmod.R
-import com.winlator.cmod.XServerDisplayActivity
 import com.winlator.cmod.container.ContainerManager
 import com.winlator.cmod.core.ThorGame
 import com.winlator.cmod.xenvironment.ImageFs
@@ -148,36 +147,42 @@ class ThorStartActivity : ComponentActivity() {
 
     private fun play() {
         val g = game ?: return
-        // The same start as tapping the shortcut in Winlator's library.
         g.shortcut.putExtra("lastRunAt", System.currentTimeMillis().toString())
         g.shortcut.saveData()
-        startActivity(Intent(this, XServerDisplayActivity::class.java)
-            .putExtra("container_id", g.shortcut.container.id)
-            .putExtra("shortcut_path", g.shortcut.file.path)
-            .putExtra("shortcut_name", g.shortcut.name)
-            .putExtra("disableXinput", g.shortcut.getExtra("disableXinput", "0"))
-            .putExtra("native_rendering", g.shortcut.rendererNative))
+        startShortcut(g.shortcut.container.id, g.shortcut.file.path, update = false)
     }
 
     private fun update() {
         val g = game ?: return
-        val battleNet = g.battleNetPath()
-        if (battleNet == null) {
-            Toast.makeText(this, "Battle.net was not found in the container \"${g.shortcut.container.name}\" (looked in Program Files and Program Files (x86) on every drive).", Toast.LENGTH_LONG).show()
-            return
+        // The player's own Battle.net shortcut keeps its settings; otherwise start the launcher found on disk.
+        val shortcutPath = g.battleNetShortcut?.file?.path ?: run {
+            val battleNet = g.battleNetPath()
+            if (battleNet == null) {
+                Toast.makeText(this, "Battle.net was not found in the container \"${g.shortcut.container.name}\". Add a Battle.net shortcut in Winlator (More).", Toast.LENGTH_LONG).show()
+                return
+            }
+            try {
+                g.writeBattleNetShortcut(this, battleNet).path
+            } catch (e: Exception) {
+                Toast.makeText(this, "Could not start Battle.net: ${e.message}", Toast.LENGTH_LONG).show()
+                return
+            }
         }
-        val shortcut = try {
-            g.writeBattleNetShortcut(this, battleNet)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Could not start Battle.net: ${e.message}", Toast.LENGTH_LONG).show()
-            return
-        }
+        val containerId = g.battleNetShortcut?.container?.id ?: g.shortcut.container.id
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_UPDATE_RAN, true).apply()
         status = "Starting Battle.net... Press Update there if it offers one, then close Battle.net."
-        startActivity(Intent(this, XServerDisplayActivity::class.java)
-            .putExtra("container_id", g.shortcut.container.id)
-            .putExtra("shortcut_path", shortcut.path)
-            .putExtra(ThorGame.EXTRA_UPDATE_SESSION, true))
+        startShortcut(containerId, shortcutPath, update = true)
+    }
+
+    /**
+     * Starts a shortcut through Winlator's main screen, the same way its library does: started
+     * straight from here, WoW crashed natively within a second.
+     */
+    private fun startShortcut(containerId: Int, shortcutPath: String, update: Boolean) {
+        startActivity(Intent(this, MainActivity::class.java)
+            .putExtra("container_id", containerId)
+            .putExtra(MainActivity.EXTRA_RUN_SHORTCUT, shortcutPath)
+            .putExtra(ThorGame.EXTRA_UPDATE_SESSION, update))
     }
 
     private fun nextFpsCap() {
