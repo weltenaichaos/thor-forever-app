@@ -472,7 +472,7 @@ public class SettingsFragment extends Fragment {
                 preferences.getString("custom_api_key", ""),
                 preferences.getString("downloadable_contents_url", ContentsManager.REMOTE_PROFILES),
                 wineDebugOptions,
-                preferences.getBoolean("skip_hidden_draws", true)
+                preferences.getBoolean("skip_hidden_draws", false)
         );
     }
 

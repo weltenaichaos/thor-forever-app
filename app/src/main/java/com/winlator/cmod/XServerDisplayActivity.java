@@ -568,7 +568,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         displayxConfig.put("backPressure", backPressure ? "1" : "0");
         displayxConfig.put("precisePresentation", precisePresentation ? "1" : "0");
         xServer = new XServer(new ScreenInfo(screenSize), useDisplayX ? "displayx" : "egl", displayxConfig);
-        xServer.skipHiddenDraws = preferences.getBoolean("skip_hidden_draws", true);
+        xServer.skipHiddenDraws = preferences.getBoolean("skip_hidden_draws", false);
         Log.i("XServerDisplayActivity", "Skip drawing hidden desktop: " + xServer.skipHiddenDraws);
         xServer.setWinHandler(winHandler);
         xServer.setRelativeMouseMovement(isRelativeMouseMovement);

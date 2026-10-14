@@ -307,7 +307,7 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                     ToggleRow(
                         "Skip drawing hidden desktop",
                         model.skipHiddenDraws,
-                        "Don't copy what Windows draws behind a full-screen game. Saves CPU. Applies on next game start."
+                        "Don't copy what Windows draws behind a full-screen game. Saves CPU. Applies on next game start. Can stop the newest WoW from starting."
                     ) { callbacks.onBooleanChanged("skip_hidden_draws", it) }
                 }
             }
