@@ -122,6 +122,7 @@ class ThorStartActivity : ComponentActivity() {
         Thread {
             val found = runCatching { ThorGame.find(ContainerManager(this)) }.getOrNull()
             val installed = runCatching { found?.installedVersion() ?: "" }.getOrDefault("")
+            runCatching { found?.applyCoverArt(this) }
             runOnUiThread { show(found, installed) }
         }.start()
     }
