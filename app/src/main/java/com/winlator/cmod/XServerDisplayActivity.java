@@ -85,6 +85,7 @@ import com.winlator.cmod.core.WineStartMenuCreator;
 import com.winlator.cmod.core.WineThemeManager;
 import com.winlator.cmod.core.WowExitWatcher;
 import com.winlator.cmod.core.ServerRequestStats;
+import com.winlator.cmod.core.WowVoiceCloser;
 import com.winlator.cmod.core.WineUtils;
 import com.winlator.cmod.core.WinlatorLogcatLogger;
 import com.winlator.cmod.core.WowStartupAffinity;
@@ -150,6 +151,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
     private static final boolean DISABLE_TOUCHSCREEN_AUTO_HIDE = true;
     private WowExitWatcher wowExitWatcher;
+    private WowVoiceCloser wowVoiceCloser;
     private static final HashMap<String, Boolean> WINE_XRANDR_SUPPORT_CACHE = new HashMap<>();
     private final AtomicBoolean exiting = new AtomicBoolean(false);
 
@@ -898,6 +900,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
     private void exit() {
         if (!exiting.compareAndSet(false, true)) return;
         if (wowExitWatcher != null) wowExitWatcher.stop();
+        if (wowVoiceCloser != null) wowVoiceCloser.stop();
         NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID);
         boolean removeLoadingBar = PreferenceManager.getDefaultSharedPreferences(this)
                 .getBoolean("remove_loading_bar_when_booting_games", false);
@@ -965,6 +968,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (wowStartupAffinity != null) wowStartupAffinity.stop();
         cpuDebugLog.stop();
         if (wowExitWatcher != null) wowExitWatcher.stop();
+        if (wowVoiceCloser != null) wowVoiceCloser.stop();
         super.onDestroy();
     }
 
@@ -1216,6 +1220,11 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (preferences.getBoolean("close_when_wow_exits", true)) {
             wowExitWatcher = new WowExitWatcher(() -> runOnUiThread(this::exit));
             wowExitWatcher.start();
+        }
+        // WoW's voice chat can't connect under Wine and no game setting turns it off.
+        if (preferences.getBoolean("close_wow_voice_chat", true)) {
+            wowVoiceCloser = new WowVoiceCloser();
+            wowVoiceCloser.start();
         }
 
         winHandler.start();
