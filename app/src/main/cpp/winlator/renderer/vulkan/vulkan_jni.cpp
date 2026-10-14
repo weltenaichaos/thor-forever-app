@@ -386,3 +386,13 @@ Java_com_winlator_cmod_widget_VulkanXServerView_nativeReattachSurface(
     bool ok = r->reattachSurface(win);
     return (jboolean)ok;
 }
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_winlator_cmod_widget_VulkanXServerView_nativeDrainCompositorStats(JNIEnv* env, jclass)
+{
+    int64_t vals[COMPOSITOR_STATS_COUNT];
+    drainCompositorStats(vals);
+    jlongArray arr = env->NewLongArray(COMPOSITOR_STATS_COUNT);
+    if (arr) env->SetLongArrayRegion(arr, 0, COMPOSITOR_STATS_COUNT, reinterpret_cast<const jlong*>(vals));
+    return arr;
+}
