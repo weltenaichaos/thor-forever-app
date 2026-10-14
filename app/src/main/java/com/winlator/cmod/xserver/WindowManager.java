@@ -86,6 +86,16 @@ public class WindowManager extends XResourceManager {
         return null;
     }
 
+    /** True while a visible program window's class (Wine: the .exe name) contains classPart. */
+    public boolean hasApplicationWindowOfClass(String classPart) {
+        for (int i = 0; i < windows.size(); i++) {
+            Window window = windows.valueAt(i);
+            if (window != null && window.isApplicationWindow()
+                    && window.getClassName().toLowerCase().contains(classPart)) return true;
+        }
+        return false;
+    }
+
     public void destroyWindow(int id) {
         Window window = getWindow(id);
         if (window != null && rootWindow.id != id) {
