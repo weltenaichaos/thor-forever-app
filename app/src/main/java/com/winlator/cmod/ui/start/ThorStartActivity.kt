@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
@@ -69,6 +70,9 @@ import com.winlator.cmod.XServerDisplayActivity
 import com.winlator.cmod.container.ContainerManager
 import com.winlator.cmod.core.ThorGame
 import com.winlator.cmod.xenvironment.ImageFs
+import com.winlator.cmod.xenvironment.ImageFsInstaller
+import com.winlator.cmod.OnboardingActivity
+import androidx.preference.PreferenceManager
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
@@ -90,10 +94,13 @@ class ThorStartActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Before the first setup, and when the app restarts itself onto one of its own
-        // pages, the normal Winlator screen takes over.
+        // Before the first setup, after an app update that needs new system files, and when
+        // the app restarts itself onto one of its own pages, the normal Winlator screen takes over.
         val menuItem = intent.getIntExtra("selected_menu_item_id", 0)
-        if (menuItem > 0 || !ImageFs.find(this).isValid) {
+        val imageFs = ImageFs.find(this)
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        if (menuItem > 0 || !imageFs.isValid || imageFs.version < ImageFsInstaller.LATEST_VERSION
+            || !prefs.getBoolean(OnboardingActivity.PREF_ONBOARDING_COMPLETE, false)) {
             openWinlator(menuItem)
             finish()
             return
@@ -140,16 +147,22 @@ class ThorStartActivity : ComponentActivity() {
 
     private fun play() {
         val g = game ?: return
+        // The same start as tapping the shortcut in Winlator's library.
+        g.shortcut.putExtra("lastRunAt", System.currentTimeMillis().toString())
+        g.shortcut.saveData()
         startActivity(Intent(this, XServerDisplayActivity::class.java)
             .putExtra("container_id", g.shortcut.container.id)
-            .putExtra("shortcut_path", g.shortcut.file.path))
+            .putExtra("shortcut_path", g.shortcut.file.path)
+            .putExtra("shortcut_name", g.shortcut.name)
+            .putExtra("disableXinput", g.shortcut.getExtra("disableXinput", "0"))
+            .putExtra("native_rendering", g.shortcut.rendererNative))
     }
 
     private fun update() {
         val g = game ?: return
         val battleNet = g.battleNetPath()
         if (battleNet == null) {
-            Toast.makeText(this, "Battle.net was not found in this container.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Battle.net was not found in the container \"${g.shortcut.container.name}\" (looked in Program Files and Program Files (x86) on every drive).", Toast.LENGTH_LONG).show()
             return
         }
         val shortcut = try {
@@ -334,7 +347,8 @@ class ThorStartActivity : ComponentActivity() {
         drawText(layout, Color(42, 26, 12), topLeft, drawStyle = Stroke(3 * px))
         // The brush is in the word's own coordinates: from its top (0) to its bottom.
         val h = layout.size.height.toFloat()
-        drawText(layout, Brush.verticalGradient(0f to metal[0], 0.5f to metal[1], 1f to metal[2], startY = 0f, endY = h), topLeft)
+        // Fill must be named: the outline passes above leave Stroke set on the shared text paint.
+        drawText(layout, Brush.verticalGradient(0f to metal[0], 0.5f to metal[1], 1f to metal[2], startY = 0f, endY = h), topLeft, drawStyle = Fill)
         return layout.size.width.toFloat() to (topLeft.y + layout.firstBaseline)
     }
 
