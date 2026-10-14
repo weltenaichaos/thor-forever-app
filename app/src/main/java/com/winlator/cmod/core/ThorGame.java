@@ -74,7 +74,7 @@ public final class ThorGame {
     }
 
     /** True for Battle.net's own launcher or app. */
-    static boolean isBattleNetExe(String dosPath) {
+    public static boolean isBattleNetExe(String dosPath) {
         if (dosPath == null) return false;
         String path = dosPath.toLowerCase(Locale.ROOT);
         return path.contains("battle.net launcher.exe") || path.contains("battle.net.exe");
