@@ -330,8 +330,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
             refreshRate = params.preferredRefreshRate;
             getWindow().setAttributes(params);
         } else if (preferences.getBoolean("game_at_60hz", true) && hasRefreshRate(60f)) {
-            // A 120 Hz screen shows a game running below 60 fps unevenly, and our own
-            // renderer then draws twice as often on a graphics chip that is already busy.
+            // A 120 Hz screen shows a game running below 60 fps unevenly; 60 Hz felt
+            // smoother in WoW on the AYN Thor.
             android.view.WindowManager.LayoutParams params = getWindow().getAttributes();
             params.preferredRefreshRate = 60f;
             refreshRate = 60f;
