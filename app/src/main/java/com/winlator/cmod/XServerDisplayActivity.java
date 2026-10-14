@@ -1233,7 +1233,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
             wowExitWatcher.start();
         }
         // WoW's voice chat can't connect under Wine and no game setting turns it off.
-        if (preferences.getBoolean("close_wow_voice_chat", true)) {
+        if (preferences.getBoolean("close_wow_voice_chat", false)) {
             wowVoiceCloser = new WowVoiceCloser();
             wowVoiceCloser.start();
         }
