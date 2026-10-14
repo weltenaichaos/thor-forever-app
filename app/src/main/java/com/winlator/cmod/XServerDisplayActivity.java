@@ -306,6 +306,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
         return maxRefresh;
     }
 
+    private boolean hasRefreshRate(float rate) {
+        for (android.view.Display.Mode mode : getWindowManager().getDefaultDisplay().getSupportedModes()) {
+            if (Math.abs(mode.getRefreshRate() - rate) < 1f) return true;
+        }
+        return false;
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -321,6 +328,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
             android.view.WindowManager.LayoutParams params = getWindow().getAttributes();
             params.preferredRefreshRate = pickHighestRefreshRate();
             refreshRate = params.preferredRefreshRate;
+            getWindow().setAttributes(params);
+        } else if (preferences.getBoolean("game_at_60hz", true) && hasRefreshRate(60f)) {
+            // A 120 Hz screen shows a game running below 60 fps unevenly, and our own
+            // renderer then draws twice as often on a graphics chip that is already busy.
+            android.view.WindowManager.LayoutParams params = getWindow().getAttributes();
+            params.preferredRefreshRate = 60f;
+            refreshRate = 60f;
             getWindow().setAttributes(params);
         } else {
             android.view.Display display = getWindowManager().getDefaultDisplay();
