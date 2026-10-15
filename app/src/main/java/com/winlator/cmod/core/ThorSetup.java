@@ -293,6 +293,28 @@ public final class ThorSetup {
         }
     }
 
+    /**
+     * Earlier builds never put DXVK's files into the container: the launcher asked for
+     * "dxvk-2.6.2-thor-arm64x-1" and the installed package is called "DXVK-2.6.2-thor-arm64x-1",
+     * so WoW got Wine's own Direct3D and crashed. The lookup now ignores the case, but the
+     * container remembers that it already "has" that DXVK and wouldn't copy the files again.
+     * This forgets it once, so the next start copies them.
+     */
+    public static void redoThorDxvkFiles(ContainerManager manager) {
+        for (Container container : manager.getContainers()) {
+            if (!needsDxvkRedo(container.getExtra("dxwrapper"), container.getExtra(DXVK_REDONE))) continue;
+            container.putExtra("dxwrapper", null);
+            container.putExtra(DXVK_REDONE, "1");
+            container.saveData();
+        }
+    }
+
+    static final String DXVK_REDONE = "thorDxvkFilesRedone";
+
+    static boolean needsDxvkRedo(String dxwrapper, String redone) {
+        return redone.isEmpty() && dxwrapper.toLowerCase(Locale.ROOT).startsWith("dxvk-2.6.2-thor-arm64x");
+    }
+
     private static void writeDesktopEntry(Context context, File file, Container container, String name, String dosPath) throws IOException {
         String winePrefix = wineHome(context, container) + "/.wine";
         try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
