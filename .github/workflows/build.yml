@@ -238,5 +238,5 @@ jobs:
             gh release create "$TAG" "Thor-Forever-$TAG.apk" --draft --prerelease \
               --target "$TARGET" --title "Thor Forever $TAG (alpha)" --notes-file docs/RELEASE-NOTES.md
           else
-            echo "Release $TAG is already published: not changed."; exit 1
+            echo "::warning::Release $TAG is already published, so it was not changed. The APK is in the build's artifacts."
           fi
