@@ -98,6 +98,11 @@ android {
         disable 'ExpiredTargetSdkVersion'
     }
 
+    // The bundled Thor Forever packages are already compressed.
+    androidResources {
+        noCompress 'wcp'
+    }
+
     defaultConfig {
         applicationId "com.winlator.cmod"
         manifestPlaceholders = [appLabel: "Winlator Ludashi"]
