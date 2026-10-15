@@ -201,6 +201,8 @@ android {
 }
 
 dependencies {
+    // The Forever Companion (thor.companion): its decoder reads the addon's data square.
+    implementation project(':companion-decoder')
     implementation platform('androidx.compose:compose-bom:2025.08.00')
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'

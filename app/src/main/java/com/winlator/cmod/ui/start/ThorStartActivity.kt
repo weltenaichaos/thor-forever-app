@@ -81,6 +81,7 @@ import com.winlator.cmod.container.ContainerManager
 import com.winlator.cmod.container.Container
 import com.winlator.cmod.core.AddonInstaller
 import com.winlator.cmod.core.AddonStore
+import com.winlator.cmod.core.CompanionAddon
 import com.winlator.cmod.core.GameUpdateCheck
 import com.winlator.cmod.core.ThorGame
 import com.winlator.cmod.core.ThorSetup
@@ -109,6 +110,8 @@ class ThorStartActivity : ComponentActivity() {
     private var newVersion by mutableStateOf("")
     private var status by mutableStateOf("")
     private var fpsCap by mutableStateOf(0)
+    /** The Forever Companion on the other screen: on or off (the button's own setting). */
+    private var companionOn by mutableStateOf(false)
     private var overlay by mutableStateOf(0)
     /** The first-setup step shown while there is no WoW shortcut yet. */
     private var setup by mutableStateOf(Setup.NONE)
@@ -157,6 +160,7 @@ class ThorStartActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.winlator.cmod.core.CrashReasonLogger.install(this)
+        companionOn = thor.companion.CompanionBridge.enabled(this)
         // Before the first setup, after an app update that needs new system files, and when
         // the app restarts itself onto one of its own pages, the normal Winlator screen takes over.
         val menuItem = intent.getIntExtra("selected_menu_item_id", 0)
@@ -265,7 +269,17 @@ class ThorStartActivity : ComponentActivity() {
         val g = game ?: return
         g.shortcut.putExtra("lastRunAt", System.currentTimeMillis().toString())
         g.shortcut.saveData()
-        startShortcut(g.shortcut.container.id, g.shortcut.file.path, update = false)
+        val addonsDir = AddonInstaller.addonsDir(g)
+        if (!companionOn || addonsDir == null) {
+            startShortcut(g.shortcut.container.id, g.shortcut.file.path, update = false)
+            return
+        }
+        // The companion's addon in the version this app carries, so app and addon match.
+        Thread {
+            runCatching { CompanionAddon.install(this, addonsDir) }
+                .onFailure { Log.w("ThorStart", "companion addon: $it") }
+            runOnUiThread { startShortcut(g.shortcut.container.id, g.shortcut.file.path, update = false) }
+        }.start()
     }
 
     private fun update() {
@@ -507,6 +521,33 @@ class ThorStartActivity : ComponentActivity() {
         }.start()
     }
 
+    /**
+     * Switches the Forever Companion on or off. On puts its addon into the game; off takes it
+     * out again (only its own ThorCompanion folder).
+     */
+    private fun toggleCompanion() {
+        val on = !companionOn
+        thor.companion.CompanionBridge.setEnabled(this, on)
+        companionOn = on
+        val addonsDir = AddonInstaller.addonsDir(game)
+        if (addonsDir == null) {
+            status = if (on) "Companion on: it opens on the other screen when WoW starts." else "Companion off."
+            return
+        }
+        Thread {
+            val result = runCatching {
+                if (on) CompanionAddon.install(this, addonsDir) else CompanionAddon.remove(addonRecord(), addonsDir)
+            }
+            val list = runCatching { AddonInstaller.installed(addonsDir, AddonStore.interfaceOf(version)) }.getOrDefault(addons)
+            runOnUiThread {
+                addons = list
+                status = result.fold(
+                    { if (on) "Companion on: it opens on the other screen when WoW starts." else "Companion off: its addon is removed." },
+                    { e -> if (on) "Companion on, but its addon could not be installed: ${e.message}" else "Companion off, but its addon could not be removed: ${e.message}" })
+            }
+        }.start()
+    }
+
     private fun nextFpsCap() {
         val shortcut = game?.shortcut ?: return
         val next = FPS_CAPS[(FPS_CAPS.indexOf(fpsCap) + 1) % FPS_CAPS.size]
@@ -598,11 +639,12 @@ class ThorStartActivity : ComponentActivity() {
                         StartButton(null, "Quit", u, side, onClick = { finishAndRemoveTask() })
                     }
                     Spacer(Modifier.height(u))
-                    // Room for a fifth setting (the companion app); until then the four are centred.
+                    // Five settings, the companion app among them.
                     Row(Modifier.align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy(gap)) {
                         StartButton("FPS cap", if (fpsCap == 0) "Off" else fpsCap.toString(), u, sw, enabled = enabled, onClick = ::nextFpsCap)
                         StartButton("Overlay", OVERLAYS[overlay.coerceIn(0, OVERLAYS.size - 1)], u, sw, enabled = enabled, onClick = ::nextOverlay)
                         StartButton("Add-ons", addons.size.toString(), u, sw, enabled = enabled, onClick = { addonStatus = ""; showAddons = true })
+                        StartButton("Companion", if (companionOn) "On" else "Off", u, sw, onClick = ::toggleCompanion)
                         StartButton("More", "Winlator", u, sw, onClick = { openWinlator() })
                     }
                     val setupReady = loaded && (setup == Setup.INSTALL_BATTLE_NET || setup == Setup.OPEN_BATTLE_NET)

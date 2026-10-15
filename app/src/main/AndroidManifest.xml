@@ -25,6 +25,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <!-- The Forever Companion's speech to text for chat messages (the 🎤 key next to Send), only while it listens. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
 
     <application
         android:label="${appLabel}"
@@ -79,6 +86,16 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation" />
 
         <activity android:name="com.winlator.cmod.BigPictureActivity" android:theme="@style/Theme.AppCompat" android:exported="false" />
+
+        <!-- The Forever Companion: WoW's bags, character, quests, map and chat on the Thor's other screen. -->
+        <activity
+            android:name="thor.companion.CompanionActivity"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.winlator.cmod.companion"
+            android:resizeableActivity="true"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density" />
 
         <activity
             android:name="com.winlator.cmod.XServerDisplayActivity"

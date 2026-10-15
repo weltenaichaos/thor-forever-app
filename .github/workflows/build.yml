@@ -187,6 +187,9 @@ jobs:
             echo "::warning::THOR_KEYSTORE_BASE64 is not set; the APK is signed with a throwaway debug key."
           fi
 
+      - name: Forever Companion decoder tests
+        run: ./gradlew :companion-decoder:test
+
       - name: Build with Gradle
         env:
           THOR_KEYSTORE_PASSWORD: ${{ secrets.THOR_KEYSTORE_PASSWORD }}

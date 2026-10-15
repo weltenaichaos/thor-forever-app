@@ -701,6 +701,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         Runnable runnable = () -> {
             setupUI();
+            // The Forever Companion reads the game from this view and sends its keys to this X
+            // server; for WoW, with the companion on, it opens on the other screen.
+            thor.companion.CompanionBridge.attach(this, xServer, xServerView, shortcut != null ? shortcut.file.getPath() : null);
             setupSidebarInputControls();
             if (controlsProfile.isEmpty()) {
 
@@ -992,6 +995,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         if (wowVoiceCloser != null) wowVoiceCloser.stop();
         if (battleNetWindowWatcher != null) battleNetWindowWatcher.stop();
         VsyncClock.stop();
+        thor.companion.CompanionBridge.detach(xServerView);
         super.onDestroy();
     }
 
