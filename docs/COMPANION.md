@@ -16,7 +16,7 @@ Copied from thor-companion's `app/voice` branch, commit `27aa50f` (0.24.2):
 | Here | There |
 | --- | --- |
 | `companion-decoder/src` | `decoder/src` (unchanged, tests included) |
-| `app/src/main/assets/thor/companion/ThorCompanion` | `addon/ThorCompanion` (unchanged) |
+| `app/src/main/assets/thor/companion/ThorCompanion` | `addon/ThorCompanion` (changes below) |
 | `app/src/main/java/thor/companion/CompanionActivity.kt` | `app/.../MainActivity.kt` (only renamed) |
 | `MapView.kt`, `NameStore.kt`, `TipStore.kt`, `IconStore.kt`, `Ui.kt` | unchanged |
 | `GameFiles.kt` | `app/.../GameFiles.kt` (one change, below) |
@@ -36,6 +36,10 @@ These are written for Thor Forever instead:
   installs the addon (`core/CompanionAddon.java`).
 - `CompanionBridge.kt` connects the companion to the game screen and opens it on the other
   screen.
+- The addon (0.24.3 here): it builds the bags, gear, character, quests and cooldowns again
+  only when the game says they changed, or every few seconds (`ns.Remember` in `Strip.lua`);
+  it skips its idle wait for urgent changes; and it shows the first part of a message after a
+  quiet spell for 0.6 s, since the reading loop here looks every 0.4 s where the bar was.
 
 To take a newer companion over, copy the files in the first table again and keep the
 replacements above.

@@ -104,12 +104,13 @@ local function status()
         GetMoney() or 0, mapID or 0, x or 0, y or 0, facing, session, bagHash, addonVersion, table.concat(list, ","))
 end
 
-local function bags()
+-- Built again only when the bags change (or their tap keys, after combat).
+local bags = ns.Remember(function()
     local free, total, list = bagSummary(ns.StripCapacity() - 16)
     local p = "TB1|" .. free .. "/" .. total .. "|" .. list
     bagHash = checksum(p)
     return p
-end
+end, { "BAG_UPDATE_DELAYED", "PLAYER_REGEN_ENABLED" }, 5)
 
 -- Name and details of an item, or nil until the game has loaded it (it arrives a moment later).
 local function itemEntry(id)
@@ -194,7 +195,9 @@ end
 -- the game may keep cooldowns secret, then the last list stays.
 local cooldownKey, cooldownPayload = nil, nil
 local lastSent = {}
-local function cooldowns()
+-- The walk over the bags, again only when a cooldown starts or the bags change, and every
+-- 2 s (a cooldown that ran out leaves the list without an event). nil: kept secret now.
+local cooldownList = ns.Remember(function()
     local out, seen = {}, {}
     local now = GetTime()
     for bag = 0, 4 do
@@ -202,7 +205,7 @@ local function cooldowns()
             local id = C_Container.GetContainerItemID(bag, slot)
             if id and not seen[id] then
                 local start, duration = C_Container.GetContainerItemCooldown(bag, slot)
-                if issecretvalue and (issecretvalue(start) or issecretvalue(duration)) then return cooldownPayload end
+                if issecretvalue and (issecretvalue(start) or issecretvalue(duration)) then return nil end
                 if start and duration and start > 0 and duration > 1.5 and start + duration > now + 1 then
                     seen[id] = true
                     out[#out + 1] = id .. ":" .. math.floor(start + duration + 0.5)
@@ -210,7 +213,13 @@ local function cooldowns()
             end
         end
     end
-    local key = table.concat(out, ",")
+    return table.concat(out, ",")
+end, { "BAG_UPDATE_COOLDOWN", "BAG_UPDATE_DELAYED" }, 2)
+
+local function cooldowns()
+    local now = GetTime()
+    local key = cooldownList()
+    if key == nil then return cooldownPayload end
     -- A message sent again (a refresh, an app that just started) gets this moment's
     -- time: with the old one, the app would count the whole cooldown from now again.
     if key ~= cooldownKey or lastSent[9] == nil then

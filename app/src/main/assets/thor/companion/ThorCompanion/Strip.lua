@@ -24,6 +24,31 @@
 
 local _, ns = ...
 
+-- A builder that runs again only when the game says something it reads changed (one of
+-- events), after a loading screen, or when maxAge seconds went by (so a missed event
+-- can't leave it wrong for long). Otherwise its last result comes back as it was.
+-- Kept in memory only: a logout or /reload starts it empty, so every character starts fresh.
+function ns.Remember(build, events, maxAge)
+    local result, builtAt, changed = nil, -100, true
+    local f = CreateFrame("Frame")
+    for _, e in ipairs(events) do
+        -- Unit events only for you, not for everyone around; an event this game doesn't know is skipped.
+        if e:sub(1, 5) == "UNIT_" and f.RegisterUnitEvent then pcall(f.RegisterUnitEvent, f, e, "player")
+        else pcall(f.RegisterEvent, f, e) end
+    end
+    pcall(f.RegisterEvent, f, "PLAYER_ENTERING_WORLD")
+    f:SetScript("OnEvent", function() changed = true end)
+    return function()
+        local now = GetTime()
+        if changed or now - builtAt > maxAge then
+            -- Marked done only once it worked: a build that fails is tried again next time.
+            local r = { build() }
+            result, builtAt, changed = r, now, false
+        end
+        return unpack(result)
+    end
+end
+
 local COLS = 20
 local VERSION = 4
 local CALIB = 8

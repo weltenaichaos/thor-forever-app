@@ -121,7 +121,7 @@ end
 -- level checker's numbers), the others as
 --   TL2|<page>|<pages><newline><quest rows like TL1's>...
 -- Quests in this zone come first.
-local function build()
+local function buildLog()
     local here, elsewhere = {}, {}
     local readyCount, readyXP = 0, 0
     for i = 1, C_QuestLog.GetNumQuestLogEntries() or 0 do
@@ -165,6 +165,12 @@ local function build()
     pages[#pages + 1] = page
     return string.format("TL1|%d|%d|%d|%d", ThorCompanionKill or 0, readyCount, readyXP, #pages), pages
 end
+
+-- Built once for both TL1 and TL2, and again only when the quest log, the zone or your
+-- experience changes (see ns.Remember).
+local build = ns.Remember(buildLog, { "QUEST_LOG_UPDATE", "QUEST_WATCH_UPDATE", "UNIT_QUEST_LOG_CHANGED",
+    "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "ZONE_CHANGED", "ZONE_CHANGED_NEW_AREA",
+    "ZONE_CHANGED_INDOORS", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP" }, 5)
 
 -- The pages after the first the app hasn't had twice since they changed, and whether
 -- one of them hasn't gone out once.
