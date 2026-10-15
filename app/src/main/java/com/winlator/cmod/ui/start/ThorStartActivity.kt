@@ -404,7 +404,7 @@ class ThorStartActivity : ComponentActivity() {
         addonStatus = "Downloading ${entry.name}..."
         Thread {
             val result = runCatching {
-                AddonStore.install(entry, offer, addonsDir, cacheDir, ThorSetup.Progress { percent ->
+                AddonStore.install(entry, offer, AddonStore.interfaceOf(version), addonsDir, cacheDir, ThorSetup.Progress { percent ->
                     if (percent >= 0) runOnUiThread { addonStatus = "Downloading ${entry.name}... $percent%" }
                 })
             }
@@ -541,15 +541,17 @@ class ThorStartActivity : ComponentActivity() {
         Text(addonStatus.ifEmpty { "Add-ons with a version for your game. Tap one to install it." },
             style = body, color = TextColor, maxLines = 1, modifier = Modifier.height(u))
         Column(Modifier.fillMaxWidth().height(u * 9 / 2).verticalScroll(rememberScrollState())) {
-            for (entry in storeEntries) {
+            // Only add-ons with a file made for this game: others would only give false hope.
+            val shown = storeEntries.filter { e -> storeOffers[e.repo].let { it == null || it.offer != null || it.error != null } }
+            if (shown.isEmpty()) Text("No add-ons for your game version yet.", style = body, color = Sky)
+            for (entry in shown) {
                 val installed = addons.any { it.folder.equals(entry.folder, ignoreCase = true) }
                 val state = storeOffers[entry.repo]
                 val action = when {
                     installed -> "Installed"
                     state == null -> "Checking..."
                     state.offer != null -> "Install"
-                    state.error != null -> "Not reachable"
-                    else -> "Not for this game yet"
+                    else -> "Not reachable"
                 }
                 StoreRow(entry, action, u, body, enabled = !installed && state?.offer != null) { installFromStore(entry) }
             }
