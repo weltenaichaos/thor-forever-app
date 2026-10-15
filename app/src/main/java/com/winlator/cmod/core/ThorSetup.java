@@ -146,7 +146,28 @@ public final class ThorSetup {
     public static File writeRunShortcut(Context context, Container container, String name, String dosPath) throws IOException {
         File file = new File(context.getCacheDir(), "thor_" + name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "_") + ".desktop");
         writeDesktopEntry(context, file, container, name, dosPath);
+        if (ThorGame.isBattleNetExe(dosPath)) {
+            Shortcut shortcut = new Shortcut(container, file);
+            shortcut.putExtra("envVars", "WINEESYNC=0");
+            shortcut.saveData();
+        }
         return file;
+    }
+
+    /**
+     * Shows esync as off in the settings of Battle.net shortcuts, the way it runs: Battle.net
+     * hangs with it. Each one gets WINEESYNC=0, also when it copied the container's WINEESYNC=1.
+     */
+    public static void turnOffEsyncForBattleNet(ContainerManager manager) {
+        for (Shortcut shortcut : manager.loadShortcuts()) {
+            if (!ThorGame.isBattleNetExe(shortcut.path)) continue;
+            // The shortcut's own variables go over the container's, so one line is enough.
+            EnvVars envVars = new EnvVars(shortcut.getExtra("envVars"));
+            if ("0".equals(envVars.get("WINEESYNC"))) continue;
+            envVars.put("WINEESYNC", "0");
+            shortcut.putExtra("envVars", envVars.toString());
+            shortcut.saveData();
+        }
     }
 
     private static void writeDesktopEntry(Context context, File file, Container container, String name, String dosPath) throws IOException {
