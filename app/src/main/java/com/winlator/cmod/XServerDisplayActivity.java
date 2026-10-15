@@ -1174,9 +1174,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 envVars.put("WINE_CPU_TOPOLOGY", wineCpuTopologyValue);
             }
 
-            // Battle.net hangs on its loading screen with esync (seen on the Thor), so it runs
-            // without, even when the container turns it on, unless its own shortcut sets WINEESYNC.
-            if (shortcut != null && ThorGame.isBattleNetExe(shortcut.path) && !shortcut.getExtra("envVars").contains("WINEESYNC")) {
+            // Battle.net hangs on its loading screen with esync (seen on the Thor), so it always
+            // runs without, even when the container or a copied shortcut setting turns it on.
+            if (shortcut != null && ThorGame.isBattleNetExe(shortcut.path)) {
                 Log.i("XServerDisplayActivity", "Battle.net: esync off");
                 envVars.put("WINEESYNC", "0");
             }
