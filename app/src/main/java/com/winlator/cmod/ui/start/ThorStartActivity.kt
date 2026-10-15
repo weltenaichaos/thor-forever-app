@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,6 +75,7 @@ import com.winlator.cmod.R
 import com.winlator.cmod.container.ContainerManager
 import com.winlator.cmod.container.Container
 import com.winlator.cmod.core.AddonInstaller
+import com.winlator.cmod.core.AddonStore
 import com.winlator.cmod.core.GameUpdateCheck
 import com.winlator.cmod.core.ThorGame
 import com.winlator.cmod.core.ThorSetup
@@ -125,10 +127,18 @@ class ThorStartActivity : ComponentActivity() {
     private var showAddons by mutableStateOf(false)
     private var addons by mutableStateOf<List<AddonInstaller.Addon>>(emptyList())
     private var addonStatus by mutableStateOf("")
+    /** The add-on store, opened from the add-ons page. */
+    private var showStore by mutableStateOf(false)
+    private var storeEntries by mutableStateOf<List<AddonStore.Entry>>(emptyList())
+    /** What the store offers for each add-on (by repository), once GitHub answered. */
+    private val storeOffers = mutableStateMapOf<String, StoreOffer>()
     private var installingAddon = false
     private val addonPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) installAddon(uri)
     }
+
+    /** offer is null when the add-on has no file for this game (or error says why not). */
+    private data class StoreOffer(val offer: AddonStore.Offer?, val error: String? = null)
 
     private enum class Setup { NONE, NO_CONTAINER, INSTALL_BATTLE_NET, OPEN_BATTLE_NET }
 
@@ -183,7 +193,9 @@ class ThorStartActivity : ComponentActivity() {
                 }
             }
             val installed = runCatching { found?.installedVersion() ?: "" }.getOrDefault("")
-            val foundAddons = runCatching { AddonInstaller.installed(AddonInstaller.addonsDir(found)) }.getOrDefault(emptyList())
+            val foundAddons = runCatching {
+                AddonInstaller.installed(AddonInstaller.addonsDir(found), AddonStore.interfaceOf(installed))
+            }.getOrDefault(emptyList())
             runCatching { found?.applyCoverArt(this) }
             runOnUiThread {
                 setupContainer = container
@@ -345,7 +357,7 @@ class ThorStartActivity : ComponentActivity() {
                 AddonInstaller.install(copy, addonsDir)
             }
             copy.delete()
-            val list = runCatching { AddonInstaller.installed(addonsDir) }.getOrDefault(addons)
+            val list = runCatching { AddonInstaller.installed(addonsDir, AddonStore.interfaceOf(version)) }.getOrDefault(addons)
             runOnUiThread {
                 installingAddon = false
                 addons = list
@@ -354,6 +366,57 @@ class ThorStartActivity : ComponentActivity() {
                     { e ->
                         if (e is AddonInstaller.AlreadyInstalledException) "${e.message}. Updating an add-on is not possible yet."
                         else "Could not install it: ${e.message}"
+                    })
+            }
+        }.start()
+    }
+
+    /** Opens the store and asks GitHub, for each add-on, for the file made for this game. */
+    private fun openStore() {
+        val gameInterface = AddonStore.interfaceOf(version)
+        if (storeEntries.isEmpty()) storeEntries = runCatching {
+            AddonStore.parseCatalog(assets.open(AddonStore.CATALOG_ASSET).bufferedReader().use { it.readText() })
+        }.getOrDefault(emptyList())
+        addonStatus = ""
+        showStore = true
+        if (gameInterface == 0) {
+            addonStatus = "The game version is unknown, so the store can't tell which files fit."
+            return
+        }
+        for (entry in storeEntries) {
+            if (storeOffers[entry.repo]?.error == null && storeOffers.containsKey(entry.repo)) continue
+            storeOffers.remove(entry.repo)
+            Thread {
+                val result = runCatching { AddonStore.findOffer(entry, gameInterface) }
+                runOnUiThread {
+                    storeOffers[entry.repo] = result.fold({ StoreOffer(it) }, { StoreOffer(null, it.message ?: "No connection") })
+                }
+            }.start()
+        }
+    }
+
+    /** Downloads an add-on from the store and installs it like a picked .zip. */
+    private fun installFromStore(entry: AddonStore.Entry) {
+        val addonsDir = AddonInstaller.addonsDir(game) ?: return
+        val offer = storeOffers[entry.repo]?.offer ?: return
+        if (installingAddon || addons.any { it.folder.equals(entry.folder, ignoreCase = true) }) return
+        installingAddon = true
+        addonStatus = "Downloading ${entry.name}..."
+        Thread {
+            val result = runCatching {
+                AddonStore.install(entry, offer, addonsDir, cacheDir, ThorSetup.Progress { percent ->
+                    if (percent >= 0) runOnUiThread { addonStatus = "Downloading ${entry.name}... $percent%" }
+                })
+            }
+            val list = runCatching { AddonInstaller.installed(addonsDir, AddonStore.interfaceOf(version)) }.getOrDefault(addons)
+            runOnUiThread {
+                installingAddon = false
+                addons = list
+                addonStatus = result.fold(
+                    { "${entry.name} is installed. It works the next time WoW starts." },
+                    { e ->
+                        if (e is AddonInstaller.AlreadyInstalledException) "${e.message}. Updating an add-on is not possible yet."
+                        else "Could not install ${entry.name}: ${e.message}"
                     })
             }
         }.start()
@@ -403,6 +466,10 @@ class ThorStartActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize().padding(px * 3).border(px, SkyDark))
                 Column(Modifier.fillMaxSize().padding(start = u, end = u, top = headerHeight + u / 2)) {
                     val body = TextStyle(fontFamily = FontFamily(Font(R.font.wine_tahoma)), fontSize = textSize(u * 2 / 3), lineHeight = textSize(u))
+                    if (showStore) {
+                        StorePage(u, body, panelWidth)
+                        return@Column
+                    }
                     if (showAddons) {
                         AddonsPage(u, body, panelWidth)
                         return@Column
@@ -457,11 +524,67 @@ class ThorStartActivity : ComponentActivity() {
         Spacer(Modifier.height(u / 2))
         val bw = (panelWidth - u * 4) / 3
         Row(horizontalArrangement = Arrangement.spacedBy(u)) {
-            StartButton(null, "Install from file", u, bw, play = true, focusRequester = install,
+            StartButton(null, "Store", u, bw, play = true, focusRequester = install, onClick = ::openStore)
+            StartButton(null, "Install from file", u, bw,
                 onClick = { addonPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) })
             StartButton(null, "Back", u, bw, onClick = { showAddons = false })
         }
         LaunchedEffect(Unit) { runCatching { install.requestFocus() } }
+    }
+
+    /** The store's add-ons, one row each: tap (or A) to install. */
+    @Composable
+    private fun StorePage(u: Dp, body: TextStyle, panelWidth: Dp) {
+        BackHandler { showStore = false; addonStatus = "" }
+        val back = remember { FocusRequester() }
+        Text("Add-on store", style = body, color = GoldLight, modifier = Modifier.height(u))
+        Text(addonStatus.ifEmpty { "Add-ons with a version for your game. Tap one to install it." },
+            style = body, color = TextColor, maxLines = 1, modifier = Modifier.height(u))
+        Column(Modifier.fillMaxWidth().height(u * 9 / 2).verticalScroll(rememberScrollState())) {
+            for (entry in storeEntries) {
+                val installed = addons.any { it.folder.equals(entry.folder, ignoreCase = true) }
+                val state = storeOffers[entry.repo]
+                val action = when {
+                    installed -> "Installed"
+                    state == null -> "Checking..."
+                    state.offer != null -> "Install"
+                    state.error != null -> "Not reachable"
+                    else -> "Not for this game yet"
+                }
+                StoreRow(entry, action, u, body, enabled = !installed && state?.offer != null) { installFromStore(entry) }
+            }
+        }
+        Spacer(Modifier.height(u / 2))
+        val bw = (panelWidth - u * 4) / 3
+        Row(horizontalArrangement = Arrangement.spacedBy(u)) {
+            StartButton(null, "Back", u, bw, focusRequester = back, onClick = { showStore = false; addonStatus = "" })
+        }
+        LaunchedEffect(Unit) { runCatching { back.requestFocus() } }
+    }
+
+    @Composable
+    private fun StoreRow(entry: AddonStore.Entry, action: String, u: Dp, body: TextStyle, enabled: Boolean, onClick: () -> Unit) {
+        var focused by remember { mutableStateOf(false) }
+        val px = onePx()
+        Row(
+            Modifier.fillMaxWidth().height(u * 3 / 2)
+                .onFocusChanged { focused = it.isFocused }
+                .onKeyEvent {
+                    if (enabled && it.type == KeyEventType.KeyUp && it.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_BUTTON_A) {
+                        onClick(); true
+                    } else false
+                }
+                .clickable(enabled = enabled, onClick = onClick)
+                .border(px, if (focused) GoldLight else Color.Transparent)
+                .padding(horizontal = u / 4),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(entry.name, style = body, color = GoldLight, maxLines = 1)
+                Text(entry.description, style = body.copy(fontSize = textSize(u / 2)), color = Sky, maxLines = 1)
+            }
+            Text(action, style = body, color = if (enabled) Teal else TextColor, maxLines = 1)
+        }
     }
 
     /** One screen pixel, for the thin frames of the old design. */

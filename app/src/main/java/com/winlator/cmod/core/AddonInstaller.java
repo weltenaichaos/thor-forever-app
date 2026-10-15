@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -53,15 +52,23 @@ public final class AddonInstaller {
 
     /** The add-ons in the folder, by title. */
     public static List<Addon> installed(File addonsDir) {
+        return installed(addonsDir, 0);
+    }
+
+    /**
+     * The add-ons in the folder, by title, as the game with interface number gameInterface
+     * (like 16001) sees them: from the .toc made for it.
+     */
+    public static List<Addon> installed(File addonsDir, int gameInterface) {
         List<Addon> addons = new ArrayList<>();
         File[] folders = addonsDir != null ? addonsDir.listFiles(File::isDirectory) : null;
         if (folders == null) return addons;
         for (File folder : folders) {
-            File toc = tocFile(folder);
+            File toc = tocFile(folder, gameInterface);
             if (toc == null) continue;
             String title = "";
             try {
-                title = titleFromToc(new String(Files.readAllBytes(toc.toPath()), StandardCharsets.UTF_8));
+                title = titleFromToc(readHead(toc));
             } catch (IOException ignored) {}
             addons.add(new Addon(folder.getName(), title.isEmpty() ? folder.getName() : title));
         }
@@ -69,17 +76,63 @@ public final class AddonInstaller {
         return addons;
     }
 
-    private static File tocFile(File folder) {
+    /**
+     * The .toc the game reads: the one listing its interface number, else one for the same
+     * major version, else the plain Name.toc. The suffix doesn't tell: Questie's file for
+     * WoW Forever is Questie_Camelot.toc.
+     */
+    private static File tocFile(File folder, int gameInterface) {
         String[] names = folder.list();
         if (names == null) return null;
-        File found = null;
+        File exact = null, close = null, plain = null, any = null;
         for (String name : names) {
             if (!isTocOf(folder.getName(), name)) continue;
-            // The plain Name.toc first; flavor ones like Name_Vanilla.toc otherwise.
-            if (name.equalsIgnoreCase(folder.getName() + ".toc")) return new File(folder, name);
-            if (found == null) found = new File(folder, name);
+            File toc = new File(folder, name);
+            if (any == null) any = toc;
+            if (name.equalsIgnoreCase(folder.getName() + ".toc")) plain = toc;
+            if (gameInterface <= 0) continue;
+            String text;
+            try {
+                text = readHead(toc);
+            } catch (IOException e) {
+                continue;
+            }
+            for (int i : interfacesFromToc(text)) {
+                if (i == gameInterface && exact == null) exact = toc;
+                if (i / 100 == gameInterface / 100 && close == null) close = toc;
+            }
         }
-        return found;
+        return exact != null ? exact : close != null ? close : plain != null ? plain : any;
+    }
+
+    /**
+     * The start of a .toc file, where its ## lines are. Some are huge: QuestieDB keeps its
+     * whole database in them (up to 57 MB).
+     */
+    private static String readHead(File toc) throws IOException {
+        try (InputStream in = new java.io.FileInputStream(toc)) {
+            byte[] buffer = new byte[16384];
+            int n = 0;
+            for (int r; n < buffer.length && (r = in.read(buffer, n, buffer.length - n)) > 0; ) n += r;
+            return new String(buffer, 0, n, StandardCharsets.UTF_8);
+        }
+    }
+
+    /** The numbers of a .toc's "## Interface: 11508, 11509" line. */
+    static List<Integer> interfacesFromToc(String toc) {
+        List<Integer> result = new ArrayList<>();
+        for (String line : toc.split("\r?\n")) {
+            String l = line.trim();
+            if (l.startsWith("\uFEFF")) l = l.substring(1);
+            if (!l.regionMatches(true, 0, "## Interface:", 0, 13)) continue;
+            for (String part : l.substring(13).split(",")) {
+                try {
+                    result.add(Integer.parseInt(part.trim()));
+                } catch (NumberFormatException ignored) {}
+            }
+            break;
+        }
+        return result;
     }
 
     /** Whether file is the .toc of an add-on folder: Name.toc, or a flavor one like Name_Vanilla.toc or Name-Classic.toc. */

@@ -64,6 +64,23 @@ public class AddonInstallerTest {
     }
 
     @Test
+    public void readsTheTocMadeForTheGame() throws IOException {
+        // Like Questie: its WoW Forever file is Questie_Camelot.toc, and Questie.toc only says "not supported".
+        File dir = Files.createTempDirectory("addons").toFile();
+        File addons = new File(dir, "AddOns");
+        File zip = zip(dir,
+                "Questie/Questie.toc", "## Interface: 00000\n## Title: Questie|cFFFF0000 game client not supported|r\n",
+                "Questie/Questie_Vanilla.toc", "## Interface: 11508, 11509\n## Title: Questie|cFF00FF00 v12.1.0|r\n",
+                "Questie/Questie_Camelot.toc", "## Interface: 16001\n## Title: Questie|cFF00FF00 v12.1.0 Forever|r\n");
+        AddonInstaller.install(zip, addons);
+        assertEquals("Questie v12.1.0 Forever", AddonInstaller.installed(addons, 16001).get(0).title);
+        assertEquals("Questie v12.1.0 Forever", AddonInstaller.installed(addons, 16002).get(0).title);
+        assertEquals("Questie v12.1.0", AddonInstaller.installed(addons, 11508).get(0).title);
+        assertEquals("Questie game client not supported", AddonInstaller.installed(addons, 0).get(0).title);
+        assertEquals(Arrays.asList(11508, 11509), AddonInstaller.interfacesFromToc("\uFEFF## Interface: 11508, 11509\r\n"));
+    }
+
+    @Test
     public void neverOverwritesAnInstalledAddon() throws IOException {
         File dir = Files.createTempDirectory("addons").toFile();
         File addons = new File(dir, "AddOns");
