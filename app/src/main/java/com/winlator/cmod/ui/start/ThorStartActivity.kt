@@ -79,6 +79,7 @@ import com.winlator.cmod.core.AddonStore
 import com.winlator.cmod.core.GameUpdateCheck
 import com.winlator.cmod.core.ThorGame
 import com.winlator.cmod.core.ThorSetup
+import com.winlator.cmod.core.WowInterfaceStore
 import com.winlator.cmod.xenvironment.ImageFs
 import com.winlator.cmod.xenvironment.ImageFsInstaller
 import com.winlator.cmod.OnboardingActivity
@@ -132,6 +133,12 @@ class ThorStartActivity : ComponentActivity() {
     private var storeEntries by mutableStateOf<List<AddonStore.Entry>>(emptyList())
     /** What the store offers for each add-on (by repository), once GitHub answered. */
     private val storeOffers = mutableStateMapOf<String, StoreOffer>()
+    /** WoWInterface's add-ons that were checked to be made for the game, or null while checking. */
+    private var wowiItems by mutableStateOf<List<WowInterfaceStore.Item>?>(null)
+    private var wowiError by mutableStateOf<String?>(null)
+    private var wowiChecking = false
+    /** Checked WoWInterface downloads by "id:version": their add-on folders, empty when not for the game. */
+    private val wowiChecked = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
     private var installingAddon = false
     private val addonPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) installAddon(uri)
@@ -384,6 +391,7 @@ class ThorStartActivity : ComponentActivity() {
             addonStatus = "The game version is unknown, so the store can't tell which files fit."
             return
         }
+        checkWowInterface(gameInterface)
         for (entry in storeEntries) {
             if (storeOffers[entry.repo]?.error == null && storeOffers.containsKey(entry.repo)) continue
             storeOffers.remove(entry.repo)
@@ -396,17 +404,50 @@ class ThorStartActivity : ComponentActivity() {
         }
     }
 
+    /** Downloads WoWInterface's list and checks the add-ons that may be made for the game. */
+    private fun checkWowInterface(gameInterface: Int) {
+        if (wowiChecking || (wowiItems != null && wowiError == null)) return
+        wowiChecking = true
+        wowiItems = null
+        wowiError = null
+        val skip = storeEntries.map { it.name.lowercase() }.toSet()
+        val gameVersion = version
+        Thread {
+            val result = runCatching { WowInterfaceStore.findForGame(gameVersion, gameInterface, skip, wowiChecked, cacheDir) }
+                .onFailure { Log.w("ThorStart", "WoWInterface check failed", it) }
+            runOnUiThread {
+                wowiChecking = false
+                result.onSuccess { wowiItems = it }.onFailure { wowiItems = emptyList(); wowiError = it.message ?: "No connection" }
+            }
+        }.start()
+    }
+
     /** Downloads an add-on from the store and installs it like a picked .zip. */
     private fun installFromStore(entry: AddonStore.Entry) {
-        val addonsDir = AddonInstaller.addonsDir(game) ?: return
         val offer = storeOffers[entry.repo]?.offer ?: return
-        if (installingAddon || addons.any { it.folder.equals(entry.folder, ignoreCase = true) }) return
+        installStoreAddon(entry.name, listOf(entry.folder)) { addonsDir, progress ->
+            AddonStore.install(entry, offer, AddonStore.interfaceOf(version), addonsDir, cacheDir, progress)
+        }
+    }
+
+    private fun installFromWowInterface(item: WowInterfaceStore.Item) {
+        installStoreAddon(item.title, item.folders) { addonsDir, progress ->
+            WowInterfaceStore.install(item, AddonStore.interfaceOf(version), addonsDir, cacheDir, progress)
+        }
+    }
+
+    private fun isInstalled(folders: List<String>): Boolean =
+        folders.any { f -> addons.any { it.folder.equals(f, ignoreCase = true) } }
+
+    private fun installStoreAddon(name: String, folders: List<String>, install: (java.io.File, ThorSetup.Progress) -> List<String>) {
+        val addonsDir = AddonInstaller.addonsDir(game) ?: return
+        if (installingAddon || isInstalled(folders)) return
         installingAddon = true
-        addonStatus = "Downloading ${entry.name}..."
+        addonStatus = "Downloading $name..."
         Thread {
             val result = runCatching {
-                AddonStore.install(entry, offer, AddonStore.interfaceOf(version), addonsDir, cacheDir, ThorSetup.Progress { percent ->
-                    if (percent >= 0) runOnUiThread { addonStatus = "Downloading ${entry.name}... $percent%" }
+                install(addonsDir, ThorSetup.Progress { percent ->
+                    if (percent >= 0) runOnUiThread { addonStatus = "Downloading $name... $percent%" }
                 })
             }
             val list = runCatching { AddonInstaller.installed(addonsDir, AddonStore.interfaceOf(version)) }.getOrDefault(addons)
@@ -414,10 +455,10 @@ class ThorStartActivity : ComponentActivity() {
                 installingAddon = false
                 addons = list
                 addonStatus = result.fold(
-                    { "${entry.name} is installed. It works the next time WoW starts." },
+                    { "$name is installed. It works the next time WoW starts." },
                     { e ->
                         if (e is AddonInstaller.AlreadyInstalledException) "${e.message}. Updating an add-on is not possible yet."
-                        else "Could not install ${entry.name}: ${e.message}"
+                        else "Could not install $name: ${e.message}"
                     })
             }
         }.start()
@@ -544,9 +585,11 @@ class ThorStartActivity : ComponentActivity() {
         Column(Modifier.fillMaxWidth().height(u * 9 / 2).verticalScroll(rememberScrollState())) {
             // Only add-ons with a file made for this game: others would only give false hope.
             val shown = storeEntries.filter { e -> storeOffers[e.repo].let { it == null || it.offer != null || it.error != null } }
-            if (shown.isEmpty()) Text("No add-ons for your game version yet.", style = body, color = Sky)
+            val wowi = wowiItems
+            if (shown.isEmpty() && wowi != null && wowi.isEmpty() && wowiError == null)
+                Text("No add-ons for your game version yet.", style = body, color = Sky)
             for (entry in shown) {
-                val installed = addons.any { it.folder.equals(entry.folder, ignoreCase = true) }
+                val installed = isInstalled(listOf(entry.folder))
                 val state = storeOffers[entry.repo]
                 val action = when {
                     installed -> "Installed"
@@ -554,7 +597,19 @@ class ThorStartActivity : ComponentActivity() {
                     state.offer != null -> "Install"
                     else -> "Not reachable"
                 }
-                StoreRow(entry, action, u, body, enabled = !installed && state?.offer != null) { installFromStore(entry) }
+                StoreRow(entry.name, entry.description, action, u, body, enabled = !installed && state?.offer != null) { installFromStore(entry) }
+            }
+            // WoWInterface: only add-ons whose own files were checked to be made for the game.
+            when {
+                wowi == null -> Text("Checking WoWInterface...", style = body, color = Sky)
+                wowiError != null -> Text("WoWInterface is not reachable right now.", style = body, color = Sky)
+                else -> {
+                    for (item in wowi) {
+                        val installed = isInstalled(item.folders)
+                        StoreRow(item.title, "${item.version} by ${item.author} (WoWInterface)", if (installed) "Installed" else "Install",
+                            u, body, enabled = !installed) { installFromWowInterface(item) }
+                    }
+                }
             }
         }
         Spacer(Modifier.height(u / 2))
@@ -566,7 +621,7 @@ class ThorStartActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun StoreRow(entry: AddonStore.Entry, action: String, u: Dp, body: TextStyle, enabled: Boolean, onClick: () -> Unit) {
+    private fun StoreRow(name: String, description: String, action: String, u: Dp, body: TextStyle, enabled: Boolean, onClick: () -> Unit) {
         var focused by remember { mutableStateOf(false) }
         val px = onePx()
         Row(
@@ -583,8 +638,8 @@ class ThorStartActivity : ComponentActivity() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text(entry.name, style = body, color = GoldLight, maxLines = 1)
-                Text(entry.description, style = body.copy(fontSize = textSize(u / 2)), color = Sky, maxLines = 1)
+                Text(name, style = body, color = GoldLight, maxLines = 1)
+                Text(description, style = body.copy(fontSize = textSize(u / 2)), color = Sky, maxLines = 1)
             }
             Text(action, style = body, color = if (enabled) Teal else TextColor, maxLines = 1)
         }
