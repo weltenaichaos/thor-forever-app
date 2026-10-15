@@ -40,8 +40,14 @@ public final class ThorSetup {
     static final String WOW_SHORTCUT_FILE = "World of Warcraft Forever.desktop";
     /** The FEXCore preset of Jesse's WoW shortcut that runs well ("GameHub Extreme" there). */
     static final String FEX_PRESET_NAME = "Thor Extreme";
-    /** WoW's start argument in the shortcut that runs well: it makes WoW use Direct3D 11. */
-    static final String WOW_EXEC_ARGS = "-d3d11";
+    /** The game settings the Thor Forever launcher ships, in WTF next to WoW's exe. */
+    static final String WOW_CONFIG = "Config-Thor-Forever.wtf";
+    static final String WOW_CONFIG_ASSET = "thor/" + WOW_CONFIG;
+    /**
+     * WoW's start arguments, as the Thor Forever launcher starts it: Direct3D 11, and the
+     * launcher's game settings in place of Config.wtf.
+     */
+    static final String WOW_EXEC_ARGS = "-d3d11 -config " + WOW_CONFIG;
     /** Smaller than this is an error page, not the installer (it is about 5 MB). */
     private static final long MIN_INSTALLER_BYTES = 1024 * 1024;
 
@@ -189,10 +195,38 @@ public final class ThorSetup {
         // As in the WoW shortcut that runs well on the Thor; the container's default is fifo.
         shortcut.putExtra("rendererPresentMode", "mailbox");
         shortcut.putExtra("execArgs", WOW_EXEC_ARGS);
+        seedWowConfig(context, ThorGame.toAndroidPath(container, wowDosPath).getParentFile());
         String fexPreset = thorFexPreset(context);
         if (fexPreset != null) shortcut.putExtra("fexcorePreset", fexPreset);
         shortcut.saveData();
         return shortcut;
+    }
+
+    /**
+     * Puts the launcher's game settings into WoW's WTF folder when they aren't there yet. An
+     * existing file is never changed: WoW saves the player's own settings into it.
+     */
+    static void seedWowConfig(Context context, File wowDir) {
+        if (wowDir == null || !wowDir.isDirectory()) return;
+        try (InputStream in = context.getAssets().open(WOW_CONFIG_ASSET)) {
+            seedWowConfig(wowDir, in);
+        } catch (IOException ignored) {
+        }
+    }
+
+    /** Returns true when the file was written. */
+    static boolean seedWowConfig(File wowDir, InputStream template) throws IOException {
+        File config = new File(wowDir, "WTF/" + WOW_CONFIG);
+        if (config.exists()) return false;
+        File wtf = config.getParentFile();
+        if (!wtf.isDirectory() && !wtf.mkdirs()) throw new IOException("Could not create " + wtf);
+        File part = new File(wtf, WOW_CONFIG + ".part");
+        try (OutputStream out = new FileOutputStream(part)) {
+            byte[] buffer = new byte[8192];
+            for (int n; (n = template.read(buffer)) > 0; ) out.write(buffer, 0, n);
+        }
+        if (!part.renameTo(config)) throw new IOException("Could not write " + config);
+        return true;
     }
 
     /** Writes a shortcut that runs a Windows program in the container, into the app's cache. */
@@ -228,7 +262,7 @@ public final class ThorSetup {
      * Fixes WoW shortcuts an earlier version of the first setup added: they left TU_DEBUG and
      * DXVK_HUD out, so the game still got the container's values, had no present mode, a shorter
      * DXVK_CONFIG, no DXVK_STATE_CACHE or WRAPPER_NO_PATCH_OPCONSTCOMP and no FEXCore preset of
-     * their own and no -d3d11. Only those change, and
+     * their own and not the launcher's start arguments and game settings. Only those change, and
      * only where the shortcut still has what the setup wrote.
      */
     public static void fixAddedWowShortcuts(ContainerManager manager) {
@@ -237,7 +271,12 @@ public final class ThorSetup {
             EnvVars envVars = new EnvVars(shortcut.getExtra("envVars"));
             boolean presentMode = shortcut.getExtra("rendererPresentMode").isEmpty();
             boolean fexPreset = shortcut.getExtra("fexcorePreset").isEmpty();
-            boolean execArgs = shortcut.getExtra("execArgs").isEmpty();
+            String oldArgs = shortcut.getExtra("execArgs");
+            // Empty, or "-d3d11" from the build before the game settings came along.
+            boolean execArgs = oldArgs.isEmpty() || oldArgs.trim().equals("-d3d11");
+            if (shortcut.getExtra("execArgs", WOW_EXEC_ARGS).contains(WOW_CONFIG) || execArgs) {
+                seedWowConfig(manager.getContext(), ThorGame.toAndroidPath(shortcut.container, shortcut.path).getParentFile());
+            }
             String before = envVars.toString();
             if (!envVars.has("TU_DEBUG")) envVars.put("TU_DEBUG", "");
             if (!envVars.has("DXVK_HUD")) envVars.put("DXVK_HUD", "");

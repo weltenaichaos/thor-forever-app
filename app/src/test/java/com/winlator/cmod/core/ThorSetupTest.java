@@ -49,6 +49,18 @@ public class ThorSetupTest {
     }
 
     @Test
+    public void putsTheGameSettingsInPlaceOnceAndNeverChangesThem() throws java.io.IOException {
+        java.io.File wow = java.nio.file.Files.createTempDirectory("wow").toFile();
+        assertTrue(ThorSetup.seedWowConfig(wow, new java.io.ByteArrayInputStream("SET portal \"test\"\n".getBytes())));
+        java.io.File config = new java.io.File(wow, "WTF/Config-Thor-Forever.wtf");
+        assertEquals("SET portal \"test\"\n", new String(java.nio.file.Files.readAllBytes(config.toPath())));
+        java.nio.file.Files.write(config.toPath(), "players own".getBytes());
+        assertFalse(ThorSetup.seedWowConfig(wow, new java.io.ByteArrayInputStream("new".getBytes())));
+        assertEquals("players own", new String(java.nio.file.Files.readAllBytes(config.toPath())));
+        assertEquals("-d3d11 -config Config-Thor-Forever.wtf", ThorSetup.WOW_EXEC_ARGS);
+    }
+
+    @Test
     public void keepsSpacesInTheShortcutPath() {
         String[] paths = {
                 "C:\\Program Files (x86)\\Battle.net\\Battle.net Launcher.exe",
