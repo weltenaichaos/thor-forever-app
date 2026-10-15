@@ -458,11 +458,15 @@ public class SettingsFragment extends Fragment {
                 preferences.getBoolean("use_xr", true),
                 XrActivity.isSupported(),
                 preferences.getBoolean("high_refresh_rate_mode", false),
+                preferences.getBoolean("game_at_60hz", true),
                 preferences.getBoolean("enable_file_provider", true),
                 preferences.getBoolean("open_with_android_browser", false),
                 preferences.getBoolean("share_android_clipboard", false),
                 preferences.getBoolean("pause_resume_wine", true),
                 preferences.getBoolean("remove_loading_bar_when_booting_games", false),
+                preferences.getBoolean("close_when_wow_exits", true),
+                preferences.getBoolean("close_wow_voice_chat", false),
+                preferences.getBoolean("fps_cap_vsync", true),
                 preferences.getBoolean("game_saves_all_shortcuts", false),
                 preferences.getBoolean("enable_wine_debug", false),
                 preferences.getString("wine_debug_channels", DEFAULT_WINE_DEBUG_CHANNELS),
@@ -471,7 +475,12 @@ public class SettingsFragment extends Fragment {
                 preferences.getBoolean("enable_custom_api_key", false),
                 preferences.getString("custom_api_key", ""),
                 preferences.getString("downloadable_contents_url", ContentsManager.REMOTE_PROFILES),
-                wineDebugOptions
+                wineDebugOptions,
+                preferences.getBoolean("skip_hidden_draws", false),
+                preferences.getBoolean("show_wine_taskbar", false),
+                preferences.getBoolean("wow_fast_main_core", true),
+                preferences.getBoolean("trace_wine_server", false),
+                preferences.getBoolean("time_wine_server", false)
         );
     }
 

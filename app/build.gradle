@@ -98,14 +98,35 @@ android {
         disable 'ExpiredTargetSdkVersion'
     }
 
+    // The bundled Thor Forever packages are already compressed.
+    androidResources {
+        noCompress 'wcp'
+    }
+
     defaultConfig {
         applicationId "com.winlator.cmod"
+        manifestPlaceholders = [appLabel: "Winlator Ludashi"]
+        // A second copy for testing the first setup: it installs next to the normal app,
+        // with its own data, so it starts like a new installation (-PthorSetupTest=true).
+        if (project.findProperty("thorSetupTest") == "true") {
+            applicationId "com.winlator.cmod.setuptest"
+            manifestPlaceholders = [appLabel: "Thor Setup Test"]
+        }
+        // The public release: Thor Forever, as its own app next to any Winlator (-PthorRelease=true).
+        if (project.findProperty("thorRelease") == "true") {
+            applicationId "com.thorforever.app"
+            manifestPlaceholders = [appLabel: "Thor Forever"]
+        }
         minSdkVersion 28
         // We’re preserving Winlator’s request to keep targetSdkVersion at 28
         targetSdkVersion 28
 
-        versionCode 20
-        versionName "4.1"
+        versionCode 21
+        versionName "0.1.0"
+
+        // Which CI build this is, so the app can tell whether a newer test build exists.
+        buildConfigField "int", "CI_BUILD_NUMBER", (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
+        buildConfigField "String", "CI_BRANCH", "\"" + (System.getenv("GITHUB_REF_NAME") ?: "local") + "\""
 
         // External native build from Winlator
         externalNativeBuild {
@@ -132,6 +153,21 @@ android {
         freeCompilerArgs += ['-opt-in=androidx.compose.material3.ExperimentalMaterial3Api']
     }
 
+    // Release builds are signed with our own fixed key when CI provides it (see the
+    // workflow), so a new APK installs over the old one and keeps its data.
+    // Without the key (local builds) the debug key is used, as before.
+    def thorKeystore = System.getenv("THOR_KEYSTORE_FILE")
+    signingConfigs {
+        if (thorKeystore) {
+            thor {
+                storeFile file(thorKeystore)
+                storePassword System.getenv("THOR_KEYSTORE_PASSWORD")
+                keyAlias "thor"
+                keyPassword System.getenv("THOR_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     // Keep Winlator’s buildTypes
     buildTypes {
         debug {
@@ -139,7 +175,7 @@ android {
         }
         release {
             minifyEnabled false
-            signingConfig signingConfigs.debug
+            signingConfig thorKeystore ? signingConfigs.thor : signingConfigs.debug
             crunchPngs false
         }
     }
@@ -165,11 +201,16 @@ android {
     buildFeatures {
         prefab = true
         compose = true
+        buildConfig = true
     }
 }
 
 dependencies {
+    // The Forever Companion (thor.companion): its decoder reads the addon's data square.
+    implementation project(':companion-decoder')
     implementation platform('androidx.compose:compose-bom:2025.08.00')
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
     implementation 'androidx.activity:activity-compose:1.10.1'
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.ui:ui-tooling-preview'

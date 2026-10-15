@@ -13,6 +13,10 @@ import android.view.MotionEvent;
 import android.view.PointerIcon;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.BaseInputConnection;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 
 import androidx.preference.PreferenceManager;
@@ -742,5 +746,34 @@ public class TouchpadView extends View {
     
     public void setMouseEnabled(boolean enabled) {
         this.mouseEnabled = enabled;
+    }
+
+    // Android 12+ only opens the on-screen keyboard for a focused view that accepts text.
+    // While the keyboard is requested this view says it does, and the keyboard's input is
+    // turned into plain key events, which go the usual way to the X server.
+    private boolean softKeyboardRequested = false;
+
+    public void showSoftKeyboard() {
+        softKeyboardRequested = true;
+        requestFocus();
+        InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm == null) return;
+        imm.restartInput(this);
+        if (!imm.showSoftInput(this, InputMethodManager.SHOW_FORCED)) {
+            imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0);
+        }
+    }
+
+    @Override
+    public boolean onCheckIsTextEditor() {
+        return softKeyboardRequested;
+    }
+
+    @Override
+    public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+        if (!softKeyboardRequested) return null;
+        outAttrs.inputType = EditorInfo.TYPE_NULL;
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI;
+        return new BaseInputConnection(this, false);
     }
 }

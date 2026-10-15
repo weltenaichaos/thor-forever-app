@@ -10,6 +10,7 @@
     <uses-feature android:name="oculus.software.overlay_keyboard" android:required="false" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -24,9 +25,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <!-- The Forever Companion's speech to text for chat messages (the 🎤 key next to Send), only while it listens. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
 
     <application
-        android:label="Winlator Ludashi"
+        android:label="${appLabel}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/AppTheme"
@@ -59,9 +67,9 @@
             android:exported="false" />
 
         <activity
-            android:name="com.winlator.cmod.MainActivity"
-            android:theme="@style/AppTheme.Dark"
-            android:screenOrientation="sensor"
+            android:name="com.winlator.cmod.ui.start.ThorStartActivity"
+            android:theme="@style/AppThemeFullscreen.Dark"
+            android:screenOrientation="sensorLandscape"
             android:exported="true"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation">
             <intent-filter>
@@ -70,7 +78,24 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name="com.winlator.cmod.MainActivity"
+            android:theme="@style/AppTheme.Dark"
+            android:screenOrientation="sensor"
+            android:exported="true"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation" />
+
         <activity android:name="com.winlator.cmod.BigPictureActivity" android:theme="@style/Theme.AppCompat" android:exported="false" />
+
+        <!-- The Forever Companion: WoW's bags, character, quests, map and chat on the Thor's other screen. -->
+        <activity
+            android:name="thor.companion.CompanionActivity"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.winlator.cmod.companion"
+            android:resizeableActivity="true"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density" />
 
         <activity
             android:name="com.winlator.cmod.XServerDisplayActivity"
@@ -117,7 +142,7 @@
 
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.winlator.cmod.tileprovider"
+            android:authorities="${applicationId}.tileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
@@ -125,7 +150,7 @@
 
         <provider
             android:name=".core.WinlatorFilesProvider"
-            android:authorities="com.winlator.cmod.core.WinlatorFilesProvider"
+            android:authorities="${applicationId}.core.WinlatorFilesProvider"
             android:exported="true"
             android:grantUriPermissions="true"
             android:permission="android.permission.MANAGE_DOCUMENTS">

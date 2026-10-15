@@ -8,6 +8,7 @@ import com.winlator.cmod.xconnector.XOutputStream;
 import com.winlator.cmod.xconnector.XStreamLock;
 import com.winlator.cmod.xserver.Drawable;
 import com.winlator.cmod.xserver.GraphicsContext;
+import com.winlator.cmod.xserver.Window;
 import com.winlator.cmod.xserver.XClient;
 import com.winlator.cmod.xserver.errors.BadDrawable;
 import com.winlator.cmod.xserver.errors.BadGraphicsContext;
@@ -16,6 +17,7 @@ import com.winlator.cmod.xserver.errors.XRequestError;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.List;
 
 public abstract class DrawRequests {
     public enum Format {BITMAP, XY_PIXMAP, Z_PIXMAP}
@@ -37,6 +39,7 @@ public abstract class DrawRequests {
 
         Drawable drawable =  client.xServer.drawableManager.getDrawable(drawableId);
         if (drawable == null) throw new BadDrawable(drawableId);
+        com.winlator.cmod.xserver.XRequestStats.setPutImageTarget(drawableId);
 
         GraphicsContext graphicsContext = client.xServer.graphicsContextManager.getGraphicsContext(gcId);
         if (graphicsContext == null) throw new BadGraphicsContext(gcId);
@@ -58,11 +61,47 @@ public abstract class DrawRequests {
                 break;
             case Z_PIXMAP:
                 if (leftPad == 0) {
+                    if (client.xServer.skipHiddenDraws && isHidden(client.xServer.windowManager.getWindow(drawableId), dstX, dstY, width, height)) {
+                        client.xServer.skippedHiddenDraws++;
+                        break;
+                    }
                     drawable.drawImage((short)0, (short)0, dstX, dstY, width, height, depth, data, width, height);
                 }
                 else throw new BadMatch();
                 break;
         }
+    }
+
+    /**
+     * True when this area of the window is completely behind another mapped window: one of
+     * its own children, or a window stacked above it or above one of its parents. Nothing
+     * drawn there can be seen. Wine's desktop keeps repainting its background behind a
+     * full-screen game, and copying that into the window is wasted work.
+     */
+    static boolean isHidden(Window window, int x, int y, int width, int height) {
+        if (window == null || !window.attributes.isMapped()) return false;
+        for (Window child : window.getChildren()) {
+            if (covers(child, x, y, width, height)) return true;
+        }
+        for (Window parent = window.getParent(); parent != null; window = parent, parent = parent.getParent()) {
+            x += window.getX();
+            y += window.getY();
+            List<Window> siblings = parent.getChildren();
+            for (int i = siblings.indexOf(window) + 1; i > 0 && i < siblings.size(); i++) {
+                if (covers(siblings.get(i), x, y, width, height)) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A window redirected with XComposite is not shown on screen: Wine renders the game's
+     * Vulkan child offscreen and copies the frames into the parent, so it hides nothing.
+     */
+    private static boolean covers(Window window, int x, int y, int width, int height) {
+        return window.attributes.isMapped() && window.isInputOutput() && !window.isCompositeRedirected() &&
+            window.getX() <= x && window.getY() <= y &&
+            window.getX() + window.getWidth() >= x + width && window.getY() + window.getHeight() >= y + height;
     }
 
     public static void getImage(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {

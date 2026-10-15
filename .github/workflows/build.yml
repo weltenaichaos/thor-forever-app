@@ -2,6 +2,15 @@ name: Android CI Bionic
 
 on:
   workflow_dispatch:
+    inputs:
+      setup_test_copy:
+        description: 'Build the "Thor Setup Test" copy that installs next to the normal app and starts fresh'
+        type: boolean
+        default: false
+      release:
+        description: 'Build the public "Thor Forever" release APK (its own app, com.thorforever.app)'
+        type: boolean
+        default: false
   push:
     branches:
       - 4.1
@@ -9,7 +18,96 @@ permissions:
   contents: write
 
 jobs:
+  # Turnip from Mesa 26.2.3 with the shader cache on and the scheduler fix from
+  # patches/, the best tested driver in the Thor Forever launcher. Cached, so it
+  # only rebuilds when the Mesa version, NDK or patch changes.
+  turnip:
+    runs-on: ubuntu-24.04
+    env:
+      NDK_VERSION: r27d
+      MESA_REF: mesa-26.2.3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore driver from cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: turnip-out
+          key: turnip-${{ env.MESA_REF }}-${{ env.NDK_VERSION }}-cache-on-${{ hashFiles('patches/turnip-*.patch') }}
+
+      - name: Install build tools
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslang-tools flex bison ninja-build
+          pip install --user meson mako pyyaml packaging pycparser
+
+      - name: Download Android NDK
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o ndk.zip "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
+          unzip -q ndk.zip
+          echo "NDK=$PWD/android-ndk-${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Build Turnip
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          git init -q mesa
+          git -C mesa fetch -q --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git "$MESA_REF"
+          git -C mesa checkout -q FETCH_HEAD
+          git -C mesa apply --verbose "$GITHUB_WORKSPACE"/patches/turnip-*.patch
+          bin="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          cat > android-aarch64.ini <<INI
+          [binaries]
+          c = '$bin/aarch64-linux-android28-clang'
+          cpp = '$bin/aarch64-linux-android28-clang++'
+          ar = '$bin/llvm-ar'
+          strip = '$bin/llvm-strip'
+
+          [built-in options]
+          c_link_args = ['-Wl,-z,max-page-size=16384']
+          cpp_link_args = ['-static-libstdc++', '-Wl,-z,max-page-size=16384']
+
+          [properties]
+          needs_exe_wrapper = true
+
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'armv8'
+          endian = 'little'
+          INI
+          cd mesa
+          meson setup build --cross-file ../android-aarch64.ini \
+            --wrap-mode=nofallback \
+            -Dgallium-drivers= -Dvulkan-drivers=freedreno -Dfreedreno-kmds=kgsl \
+            -Dplatforms=android -Dandroid-stub=true -Dandroid-libbacktrace=disabled \
+            -Dandroid-libperfetto=disabled -Dplatform-sdk-version=28 \
+            -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dllvm=disabled \
+            -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dbuild-tests=false \
+            -Dvideo-codecs= -Dbuildtype=release -Dzstd=disabled -Dexpat=disabled \
+            -Dzlib=enabled -Dshader-cache=enabled
+          ninja -C build src/freedreno/vulkan/libvulkan_freedreno.so
+          cd ..
+          mkdir -p turnip-out
+          "$bin/llvm-strip" -o turnip-out/libvulkan_freedreno.so mesa/build/src/freedreno/vulkan/libvulkan_freedreno.so
+          echo "Mesa $(git -C mesa rev-parse HEAD) ($MESA_REF), NDK $NDK_VERSION, shader cache on, patches: $(cd patches && ls turnip-*.patch)" > turnip-out/BUILD-INFO.txt
+
+      - name: Show driver
+        run: |
+          cat turnip-out/BUILD-INFO.txt
+          sha256sum turnip-out/libvulkan_freedreno.so
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: turnip-thor
+          path: turnip-out/
+          if-no-files-found: error
+
   build:
+    needs: turnip
     runs-on: ubuntu-latest
 
     steps:
@@ -44,6 +142,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y glslang-tools ninja-build zstd
 
+      - name: Download Turnip driver
+        uses: actions/download-artifact@v4
+        with:
+          name: turnip-thor
+          path: ${{ runner.temp }}/turnip
+
+      - name: Bundle Turnip driver
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/turnip"
+          cat > "$d/meta.json" <<'JSON'
+          {"schemaVersion":1,"name":"thor-turnip-26.2.3","description":"Turnip (Mesa 26.2.3, shader cache on) as tested with the Thor Forever launcher","author":"Mesa","packageVersion":"1","vendor":"Mesa","driverVersion":"26.2.3","minApi":28,"libraryName":"libvulkan_freedreno.so"}
+          JSON
+          tar -C "$d" -cf - meta.json libvulkan_freedreno.so | zstd -19 -q -o app/src/main/assets/graphics_driver/adrenotools-thor-turnip-26.2.3.tzst
+          ls -la app/src/main/assets/graphics_driver/
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
@@ -66,12 +180,31 @@ jobs:
           cp "$LAYER" app/src/main/jniLibs/arm64-v8a/libVkLayer_khronos_validation.so
           test -s app/src/main/jniLibs/arm64-v8a/libVkLayer_khronos_validation.so
 
+      - name: Load our signing key
+        env:
+          THOR_KEYSTORE_BASE64: ${{ secrets.THOR_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$THOR_KEYSTORE_BASE64" ]; then
+            echo "$THOR_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/thor.p12"
+            echo "THOR_KEYSTORE_FILE=$RUNNER_TEMP/thor.p12" >> "$GITHUB_ENV"
+          else
+            echo "::warning::THOR_KEYSTORE_BASE64 is not set; the APK is signed with a throwaway debug key."
+          fi
+
+      - name: Forever Companion decoder tests
+        run: ./gradlew :companion-decoder:test
+
       - name: Build with Gradle
-        run: ./gradlew assembleRelease
+        env:
+          THOR_KEYSTORE_PASSWORD: ${{ secrets.THOR_KEYSTORE_PASSWORD }}
+        run: ./gradlew assembleRelease -PthorSetupTest=${{ inputs.setup_test_copy == true }} -PthorRelease=${{ inputs.release == true }}
+
+      - name: Run unit tests
+        run: ./gradlew testReleaseUnitTest
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Bionic-Build-${{ github.run_number }}
+          name: ${{ inputs.release == true && 'Thor-Forever' || (inputs.setup_test_copy == true && 'Thor-Setup-Test' || 'Bionic-Build') }}-${{ github.run_number }}
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error

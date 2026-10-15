@@ -19,6 +19,8 @@ import com.winlator.cmod.xserver.XLock;
 import com.winlator.cmod.xserver.XResource;
 import com.winlator.cmod.xserver.XResourceManager;
 import com.winlator.cmod.xserver.XServer;
+import com.winlator.cmod.xserver.VsyncClock;
+import com.winlator.cmod.xserver.VsyncPacer;
 import com.winlator.cmod.xserver.errors.BadImplementation;
 import com.winlator.cmod.xserver.errors.BadMatch;
 import com.winlator.cmod.xserver.errors.BadPixmap;
@@ -130,8 +132,15 @@ public class PresentExtension implements Extension, XResourceManager.OnResourceL
         synchronized (limiterLock) {
             if (limiterDeadlines == null) limiterDeadlines = new HashMap<>();
             Long previous = limiterDeadlines.get(window.id);
-            deadline = previous == null || previous < now
-                    ? now + frameDurationNs : previous + frameDurationNs;
+            VsyncClock clock = VsyncClock.get();
+            long vsync = clock != null ? clock.lastVsyncNs() : 0;
+            long period = clock != null ? clock.periodNs() : 0;
+            if (vsync != 0 && period > 0) {
+                deadline = VsyncPacer.nextDeadline(previous != null ? previous : 0, now, vsync, period, targetFps);
+            } else {
+                deadline = previous == null || previous < now
+                        ? now + frameDurationNs : previous + frameDurationNs;
+            }
             limiterDeadlines.put(window.id, deadline);
 
             if (limiterExecutor == null) {
@@ -181,6 +190,7 @@ public class PresentExtension implements Extension, XResourceManager.OnResourceL
         final Pixmap pixmap = client.xServer.pixmapManager.getPixmap(pixmapId);
         if (pixmap == null) throw new BadPixmap(pixmapId);
 
+        com.winlator.cmod.xserver.FramePacingStats.onPresent();
         int targetFps = client.xServer.getXServerView() != null
                 ? client.xServer.getXServerView().getFpsLimit() : 0;
         if (targetFps > 1000) targetFps = 1000;

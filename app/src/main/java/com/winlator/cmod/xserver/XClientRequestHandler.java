@@ -168,6 +168,8 @@ public class XClientRequestHandler implements RequestHandler {
         client.setRequestData(requestData);
         client.setRequestLength(requestLength);
 
+        long requestStart = System.nanoTime();
+        long skippedBefore = client.xServer.skippedHiddenDraws;
         try {
             switch (opcode) {
                 case ClientOpcodes.CREATE_WINDOW:
@@ -372,7 +374,7 @@ public class XClientRequestHandler implements RequestHandler {
                     }
                     break;
                 case ClientOpcodes.PUT_IMAGE:
-                    try (XLock lock = client.xServer.lock(XServer.Lockable.DRAWABLE_MANAGER, XServer.Lockable.GRAPHIC_CONTEXT_MANAGER)) {
+                    try (XLock lock = client.xServer.lock(XServer.Lockable.WINDOW_MANAGER, XServer.Lockable.DRAWABLE_MANAGER, XServer.Lockable.GRAPHIC_CONTEXT_MANAGER)) {
                         DrawRequests.putImage(client, inputStream, outputStream);
                     }
                     break;
@@ -459,6 +461,8 @@ public class XClientRequestHandler implements RequestHandler {
             client.skipRequest();
             e.sendError(client, opcode);
         }
+        XRequestStats.record(client.resourceIDBase, opcode, requestData, requestLength, System.nanoTime() - requestStart,
+                client.xServer.skippedHiddenDraws != skippedBefore);
 
         return true;
     }

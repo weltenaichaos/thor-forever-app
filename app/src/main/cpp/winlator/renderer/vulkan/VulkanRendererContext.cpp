@@ -11,6 +11,43 @@
 #include <inttypes.h>
 #include <dlfcn.h>
 #include "window_vert.h"
+
+namespace {
+std::atomic<bool> gCompositorStatsOn{false};
+std::mutex gCompositorStatsMutex;
+int64_t gCompositorStats[COMPOSITOR_STATS_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1};
+}
+
+static bool compositorStatsEnabled() { return gCompositorStatsOn.load(std::memory_order_relaxed); }
+
+static void compositorStatsSetTimestampInfo(int64_t validBits, int64_t lastResult) {
+    std::lock_guard<std::mutex> lk(gCompositorStatsMutex);
+    if (validBits != INT64_MIN) gCompositorStats[10] = validBits;
+    if (lastResult != INT64_MIN) gCompositorStats[11] = lastResult;
+}
+
+static void compositorStatsAddGpu(uint64_t ns) {
+    std::lock_guard<std::mutex> lk(gCompositorStatsMutex);
+    gCompositorStats[1]++;
+    gCompositorStats[2] += (int64_t)ns;
+    gCompositorStats[3] = std::max(gCompositorStats[3], (int64_t)ns);
+}
+
+static void compositorStatsAddFrame(uint64_t cpuNs, int w, int h, int filter, int postFX, int draws) {
+    std::lock_guard<std::mutex> lk(gCompositorStatsMutex);
+    gCompositorStats[0]++;
+    gCompositorStats[4] += (int64_t)cpuNs;
+    gCompositorStats[5] = w; gCompositorStats[6] = h;
+    gCompositorStats[7] = filter; gCompositorStats[8] = postFX;
+    gCompositorStats[9] += draws;
+}
+
+void drainCompositorStats(int64_t out[COMPOSITOR_STATS_COUNT]) {
+    gCompositorStatsOn.store(true, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lk(gCompositorStatsMutex);
+    for (int i = 0; i < COMPOSITOR_STATS_COUNT; i++) out[i] = gCompositorStats[i];
+    for (int i : {0, 1, 2, 3, 4, 9}) gCompositorStats[i] = 0;
+}
 #include "window_frag.h"
 #include "window_sgsr_frag.h"
 #include "window_fsr1_frag.h"
@@ -72,6 +109,7 @@ VulkanRendererContext::~VulkanRendererContext() {
         vk_.DestroyFence(device, inFlightFences[i], nullptr);
     }
     vk_.DestroyCommandPool(device, cmdPool, nullptr);
+    if (timestampPool != VK_NULL_HANDLE) vk_.DestroyQueryPool(device, timestampPool, nullptr);
     vk_.DestroyRenderPass(device, renderPass, nullptr);
     vk_.DestroyDevice(device, nullptr);
     vk_.DestroySurfaceKHR(instance, surface, nullptr);
@@ -173,6 +211,11 @@ void VulkanRendererContext::loadDeviceDispatch() {
     LOAD_D2(DestroyFence);
     LOAD_D2(WaitForFences);
     LOAD_D2(ResetFences);
+    LOAD_D2(CreateQueryPool);
+    LOAD_D2(DestroyQueryPool);
+    LOAD_D2(CmdResetQueryPool);
+    LOAD_D2(CmdWriteTimestamp);
+    LOAD_D2(GetQueryPoolResults);
     LOAD_D2(GetFenceStatus);
 
     vk_.GetAndroidHardwareBufferPropertiesANDROID =
@@ -356,6 +399,26 @@ void VulkanRendererContext::createLogicalDevice() {
     VkPhysicalDeviceProperties props{};
     vk_.GetPhysicalDeviceProperties(physicalDevice, &props);
     maxAnisotropy = props.limits.maxSamplerAnisotropy;
+
+    uint32_t qCount = 0;
+    vk_.GetPhysicalDeviceQueueFamilyProperties(physicalDevice, &qCount, nullptr);
+    std::vector<VkQueueFamilyProperties> qProps(qCount);
+    vk_.GetPhysicalDeviceQueueFamilyProperties(physicalDevice, &qCount, qProps.data());
+    uint32_t validBits = graphicsQueueFamilyIndex < qCount ? qProps[graphicsQueueFamilyIndex].timestampValidBits : 0;
+    if (validBits > 0 && props.limits.timestampPeriod > 0 && vk_.CreateQueryPool && vk_.CmdWriteTimestamp &&
+        vk_.CmdResetQueryPool && vk_.GetQueryPoolResults) {
+        VkQueryPoolCreateInfo qi{}; qi.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+        qi.queryType = VK_QUERY_TYPE_TIMESTAMP; qi.queryCount = MAX_FRAMES_IN_FLIGHT * 2;
+        if (vk_.CreateQueryPool(device, &qi, nullptr, &timestampPool) == VK_SUCCESS) {
+            timestampPeriodNs = props.limits.timestampPeriod;
+            timestampMask = validBits >= 64 ? ~0ull : ((1ull << validBits) - 1);
+        } else {
+            timestampPool = VK_NULL_HANDLE;
+        }
+    }
+    compositorStatsSetTimestampInfo(timestampPool != VK_NULL_HANDLE ? (int64_t)validBits : -1, INT64_MIN);
+    __android_log_print(ANDROID_LOG_INFO, WLOG_TAG, "GPU timestamps: %s (validBits=%u period=%.2f ns)",
+        timestampPool != VK_NULL_HANDLE ? "available" : "unavailable", validBits, props.limits.timestampPeriod);
 }
 
 void VulkanRendererContext::createSwapchain() {
@@ -968,6 +1031,10 @@ void VulkanRendererContext::recordCmdBuf(VkCommandBuffer cb, uint32_t imgIdx,
 {
     VkCommandBufferBeginInfo bi{}; bi.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     if (vk_.BeginCommandBuffer(cb,&bi)!=VK_SUCCESS) throw std::runtime_error("begin cb");
+    if (timestampRecording) {
+        vk_.CmdResetQueryPool(cb, timestampPool, currentFrame * 2, 2);
+        vk_.CmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestampPool, currentFrame * 2);
+    }
 
     ahbTransitions.clear(); preUpload.clear(); postUpload.clear();
 
@@ -1132,6 +1199,8 @@ void VulkanRendererContext::recordCmdBuf(VkCommandBuffer cb, uint32_t imgIdx,
         vk_.CmdDraw(cb, 4, 1, 0, 0);
     }
     vk_.CmdEndRenderPass(cb);
+    if (timestampRecording)
+        vk_.CmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestampPool, currentFrame * 2 + 1);
 
     VkResult endStatus = vk_.EndCommandBuffer(cb);
     if (endStatus!=VK_SUCCESS) {
@@ -1188,6 +1257,7 @@ void VulkanRendererContext::destroyTexNow(RetiredTex& retired) {
 
 void VulkanRendererContext::renderFrame() {
     std::shared_lock<std::shared_mutex> frameLock(frameMutex);
+    auto frameStart = std::chrono::steady_clock::now();
 
     needsRender.store(false,std::memory_order_relaxed);
     cursorMoved.store(false,std::memory_order_relaxed);
@@ -1240,6 +1310,15 @@ void VulkanRendererContext::renderFrame() {
         currentFenceWaited = true;
     } else if (fenceState!=VK_SUCCESS) throw std::runtime_error("frame fence status");
     completedSerial=std::max(completedSerial,slotSerial[currentFrame]);
+    if (timestampPending[currentFrame]) {
+        timestampPending[currentFrame] = false;
+        uint64_t ts[2] = {};
+        VkResult qr = vk_.GetQueryPoolResults(device, timestampPool, currentFrame * 2, 2, sizeof(ts), ts,
+                sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+        compositorStatsSetTimestampInfo(INT64_MIN, qr);
+        if (qr == VK_SUCCESS)
+            compositorStatsAddGpu((uint64_t)((double)((ts[1] - ts[0]) & timestampMask) * timestampPeriodNs));
+    }
     if (retirePending.load(std::memory_order_acquire)) {
         std::lock_guard<std::mutex> lk(renderMutex);
         if (!deleteQueue.empty()) {
@@ -1346,6 +1425,9 @@ void VulkanRendererContext::renderFrame() {
         curW=cursorTexW; curH=cursorTexH;
     }
 
+    // The CMake build swaps recordCmdBuf for the one in VulkanRendererFilters.cpp; both write
+    // the timestamps when this is set.
+    timestampRecording = timestampPool != VK_NULL_HANDLE && compositorStatsEnabled();
     recordCmdBuf(cmdBufs[currentFrame],imgIdx,frameDraws,
         frameAhbTransitions,framePreUpload,framePostUpload,
         curUpload,hasCurUpload,
@@ -1372,6 +1454,10 @@ void VulkanRendererContext::renderFrame() {
         swapchainRetryPending.store(true);
         return;
     }
+    timestampPending[currentFrame] = timestampRecording;
+    if (compositorStatsEnabled())
+        compositorStatsAddFrame((uint64_t)(std::chrono::steady_clock::now() - frameStart).count(),
+            (int)swapchainExt.width, (int)swapchainExt.height, filterMode, postFXMode, (int)frameDraws.size());
     {
         std::lock_guard<std::mutex> lk(renderMutex);
         slotSerial[currentFrame]=pendingFrameSerial;

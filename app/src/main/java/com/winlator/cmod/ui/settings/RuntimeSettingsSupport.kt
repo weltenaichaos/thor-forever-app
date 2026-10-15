@@ -3,6 +3,9 @@ package com.winlator.cmod.ui.settings
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +64,7 @@ import com.winlator.cmod.core.WineInfo
 import com.winlator.cmod.core.WineRuntimeGuard
 import com.winlator.cmod.core.WineThemeManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -120,7 +125,8 @@ internal suspend fun loadWineRuntimeOptions(context: Context): List<WineRuntimeO
             val id = ContentsManager.getEntryName(profile)
             out[id] = WineRuntimeOption(
                 id = id,
-                label = profile.verName,
+                // Builds of the same Wine share a name, so the version code tells them apart.
+                label = if (profile.verCode > 0) "${profile.verName} (build ${profile.verCode})" else profile.verName,
                 type = type.toString(),
                 version = profile.verName,
                 installed = profile.remoteUrl == null
@@ -655,6 +661,25 @@ internal fun SettingDriverChoice(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedOption = options.firstOrNull { it.id.equals(selected, ignoreCase = true) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var importing by remember { mutableStateOf(false) }
+    val driverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        importing = true
+        scope.launch {
+            val installed = withContext(Dispatchers.IO) {
+                runCatching { AdrenotoolsManager(context).installDriver(uri) }.getOrDefault("")
+            }
+            importing = false
+            if (installed.isBlank()) {
+                Toast.makeText(context, "Unable to install driver. It needs to be a .zip with meta.json, or a driver with that name is already installed.", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(context, "Installed driver: $installed", Toast.LENGTH_SHORT).show()
+                onSelected(installed)
+            }
+        }
+    }
     Box(Modifier.fillMaxWidth()) {
         Surface(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), color = Color.Transparent) {
             Row(
@@ -702,6 +727,17 @@ internal fun SettingDriverChoice(
                     }
                 )
             }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text(if (importing) "Installing…" else "Install from file…") },
+                trailingIcon = { if (importing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) },
+                onClick = {
+                    if (!importing) {
+                        expanded = false
+                        driverPicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                    }
+                }
+            )
         }
     }
 }

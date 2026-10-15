@@ -39,6 +39,7 @@ import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -102,11 +103,15 @@ data class SettingsModel(
     val useXr: Boolean,
     val xrSupported: Boolean,
     val highRefreshRate: Boolean,
+    val gameAt60Hz: Boolean,
     val fileProvider: Boolean,
     val openInBrowser: Boolean,
     val shareClipboard: Boolean,
     val pauseWine: Boolean,
     val removeLoadingBar: Boolean,
+    val closeWhenWowExits: Boolean,
+    val closeWowVoiceChat: Boolean,
+    val fpsCapVsync: Boolean,
     val gameSavesAllShortcuts: Boolean,
     val wineDebug: Boolean,
     val wineDebugChannels: String,
@@ -115,7 +120,12 @@ data class SettingsModel(
     val customApiKeyEnabled: Boolean,
     val customApiKey: String,
     val contentsUrl: String,
-    val wineDebugOptions: List<String>
+    val wineDebugOptions: List<String>,
+    val skipHiddenDraws: Boolean,
+    val showWineTaskbar: Boolean,
+    val wowFastMainCore: Boolean,
+    val traceWineServer: Boolean,
+    val timeWineServer: Boolean
 )
 
 @Stable
@@ -301,7 +311,53 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                     GroupDivider()
                     ToggleRow(stringResource(R.string.high_refresh_rate), model.highRefreshRate) { callbacks.onBooleanChanged("high_refresh_rate_mode", it) }
                     GroupDivider()
+                    ToggleRow(
+                        "Run games at 60 Hz",
+                        model.gameAt60Hz,
+                        "Switches a 120 Hz screen to 60 Hz while a game runs. Smoother frame pacing below 60 fps and less work for the graphics chip. High Refresh Rate Mode wins when both are on."
+                    ) { callbacks.onBooleanChanged("game_at_60hz", it) }
+                    GroupDivider()
                     ToggleRow(stringResource(R.string.remove_loading_bar_when_booting_games), model.removeLoadingBar) { callbacks.onBooleanChanged("remove_loading_bar_when_booting_games", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Skip drawing hidden desktop",
+                        model.skipHiddenDraws,
+                        "Don't copy what Windows draws behind a full-screen game. Saves CPU. Applies on next game start. Can stop the newest WoW from starting."
+                    ) { callbacks.onBooleanChanged("skip_hidden_draws", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Show Windows taskbar",
+                        model.showWineTaskbar,
+                        "The Start button bar at the bottom. Off saves a lot of CPU in full-screen games. Applies on next game start."
+                    ) { callbacks.onBooleanChanged("show_wine_taskbar", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "WoW: fastest core for the main thread",
+                        model.wowFastMainCore,
+                        "Gives WoW's busiest thread the fastest CPU core to itself, and Wine's server the next fast core, from 30 seconds after start. Applies on next game start."
+                    ) { callbacks.onBooleanChanged("wow_fast_main_core", it) }
+                    GroupDivider()
+                    ToggleRow("Close the app when World of Warcraft quits", model.closeWhenWowExits) { callbacks.onBooleanChanged("close_when_wow_exits", it) }
+                    GroupDivider()
+                    ToggleRow("Close WoW's voice chat (saves CPU, turn off to use voice chat)", model.closeWowVoiceChat) { callbacks.onBooleanChanged("close_wow_voice_chat", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Debug: count Wine server requests",
+                        model.traceWineServer,
+                        "For one short test only, it slows the game down. Needs Wine debug logs on. The counts go into the cpu log."
+                    ) { callbacks.onBooleanChanged("trace_wine_server", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Debug: time Wine server calls",
+                        model.timeWineServer,
+                        "Wine's server writes every 5 seconds how much CPU it used, how long it waited, and which calls took longest. Costs almost nothing. Needs Wine debug logs on and the Thor Forever Wine build 5 or newer. The lines go into the Wine log. Applies on next game start."
+                    ) { callbacks.onBooleanChanged("time_wine_server", it) }
+                    GroupDivider()
+                    ToggleRow(
+                        "Sync FPS cap to the screen",
+                        model.fpsCapVsync,
+                        "Lets the game draw only on a screen refresh, so every frame stays on screen equally long. The cap rounds down to a rate the screen can show evenly: 45 becomes 40 at 120 Hz and 30 at 60 Hz. Applies on next game start."
+                    ) { callbacks.onBooleanChanged("fps_cap_vsync", it) }
                 }
             }
             item("contents-url") { EditableValueCard("Downloadable Contents URL", model.contentsUrl, callbacks::onContentsUrlChanged) }
@@ -312,6 +368,16 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
             item("about-title") { SectionTitle("ABOUT") }
             item("about") {
                 NavigationRow(Icons.Outlined.Info, "About", null) { activity?.showAboutDialog() }
+            }
+            item("test-build") {
+                var showUpdater by remember { mutableStateOf(false) }
+                val installed = TestBuildUpdater.installedBuild
+                NavigationRow(
+                    Icons.Outlined.SystemUpdate,
+                    "Check for test build",
+                    if (installed > 0) "Installed: build $installed" else "Installed: local build"
+                ) { showUpdater = true }
+                if (showUpdater) TestBuildUpdateDialog { showUpdater = false }
             }
         }
     }

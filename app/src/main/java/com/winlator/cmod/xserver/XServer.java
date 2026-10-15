@@ -27,6 +27,9 @@ public class XServer {
     public static final String VENDOR_NAME = "Elbrus Technologies, LLC";
     public static final Charset LATIN1_CHARSET = Charset.forName("latin1");
     public final SparseArray<Extension> extensions = new SparseArray<>();
+    /** Skip drawing into a window where a mapped child window covers the area (see DrawRequests.putImage). */
+    public volatile boolean skipHiddenDraws = false;
+    public long skippedHiddenDraws = 0;
     public final ScreenInfo screenInfo;
     public final PixmapManager pixmapManager;
     public final ResourceIDs resourceIDs = new ResourceIDs(128);

@@ -83,8 +83,15 @@ import com.winlator.cmod.core.WineRegistryEditor;
 import com.winlator.cmod.core.WineRequestHandler;
 import com.winlator.cmod.core.WineStartMenuCreator;
 import com.winlator.cmod.core.WineThemeManager;
+import com.winlator.cmod.core.WowExitWatcher;
+import com.winlator.cmod.core.ServerRequestStats;
+import com.winlator.cmod.core.WowVoiceCloser;
+import com.winlator.cmod.core.BattleNetWindowWatcher;
+import com.winlator.cmod.core.ThorGame;
 import com.winlator.cmod.core.WineUtils;
+import com.winlator.cmod.core.WowConfigDefaults;
 import com.winlator.cmod.core.WinlatorLogcatLogger;
+import com.winlator.cmod.core.WowStartupAffinity;
 import com.winlator.cmod.inputcontrols.ControlsProfile;
 import com.winlator.cmod.inputcontrols.ExternalController;
 import com.winlator.cmod.inputcontrols.InputControlsManager;
@@ -117,6 +124,7 @@ import com.winlator.cmod.xserver.Drawable;
 import com.winlator.cmod.xserver.Pointer;
 import com.winlator.cmod.xserver.Property;
 import com.winlator.cmod.xserver.ScreenInfo;
+import com.winlator.cmod.xserver.VsyncClock;
 import com.winlator.cmod.xserver.Window;
 import com.winlator.cmod.xserver.WindowManager;
 import com.winlator.cmod.xserver.XServer;
@@ -146,6 +154,9 @@ import cn.sherlock.com.sun.media.sound.SF2Soundbank;
 public class XServerDisplayActivity extends AppCompatActivity {
 
     private static final boolean DISABLE_TOUCHSCREEN_AUTO_HIDE = true;
+    private WowExitWatcher wowExitWatcher;
+    private WowVoiceCloser wowVoiceCloser;
+    private BattleNetWindowWatcher battleNetWindowWatcher;
     private static final HashMap<String, Boolean> WINE_XRANDR_SUPPORT_CACHE = new HashMap<>();
     private final AtomicBoolean exiting = new AtomicBoolean(false);
 
@@ -195,6 +206,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
     public int textureFilter;
     private short taskAffinityMask = 0;
     private short taskAffinityMaskWoW64 = 0;
+    private WowStartupAffinity wowStartupAffinity;
+    private final com.winlator.cmod.core.CpuDebugLog cpuDebugLog = new com.winlator.cmod.core.CpuDebugLog();
     private String wineCpuTopologyValue = "";
     private int frameRatingWindowId = -1;
 
@@ -295,6 +308,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
         return maxRefresh;
     }
 
+    private boolean hasRefreshRate(float rate) {
+        for (android.view.Display.Mode mode : getWindowManager().getDefaultDisplay().getSupportedModes()) {
+            if (Math.abs(mode.getRefreshRate() - rate) < 1f) return true;
+        }
+        return false;
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -311,10 +331,18 @@ public class XServerDisplayActivity extends AppCompatActivity {
             params.preferredRefreshRate = pickHighestRefreshRate();
             refreshRate = params.preferredRefreshRate;
             getWindow().setAttributes(params);
+        } else if (preferences.getBoolean("game_at_60hz", true) && hasRefreshRate(60f)) {
+            // A 120 Hz screen shows a game running below 60 fps unevenly; 60 Hz felt
+            // smoother in WoW on the AYN Thor.
+            android.view.WindowManager.LayoutParams params = getWindow().getAttributes();
+            params.preferredRefreshRate = 60f;
+            refreshRate = 60f;
+            getWindow().setAttributes(params);
         } else {
             android.view.Display display = getWindowManager().getDefaultDisplay();
             refreshRate = display.getRefreshRate();
         }
+        if (preferences.getBoolean("fps_cap_vsync", true)) VsyncClock.start(getWindowManager().getDefaultDisplay());
 
         cursorLock = preferences.getBoolean("cursor_lock", true);
 
@@ -568,6 +596,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         displayxConfig.put("backPressure", backPressure ? "1" : "0");
         displayxConfig.put("precisePresentation", precisePresentation ? "1" : "0");
         xServer = new XServer(new ScreenInfo(screenSize), useDisplayX ? "displayx" : "egl", displayxConfig);
+        xServer.skipHiddenDraws = preferences.getBoolean("skip_hidden_draws", false);
+        Log.i("XServerDisplayActivity", "Skip drawing hidden desktop: " + xServer.skipHiddenDraws);
         xServer.setWinHandler(winHandler);
         xServer.setRelativeMouseMovement(isRelativeMouseMovement);
         advertisePanelRefreshRates();
@@ -671,6 +701,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         Runnable runnable = () -> {
             setupUI();
+            // The Forever Companion reads the game from this view and sends its keys to this X
+            // server; for WoW, with the companion on, it opens on the other screen.
+            thor.companion.CompanionBridge.attach(this, xServer, xServerView, shortcut != null ? shortcut.file.getPath() : null);
             setupSidebarInputControls();
             if (controlsProfile.isEmpty()) {
 
@@ -889,6 +922,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
     private void exit() {
         if (!exiting.compareAndSet(false, true)) return;
+        if (wowExitWatcher != null) wowExitWatcher.stop();
+        if (wowVoiceCloser != null) wowVoiceCloser.stop();
+        if (battleNetWindowWatcher != null) battleNetWindowWatcher.stop();
         NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID);
         boolean removeLoadingBar = PreferenceManager.getDefaultSharedPreferences(this)
                 .getBoolean("remove_loading_bar_when_booting_games", false);
@@ -953,6 +989,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
             winlatorLogcatLogger = null;
         }
         if (taskManagerSidebar != null) taskManagerSidebar.stop();
+        if (wowStartupAffinity != null) wowStartupAffinity.stop();
+        cpuDebugLog.stop();
+        if (wowExitWatcher != null) wowExitWatcher.stop();
+        if (wowVoiceCloser != null) wowVoiceCloser.stop();
+        if (battleNetWindowWatcher != null) battleNetWindowWatcher.stop();
+        VsyncClock.stop();
+        thor.companion.CompanionBridge.detach(xServerView);
         super.onDestroy();
     }
 
@@ -1031,6 +1074,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
             containerDataChanged = true;
         }
 
+        for (File config : WowConfigDefaults.apply(new File(imageFs.getRootDir(), ImageFs.WINEPREFIX + "/drive_c")))
+            Log.d(TAG, "Turned off WoW screen narration in " + config);
+
         String wincomponents = shortcut != null ? shortcut.getExtra("wincomponents", container.getWinComponents())
                 : container.getWinComponents();
         if (!wincomponents.equals(container.getExtra("wincomponents"))) {
@@ -1087,11 +1133,19 @@ public class XServerDisplayActivity extends AppCompatActivity {
         envVars.put("WINEPREFIX", imageFs.wineprefix);
 
         boolean enableWineDebug = preferences.getBoolean("enable_wine_debug", false);
+        // Debug: Wine's server writes every request; ServerRequestStats counts them for the CPU log.
+        boolean traceWineServer = enableWineDebug && preferences.getBoolean("trace_wine_server", false);
         String wineDebugChannels = preferences.getString("wine_debug_channels",
                 SettingsFragment.DEFAULT_WINE_DEBUG_CHANNELS);
-        envVars.put("WINEDEBUG", enableWineDebug && !wineDebugChannels.isEmpty()
+        // Debug build: tag every log line with its process id and time, and log which
+        // program each process is, so a crash can be tied to the program that crashed.
+        envVars.put("WINEDEBUG", (enableWineDebug && !wineDebugChannels.isEmpty()
                 ? "+" + wineDebugChannels.replace(",", ",+")
-                : "-all");
+                : "-all") + ",+pid,+timestamp,+loaddll"
+                + (traceWineServer ? ",+server" : ""));
+        ServerRequestStats.setEnabled(traceWineServer);
+        // Debug: Wine's server (build 5+) prints where its time goes every 5 seconds.
+        if (enableWineDebug && preferences.getBoolean("time_wine_server", false)) envVars.put("WINESERVER_STATS", "1");
 
         String rootPath = imageFs.getRootDir().getPath();
         FileUtils.clear(imageFs.getTmpDir());
@@ -1108,7 +1162,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
             guestProgramLauncherComponent.setContainer(this.container);
             guestProgramLauncherComponent.setWineInfo(this.wineInfo);
 
-            String guestExecutable = "wine explorer /desktop=shell," + xServer.screenInfo + " " + getWineStartCommand();
+            // Wine's taskbar only exists on a desktop named "shell". With a full-screen game it
+            // can get stuck redrawing every window, many times a second, so it is off by default.
+            boolean showTaskbar = preferences.getBoolean("show_wine_taskbar", false);
+            Log.i("XServerDisplayActivity", "Windows taskbar: " + (showTaskbar ? "on" : "off"));
+            String desktopName = showTaskbar ? "shell" : "Default";
+            String guestExecutable = "wine explorer /desktop=" + desktopName + "," + xServer.screenInfo + " " + getWineStartCommand();
 
             guestProgramLauncherComponent.setGuestExecutable(guestExecutable);
 
@@ -1123,6 +1182,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
                 envVars.put("WINE_CPU_TOPOLOGY", wineCpuTopologyValue);
             }
 
+            // Battle.net hangs on its loading screen with esync (seen on the Thor), so it always
+            // runs without, even when the container or a copied shortcut setting turns it on.
+            if (shortcut != null && ThorGame.isBattleNetExe(shortcut.path)) {
+                Log.i("XServerDisplayActivity", "Battle.net: esync off");
+                envVars.put("WINEESYNC", "0");
+            }
             if (!envVars.has("WINEESYNC")) {
                 envVars.put("WINEESYNC", "1");
             }
@@ -1177,6 +1242,17 @@ public class XServerDisplayActivity extends AppCompatActivity {
                             audioDriver.equals("pulse-audio-gn")));
         }
 
+        // Debug: the graphics settings the game really starts with, so a test run shows them.
+        for (String name : envVars) {
+            if (name.startsWith("DXVK_") || name.startsWith("TU_") || name.startsWith("MESA_")
+                    || name.startsWith("WRAPPER_") || name.startsWith("VKD3D_") || name.contains("BCN")
+                    || name.contains("VKBASALT") || name.startsWith("ADRENOTOOLS_") || name.startsWith("VK_"))
+                com.winlator.cmod.core.CpuDebugLog.note("graphics env " + name + "=" + envVars.get(name));
+        }
+        if (graphicsDriverConfig != null && dxwrapperConfig != null)
+            com.winlator.cmod.core.CpuDebugLog.note("graphics config driver=" + graphicsDriverConfig.get("version")
+                    + " dxwrapper=" + dxwrapper + " gpuName=" + graphicsDriverConfig.get("gpuName")
+                    + " dxvkGpuName=" + dxwrapperConfig.get("gpuName"));
         guestProgramLauncherComponent.setEnvVars(envVars);
         guestProgramLauncherComponent.setTerminationCallback((status) -> runOnUiThread(this::exit));
 
@@ -1189,7 +1265,32 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         environment.startEnvironmentComponents();
 
+        // WoW leaves Blizzard's agent running after it quits, which keeps Wine's desktop open.
+        if (preferences.getBoolean("close_when_wow_exits", true)) {
+            wowExitWatcher = new WowExitWatcher(() -> runOnUiThread(this::exit));
+            wowExitWatcher.start();
+        }
+        // WoW's voice chat can't connect under Wine and no game setting turns it off.
+        if (preferences.getBoolean("close_wow_voice_chat", false)) {
+            wowVoiceCloser = new WowVoiceCloser();
+            wowVoiceCloser.start();
+        }
+        // Started from the start screen's "Update with Battle.net": back to it once Battle.net closes.
+        if (getIntent().getBooleanExtra(ThorGame.EXTRA_UPDATE_SESSION, false)) {
+            battleNetWindowWatcher = new BattleNetWindowWatcher(xServer, () -> runOnUiThread(this::exit));
+            battleNetWindowWatcher.start();
+        }
+
         winHandler.start();
+        cpuDebugLog.start();
+
+        // With esync, WoW starts on one core and gets all cores after its startup.
+        if ("1".equals(envVars.get("WINEESYNC"))) {
+            boolean fastMainCore = preferences.getBoolean("wow_fast_main_core", true);
+            Log.i("XServerDisplayActivity", "WoW main thread on fastest core: " + (fastMainCore ? "on" : "off"));
+            wowStartupAffinity = new WowStartupAffinity(winHandler, taskAffinityMask, fastMainCore);
+            wowStartupAffinity.start();
+        }
 
         if (wineRequestHandler != null)
             wineRequestHandler.start();
@@ -1449,8 +1550,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
         View btSubKeyboard = findViewById(R.id.BTSubKeyboard);
         if (btSubKeyboard != null) {
             btSubKeyboard.setOnClickListener(v -> {
-                AppUtils.showKeyboard(this);
                 drawerLayout.closeDrawers();
+                touchpadView.postDelayed(touchpadView::showSoftKeyboard, 500L);
             });
         }
 
@@ -3016,6 +3117,8 @@ public class XServerDisplayActivity extends AppCompatActivity {
     }
 
     private void assignTaskAffinity(Window window) {
+        if (wowStartupAffinity != null && wowStartupAffinity.isPinned(window.getClassName()))
+            return;
         if (taskAffinityMask == 0 || taskAffinityMaskWoW64 == 0)
             return;
         int processId = window.getProcessId();

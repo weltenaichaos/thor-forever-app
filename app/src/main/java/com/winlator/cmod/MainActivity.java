@@ -49,10 +49,13 @@ import com.winlator.cmod.FileManagerFragment;
 import com.winlator.cmod.R;
 import com.winlator.cmod.contentdialog.ContentDialog;
 import com.winlator.cmod.core.Callback;
+import com.winlator.cmod.core.CrashReasonLogger;
 import com.winlator.cmod.core.ImageUtils;
 import com.winlator.cmod.core.PreloaderDialog;
+import com.winlator.cmod.container.Container;
 import com.winlator.cmod.container.ContainerManager;
 import com.winlator.cmod.container.Shortcut;
+import com.winlator.cmod.core.ThorGame;
 import com.winlator.cmod.core.WineThemeManager;
 import com.winlator.cmod.xenvironment.ImageFsInstaller;
 import com.winlator.cmod.services.NotificationService;
@@ -101,6 +104,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+        CrashReasonLogger.install(this);
 
         // Persist the default value on first run so all other components
         // (dialogs, fragments) read the correct value instead of their own default
@@ -210,8 +214,32 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             if (!ImageFsInstaller.installIfNeeded(this, () -> requestAppPermissions())) {
                 if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
                     startForegroundService(notificationService);
+                String thorShortcut = intent.getStringExtra(EXTRA_RUN_SHORTCUT);
+                if (thorShortcut != null) runThorShortcut(intent, thorShortcut);
             }
         }
+    }
+
+    /** Intent extra from the Thor Forever start screen: the .desktop file to start. */
+    public static final String EXTRA_RUN_SHORTCUT = "thor_run_shortcut";
+
+    /**
+     * Starts a shortcut for the start screen exactly as tapping it in the library does. Started
+     * straight from the start screen, the game crashed natively within a second, while the
+     * same shortcut started from here ran.
+     */
+    private void runThorShortcut(Intent from, String shortcutPath) {
+        Container container = containerManager.getContainerById(from.getIntExtra("container_id", 0));
+        if (container == null) return;
+        Shortcut shortcut = new Shortcut(container, new File(shortcutPath));
+        Intent intent = new Intent(this, XServerDisplayActivity.class);
+        intent.putExtra("container_id", container.id);
+        intent.putExtra("shortcut_path", shortcut.file.getPath());
+        intent.putExtra("shortcut_name", shortcut.name);
+        intent.putExtra("disableXinput", shortcut.getExtra("disableXinput", "0"));
+        intent.putExtra("native_rendering", shortcut.getRendererNative());
+        intent.putExtra(ThorGame.EXTRA_UPDATE_SESSION, from.getBooleanExtra(ThorGame.EXTRA_UPDATE_SESSION, false));
+        startActivity(intent);
     }
 
     private void updateStorageFooter() {
