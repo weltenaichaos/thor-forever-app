@@ -156,13 +156,14 @@ public final class ThorSetup {
 
     /**
      * Shows esync as off in the settings of Battle.net shortcuts, the way it runs: Battle.net
-     * hangs with it. Each one gets WINEESYNC=0, also when it copied the container's WINEESYNC=1.
+     * hangs with it. Only WINEESYNC changes; every other variable stays as it was.
      */
     public static void turnOffEsyncForBattleNet(ContainerManager manager) {
         for (Shortcut shortcut : manager.loadShortcuts()) {
             if (!ThorGame.isBattleNetExe(shortcut.path)) continue;
-            // The shortcut's own variables go over the container's, so one line is enough.
-            EnvVars envVars = new EnvVars(shortcut.getExtra("envVars"));
+            // Like the shortcut editor: without its own variables it starts from the container's.
+            String own = shortcut.getExtra("envVars");
+            EnvVars envVars = new EnvVars(own.isEmpty() ? shortcut.container.getEnvVars() : own);
             if ("0".equals(envVars.get("WINEESYNC"))) continue;
             envVars.put("WINEESYNC", "0");
             shortcut.putExtra("envVars", envVars.toString());
