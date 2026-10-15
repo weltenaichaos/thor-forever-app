@@ -71,6 +71,9 @@ jobs:
           cp "$LAYER" app/src/main/jniLibs/arm64-v8a/libVkLayer_khronos_validation.so
           test -s app/src/main/jniLibs/arm64-v8a/libVkLayer_khronos_validation.so
 
+      - name: Forever Companion decoder tests
+        run: ./gradlew :companion-decoder:test
+
       - name: Build with Gradle
         run: ./gradlew assembleRelease -PthorSetupTest=${{ inputs.setup_test_copy == true }}
 
