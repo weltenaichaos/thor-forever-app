@@ -50,11 +50,14 @@ public class BattleNetWindowWatcher {
             open = xServer.windowManager.hasApplicationWindowOfClass("battle.net");
         }
         java.util.List<String> processes = WowExitWatcher.runningProcessNames();
-        boolean busy = WowExitWatcher.isWowRunning(processes) || isInstallerRunning(processes);
+        boolean installing = isInstallerRunning(processes);
+        boolean busy = WowExitWatcher.isWowRunning(processes) || installing;
         synchronized (this) {
             if (executor == null) return;
             if (open || busy) {
-                seen |= open;
+                // The installer's own window doesn't count: once it is done, Battle.net takes a
+                // while to show its login window, and the session must wait for that one.
+                seen = installing ? false : seen | open;
                 goneChecks = 0;
                 return;
             }
