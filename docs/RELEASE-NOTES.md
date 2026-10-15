@@ -1,7 +1,14 @@
-# Thor Forever v0.1.0 (alpha, pre-release)
+# Thor Forever v0.1.1 (alpha, pre-release)
 
 Thor Forever is an Android app that starts World of Warcraft: Forever on the AYN Thor with one tap.
-It is a fork of Winlator Bionic (Winlator Ludashi). This is the first test release, tested on one AYN Thor.
+It is a fork of Winlator Bionic (Winlator Ludashi). This is a test release, tested on one AYN Thor.
+
+## New in v0.1.1
+
+- Sending a chat message from the Forever Companion no longer freezes the game. Before, the game stopped until you tapped the top screen, and the message was not sent.
+- The app can update itself: **Settings > Check for updates** lists the published releases and installs the one you tap. From v0.1.1 on, you don't need to download new versions by hand.
+
+Coming from v0.1.0: install this APK over it. Your setup, the game and your add-ons stay.
 
 ## Install
 
@@ -27,9 +34,9 @@ Step by step, and the Android settings to set first: [README](https://github.com
 
 ## Known issues and not yet
 
-- The Forever Companion is new and not yet tested on the device.
+- The Forever Companion is new and still being tested on the device.
 - The companion follows the game only by its picture. Following the game through its files is not built in yet.
-- The app does not set or check the Android settings (child process restrictions, battery Unrestricted, maximum performance mode). Set them yourself, see [docs/THOR-SETUP.md](https://github.com/weltenaichaos/thor-forever-app/blob/v0.1.0/docs/THOR-SETUP.md).
+- The app does not set or check the Android settings (child process restrictions, battery Unrestricted, maximum performance mode). Set them yourself, see [docs/THOR-SETUP.md](https://github.com/weltenaichaos/thor-forever-app/blob/v0.1.1/docs/THOR-SETUP.md).
 - Thor Forever is its own app (`com.thorforever.app`). Test builds and Winlator stay separate apps, and a setup in them does not carry over.
 - FEXCore is version 2601. The tested shortcut used 2510.1, which is not included.
 - VKD3D is not used. WoW runs on Direct3D 11 through DXVK.
@@ -39,8 +46,8 @@ Step by step, and the Android settings to set first: [README](https://github.com
 
 ## Credits and licence
 
-The source code for this release is this repository at the tag `v0.1.0`.
-Licences and notices for the bundled parts are in [LICENSE](https://github.com/weltenaichaos/thor-forever-app/blob/v0.1.0/LICENSE) and the [notices](https://github.com/weltenaichaos/thor-forever-app/tree/v0.1.0/notices) folder.
-Credits are in the [README](https://github.com/weltenaichaos/thor-forever-app/blob/v0.1.0/README.md#credits).
+The source code for this release is this repository at the tag `v0.1.1`.
+Licences and notices for the bundled parts are in [LICENSE](https://github.com/weltenaichaos/thor-forever-app/blob/v0.1.1/LICENSE) and the [notices](https://github.com/weltenaichaos/thor-forever-app/tree/v0.1.1/notices) folder.
+Credits are in the [README](https://github.com/weltenaichaos/thor-forever-app/blob/v0.1.1/README.md#credits).
 
 Not affiliated with or endorsed by Blizzard Entertainment or AYN. World of Warcraft is a trademark of Blizzard Entertainment, Inc.
