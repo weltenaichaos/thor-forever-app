@@ -87,10 +87,10 @@ public class VulkanXServerView extends XServerRendererView implements SurfaceHol
     public static String drainCompositorStats(double seconds) {
         if (!nativeLibLoaded) return null;
         long[] s = nativeDrainCompositorStats();
-        if (s == null || s.length < 10 || s[0] == 0) return null;
+        if (s == null || s.length < 12 || s[0] == 0) return null;
         String gpu = s[1] > 0
                 ? String.format(java.util.Locale.US, "GPU %.2f ms avg %.2f ms max", s[2] / 1e6 / s[1], s[3] / 1e6)
-                : "GPU not measured";
+                : "GPU not measured (timestamp bits " + s[10] + ", last query result " + s[11] + ")";
         return String.format(java.util.Locale.US,
                 "screen drawing: %.1f frames/s, %s (%.1f ms/s), CPU %.2f ms avg, %dx%d filter %d postfx %d, %.1f windows per frame",
                 s[0] / seconds, gpu, s[2] / 1e6 / seconds, s[4] / 1e6 / s[0], s[5], s[6], s[7], s[8], (double) s[9] / s[0]);

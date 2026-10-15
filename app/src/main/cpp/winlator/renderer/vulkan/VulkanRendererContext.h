@@ -126,8 +126,9 @@ static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 // Debug: what drawing the screen costs this app, for the CPU log. Timing starts on the
 // first drain, so it only runs while the CPU log reads it.
 // out: frames, timed frames, GPU ns sum, GPU ns max, CPU ns sum, swapchain w, h,
-//      filter mode, postFX mode, window draws sum
-static constexpr int COMPOSITOR_STATS_COUNT = 10;
+//      filter mode, postFX mode, window draws sum, timestamp valid bits (-1 = no query pool),
+//      last query result (VkResult, 1 = never read)
+static constexpr int COMPOSITOR_STATS_COUNT = 12;
 void drainCompositorStats(int64_t out[COMPOSITOR_STATS_COUNT]);
 
 struct WindowPushConstants      { float ndcX0, ndcY0, ndcX1, ndcY1; int useTexAlpha;

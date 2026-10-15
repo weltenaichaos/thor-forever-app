@@ -15,10 +15,16 @@
 namespace {
 std::atomic<bool> gCompositorStatsOn{false};
 std::mutex gCompositorStatsMutex;
-int64_t gCompositorStats[COMPOSITOR_STATS_COUNT] = {};
+int64_t gCompositorStats[COMPOSITOR_STATS_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1};
 }
 
 static bool compositorStatsEnabled() { return gCompositorStatsOn.load(std::memory_order_relaxed); }
+
+static void compositorStatsSetTimestampInfo(int64_t validBits, int64_t lastResult) {
+    std::lock_guard<std::mutex> lk(gCompositorStatsMutex);
+    if (validBits != INT64_MIN) gCompositorStats[10] = validBits;
+    if (lastResult != INT64_MIN) gCompositorStats[11] = lastResult;
+}
 
 static void compositorStatsAddGpu(uint64_t ns) {
     std::lock_guard<std::mutex> lk(gCompositorStatsMutex);
@@ -410,6 +416,7 @@ void VulkanRendererContext::createLogicalDevice() {
             timestampPool = VK_NULL_HANDLE;
         }
     }
+    compositorStatsSetTimestampInfo(timestampPool != VK_NULL_HANDLE ? (int64_t)validBits : -1, INT64_MIN);
     __android_log_print(ANDROID_LOG_INFO, WLOG_TAG, "GPU timestamps: %s (validBits=%u period=%.2f ns)",
         timestampPool != VK_NULL_HANDLE ? "available" : "unavailable", validBits, props.limits.timestampPeriod);
 }
@@ -1307,8 +1314,10 @@ void VulkanRendererContext::renderFrame() {
     if (timestampPending[currentFrame]) {
         timestampPending[currentFrame] = false;
         uint64_t ts[2] = {};
-        if (vk_.GetQueryPoolResults(device, timestampPool, currentFrame * 2, 2, sizeof(ts), ts,
-                sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
+        VkResult qr = vk_.GetQueryPoolResults(device, timestampPool, currentFrame * 2, 2, sizeof(ts), ts,
+                sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+        compositorStatsSetTimestampInfo(INT64_MIN, qr);
+        if (qr == VK_SUCCESS)
             compositorStatsAddGpu((uint64_t)((double)((ts[1] - ts[0]) & timestampMask) * timestampPeriodNs));
     }
     if (retirePending.load(std::memory_order_acquire)) {
