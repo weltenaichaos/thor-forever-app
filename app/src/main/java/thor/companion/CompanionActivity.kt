@@ -2,6 +2,7 @@ package thor.companion
 
 import android.app.Activity
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -42,6 +43,7 @@ import thor.companion.strip.QuestPages
 import thor.companion.strip.SpellPlan
 import thor.companion.strip.SpellToLearn
 import thor.companion.strip.StripDecoder
+import thor.companion.strip.StripFrame
 import thor.companion.strip.Trail
 import thor.companion.strip.ZoneMap
 import thor.companion.Theme.ACCENT
@@ -501,6 +503,12 @@ class CompanionActivity : Activity() {
         var changedAt = 0L
         var lastShown = -1
         var near = -1
+        // Where the square or bar was last read, with room around it: only that corner of
+        // the picture is copied (see [lockAround]). Let go when the picture changes size,
+        // or when nothing was read there for a while (the bar moved with /thor pos).
+        var lock: Rect? = null
+        var lockSize: Rect? = null
+        var lockAt = 0L
         var whyAt = 0L
         val assembler = PartAssembler()
         while (worker === Thread.currentThread()) {
@@ -512,8 +520,11 @@ class CompanionActivity : Activity() {
                 SystemClock.sleep(500)
                 continue
             }
-            val px = screen.capture()
-            val result = if (px == null) null else StripDecoder.decode(px, near)
+            val size = screen.size()
+            if (lock != null && (size != lockSize || t0 - lockAt > LOCK_MS)) lock = null
+            val shot = lock?.let { screen.captureArea(it) } ?: screen.capture()?.let { TopScreen.Shot(0, 0, it) }
+            val px = shot?.pixels
+            val result = if (px == null) null else StripDecoder.decode(px, if (near >= 0) near - shot!!.top else -1)
             val frame = (result as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
             // Why a read failed, now and then, for the log (long-press the status line).
             if (frame == null && t0 - whyAt > 5000) {
@@ -532,7 +543,10 @@ class CompanionActivity : Activity() {
             if (frame != null) {
                 misses = 0
                 frameAt = SystemClock.uptimeMillis()
-                near = frame.row
+                near = frame.row + shot!!.top
+                lock = lockAround(frame, shot.left, shot.top)
+                lockSize = size
+                lockAt = t0
                 // Something new on the square (a part or a message): more is likely to follow.
                 val shown = frame.seq * 16 + frame.part
                 if (shown != lastShown) { lastShown = shown; changedAt = SystemClock.uptimeMillis() }
@@ -614,7 +628,10 @@ class CompanionActivity : Activity() {
                 game == Game.CLOSED && result !is StripDecoder.Result.Ok -> 30_000L
                 game == Game.STARTING && result !is StripDecoder.Result.Ok -> 10_000L
                 absent > 0 && !seenSquare -> 10_000L
-                // The bar comes and goes: look once a second for the next message.
+                // The bar comes and goes: look a few times a second for the next message
+                // (only its corner is copied, so this is cheap; the addon shows a message
+                // that comes after a quiet spell for at least 0.6 s).
+                barMode && absent > 0 && lock != null -> 400L
                 barMode && absent > 0 -> 1000L
                 absent in 1..4 -> 1000L
                 absent == 5 -> 10_000L
@@ -629,6 +646,25 @@ class CompanionActivity : Activity() {
             }
             SystemClock.sleep((period - (SystemClock.uptimeMillis() - t0)).coerceIn(30, period))
         }
+    }
+
+    /**
+     * The corner of the picture to copy next: the [frame] just read (found in a copy that
+     * started at [left], [top]) with room around it, for the bar (80 x 3 cells), or for the
+     * dark square or line (20 x 20 or 400 x 1 cells) the older shapes use.
+     */
+    private fun lockAround(frame: StripFrame, left: Int, top: Int): Rect {
+        val cell = frame.cellPx
+        val bar = frame.version == StripDecoder.BAR_VERSION
+        val wide = if (bar) 80 else StripDecoder.COLS * StripDecoder.COLS
+        val tall = if (bar) 3 else StripDecoder.COLS
+        val x = left + frame.x
+        val y = top + frame.row
+        val margin = (4 * cell).toInt() + 8
+        return Rect(
+            (x - margin).toInt(), (y - cell - LOCK_ROWS).toInt(),
+            (x + wide * cell + margin).toInt(), (y + tall * cell + LOCK_ROWS).toInt(),
+        )
     }
 
     /**
@@ -2536,6 +2572,10 @@ class CompanionActivity : Activity() {
         const val SLOW_MS = 15_000L
         /** No new message for this long: the game is gone (it sends its status at least every 10 s). */
         const val STALE_MS = 30_000L
+        /** Nothing read in the remembered corner for this long: look at the whole top again. */
+        const val LOCK_MS = 25_000L
+        /** Rows above and below the remembered place that are copied too (the decoder looks 16 either way). */
+        const val LOCK_ROWS = 24
         /** The start-up card's rows before the status says what there is. */
         val PLACEHOLDER = listOf("Character and gear", "Bags", "Item names", "Map", "Quests", "Spells to learn")
         /** The request code of the folder picker for the Thor-Forever folder. */

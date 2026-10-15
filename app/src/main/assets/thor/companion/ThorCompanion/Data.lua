@@ -518,8 +518,10 @@ f:SetScript("OnEvent", function()
             okAuto, shown = pcall(ns.IconsAuto)
             if okAuto and shown then return end
         end
-        -- Building every kind to find nothing changed costs: when nothing was, wait half a second.
-        if GetTime() < idleUntil then return end
+        -- Building every kind to find nothing changed costs: when nothing was, wait half a
+        -- second. Not when the game just said something changed (bags, a quest or zone, a
+        -- chat line, a loading screen): that goes out at once.
+        if GetTime() < idleUntil and not (bagsUrgent or mapUrgent or statusUrgent or (chatUrgent and chatNow())) then return end
         statusHold = nil
         local p = nextMessage()
         if p then ns.StripWrite(p, statusHold) else idleUntil = GetTime() + 0.45 end
