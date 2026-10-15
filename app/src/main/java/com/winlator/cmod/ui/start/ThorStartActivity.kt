@@ -23,11 +23,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -45,7 +47,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -66,6 +70,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -531,11 +536,13 @@ class ThorStartActivity : ComponentActivity() {
             Modifier.fillMaxSize().background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
-            // The panel fills the screen: it is 15.25 units high (header 4.25, body 11) and needs
-            // about 25.6 wide, so the unit is the largest size for which both fit.
-            val u = minOf(maxHeight / 15.25f, maxWidth / 25.6f).coerceAtLeast(16.dp)
-            val panelWidth = maxWidth
-            val headerHeight = u * 17 / 4
+            // The panel fills the screen. The unit is a twentieth of its height (or a 34th of
+            // its width on narrow screens), so the buttons stay a fitting size on the Thor.
+            val u = minOf(maxHeight / 20f, maxWidth / 34f).coerceAtLeast(12.dp)
+            // The add-on pages use a smaller logo, so their lists have more room.
+            val subPage = showStore || showAddons
+            val logo = if (subPage) u * 3 / 5 else u
+            val headerHeight = logo * 17 / 4
             val px = onePx()
             // The old screen's frame, in screen pixels: gold, dark bronze, and 3 pixels in, sky blue.
             Box(
@@ -544,45 +551,59 @@ class ThorStartActivity : ComponentActivity() {
                     .border(px, Gold)
                     .padding(px).border(px, Color(74, 52, 24))
             ) {
-                Header(u, Modifier.fillMaxWidth().height(headerHeight))
+                Header(logo, Modifier.fillMaxWidth().height(headerHeight))
                 Box(Modifier.fillMaxSize().padding(px * 3).border(px, SkyDark))
-                Column(Modifier.fillMaxSize().padding(start = u, end = u, top = headerHeight + u / 2)) {
-                    val body = TextStyle(fontFamily = FontFamily(Font(R.font.wine_tahoma)), fontSize = textSize(u * 2 / 3), lineHeight = textSize(u))
+                Column(Modifier.fillMaxSize().padding(
+                    start = u, end = u, top = headerHeight + if (subPage) u / 3 else u / 2, bottom = if (subPage) u / 2 else u
+                )) {
+                    val body = TextStyle(fontFamily = FontFamily(Font(R.font.wine_tahoma)), fontSize = textSize(u * 3 / 5), lineHeight = textSize(u))
                     if (showStore) {
-                        StorePage(u, body, panelWidth)
+                        StorePage(u, body)
                         return@Column
                     }
                     if (showAddons) {
-                        AddonsPage(u, body, panelWidth)
+                        AddonsPage(u, body)
                         return@Column
                     }
                     Text(when {
                             version.isEmpty() -> "Installed game version: unknown"
                             newVersion.isNotEmpty() -> "Installed game version: $version (new: $newVersion)"
                             else -> "Installed game version: $version"
-                        }, style = body, color = GoldLight, modifier = Modifier.height(u))
-                    Text(status, style = body, color = TextColor, modifier = Modifier.height(u * 2))
-                    Spacer(Modifier.height(u))
+                        }, style = body, color = GoldLight, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().height(u))
+                    Text(status, style = body, color = TextColor, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().height(u * 2))
+                    Spacer(Modifier.weight(1f))
                     val enabled = loaded && game != null
                     val play = remember { FocusRequester() }
-                    val bw = (panelWidth - u * 4) / 3
-                    // Four settings above the three big buttons.
-                    val sw = (panelWidth - u * 5) / 4
-                    Row(horizontalArrangement = Arrangement.spacedBy(u)) {
+                    // Five settings slots in one centred block; Play is big in the middle above them,
+                    // with Update and Quit beside it.
+                    val gap = u / 2
+                    val sw = u * 22 / 5
+                    val blockWidth = sw * 5 + gap * 4
+                    val pw = u * 9
+                    val side = (blockWidth - pw - gap * 2) / 2
+                    Row(Modifier.align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.CenterVertically) {
+                        StartButton(null, "Update with Battle.net", u, side, enabled = enabled, onClick = ::update)
+                        val playText = when (setup) {
+                            Setup.INSTALL_BATTLE_NET -> if (pickInstaller) "Choose installer" else "Install Battle.net"
+                            Setup.OPEN_BATTLE_NET -> "Open Battle.net"
+                            else -> "Play"
+                        }
+                        StartButton(null, playText, u, pw, height = u * 13 / 5, fontSize = if (playText.length <= 8) u * 17 / 20 else u * 13 / 20,
+                            play = true, enabled = if (setup == Setup.INSTALL_BATTLE_NET || setup == Setup.OPEN_BATTLE_NET) loaded else enabled,
+                            focusRequester = play, onClick = when (setup) {
+                                Setup.INSTALL_BATTLE_NET -> ::installBattleNet
+                                Setup.OPEN_BATTLE_NET -> ::openBattleNet
+                                else -> ::play
+                            })
+                        StartButton(null, "Quit", u, side, onClick = { finishAndRemoveTask() })
+                    }
+                    Spacer(Modifier.height(u))
+                    // Room for a fifth setting (the companion app); until then the four are centred.
+                    Row(Modifier.align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy(gap)) {
                         StartButton("FPS cap", if (fpsCap == 0) "Off" else fpsCap.toString(), u, sw, enabled = enabled, onClick = ::nextFpsCap)
                         StartButton("Overlay", OVERLAYS[overlay.coerceIn(0, OVERLAYS.size - 1)], u, sw, enabled = enabled, onClick = ::nextOverlay)
                         StartButton("Add-ons", addons.size.toString(), u, sw, enabled = enabled, onClick = { addonStatus = ""; showAddons = true })
                         StartButton("More", "Winlator", u, sw, onClick = { openWinlator() })
-                    }
-                    Spacer(Modifier.height(u / 2))
-                    Row(horizontalArrangement = Arrangement.spacedBy(u)) {
-                        when (setup) {
-                            Setup.INSTALL_BATTLE_NET -> StartButton(null, if (pickInstaller) "Choose installer" else "Install Battle.net", u, bw, play = true, enabled = loaded, focusRequester = play, onClick = ::installBattleNet)
-                            Setup.OPEN_BATTLE_NET -> StartButton(null, "Open Battle.net", u, bw, play = true, enabled = loaded, focusRequester = play, onClick = ::openBattleNet)
-                            else -> StartButton(null, "Play", u, bw, play = true, enabled = enabled, focusRequester = play, onClick = ::play)
-                        }
-                        StartButton(null, "Update with Battle.net", u, bw, enabled = enabled, onClick = ::update)
-                        StartButton(null, "Quit", u, bw, onClick = { finishAndRemoveTask() })
                     }
                     val setupReady = loaded && (setup == Setup.INSTALL_BATTLE_NET || setup == Setup.OPEN_BATTLE_NET)
                     LaunchedEffect(enabled, setupReady) { if (enabled || setupReady) runCatching { play.requestFocus() } }
@@ -591,45 +612,78 @@ class ThorStartActivity : ComponentActivity() {
         }
     }
 
-    /** The installed add-ons in a list, with Install from file and Back. */
+    /** An add-on page's title on the left and its hint (or progress) on the right, in one line. */
     @Composable
-    private fun AddonsPage(u: Dp, body: TextStyle, panelWidth: Dp) {
+    private fun PageTitle(title: String, hint: String, u: Dp, body: TextStyle) {
+        // A long message (an install error) may take a second line.
+        Row(Modifier.fillMaxWidth().heightIn(min = u), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = GoldLight, fontFamily = FontFamily(Font(R.font.cinzel_bold, FontWeight.Bold)), fontSize = textSize(u * 13 / 20), maxLines = 1)
+            Spacer(Modifier.width(u))
+            Text(hint, style = body.copy(fontSize = textSize(u / 2), lineHeight = textSize(u * 11 / 20)), color = if (addonStatus.isEmpty()) Sky else TextColor,
+                textAlign = TextAlign.End, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(u / 5))
+    }
+
+    /** The list of an add-on page: it takes all the room left, with a thin scroll bar on the right. */
+    @Composable
+    private fun ColumnScope.PageList(u: Dp, content: @Composable () -> Unit) {
+        val scroll = rememberScrollState()
+        val bar = u / 8
+        Column(
+            Modifier.fillMaxWidth().weight(1f)
+                .drawWithContent {
+                    drawContent()
+                    if (scroll.maxValue > 0) {
+                        val h = size.height
+                        val thumb = h * h / (h + scroll.maxValue)
+                        val x = size.width - bar.toPx()
+                        drawRect(SkyDark.copy(alpha = 0.25f), Offset(x, 0f), Size(bar.toPx(), h))
+                        drawRect(SkyDark, Offset(x, (h - thumb) * scroll.value / scroll.maxValue), Size(bar.toPx(), thumb))
+                    }
+                }
+                .verticalScroll(scroll)
+                .padding(end = bar * 3)
+        ) { content() }
+        Spacer(Modifier.height(u / 2))
+    }
+
+    /** The installed add-ons in a list, with Store, Install from file and Back below. */
+    @Composable
+    private fun ColumnScope.AddonsPage(u: Dp, body: TextStyle) {
         BackHandler { showAddons = false }
         val install = remember { FocusRequester() }
-        Text("Add-ons (${addons.size})", style = body, color = GoldLight, modifier = Modifier.height(u))
-        Text(addonStatus.ifEmpty { "Download an add-on's .zip in your browser, then press Install from file." },
-            style = body, color = TextColor, modifier = Modifier.height(u * 2))
-        Column(Modifier.fillMaxWidth().height(u * 7 / 2).verticalScroll(rememberScrollState())) {
+        PageTitle("Add-ons (${addons.size})", addonStatus.ifEmpty { "Download an add-on's .zip in your browser, then press Install from file." }, u, body)
+        PageList(u) {
             if (addons.isEmpty()) Text("No add-ons installed.", style = body, color = Sky)
-            for (addon in addons) StoreRow(addon.title, addon.folder, "Uninstall", u, body, enabled = !installingAddon) {
-                uninstallAddon(addon.folder, addon.title)
+            addons.forEachIndexed { i, addon ->
+                StoreRow(addon.title, addon.folder, "Uninstall", u, body, enabled = !installingAddon, stripe = i % 2 == 1) {
+                    uninstallAddon(addon.folder, addon.title)
+                }
             }
         }
-        Spacer(Modifier.height(u / 2))
-        val bw = (panelWidth - u * 4) / 3
-        Row(horizontalArrangement = Arrangement.spacedBy(u)) {
-            StartButton(null, "Store", u, bw, play = true, focusRequester = install, onClick = ::openStore)
-            StartButton(null, "Install from file", u, bw,
+        Row(horizontalArrangement = Arrangement.spacedBy(u / 2)) {
+            StartButton(null, "Store", u, u * 13 / 2, height = u * 7 / 5, fontSize = u * 11 / 20, play = true, focusRequester = install, onClick = ::openStore)
+            StartButton(null, "Install from file", u, u * 13 / 2, height = u * 7 / 5, fontSize = u * 11 / 20,
                 onClick = { addonPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) })
-            StartButton(null, "Back", u, bw, onClick = { showAddons = false })
+            StartButton(null, "Back", u, u * 13 / 2, height = u * 7 / 5, fontSize = u * 11 / 20, onClick = { showAddons = false })
         }
         LaunchedEffect(Unit) { runCatching { install.requestFocus() } }
     }
 
     /** The store's add-ons, one row each: Install or Uninstall on the right (tap or A). */
     @Composable
-    private fun StorePage(u: Dp, body: TextStyle, panelWidth: Dp) {
+    private fun ColumnScope.StorePage(u: Dp, body: TextStyle) {
         BackHandler { showStore = false; addonStatus = "" }
         val back = remember { FocusRequester() }
-        Text("Add-on store", style = body, color = GoldLight, modifier = Modifier.height(u))
-        Text(addonStatus.ifEmpty { "Add-ons with a version for your game. Tap Install or Uninstall on the right." },
-            style = body, color = TextColor, maxLines = 1, modifier = Modifier.height(u))
-        Column(Modifier.fillMaxWidth().height(u * 9 / 2).verticalScroll(rememberScrollState())) {
+        PageTitle("Add-on store", addonStatus.ifEmpty { "Add-ons with a version for your game. Tap Install or Uninstall on the right." }, u, body)
+        PageList(u) {
             // Only add-ons with a file made for this game: others would only give false hope.
             val shown = storeEntries.filter { e -> storeOffers[e.repo].let { it == null || it.offer != null || it.error != null } }
             val wowi = wowiItems
             if (shown.isEmpty() && wowi != null && wowi.isEmpty() && wowiError == null)
                 Text("No add-ons for your game version yet.", style = body, color = Sky)
+            var row = 0
             for (entry in shown) {
                 val installed = isInstalled(listOf(entry.folder))
                 val state = storeOffers[entry.repo]
@@ -639,7 +693,7 @@ class ThorStartActivity : ComponentActivity() {
                     state.offer != null -> "Install"
                     else -> "Not reachable"
                 }
-                StoreRow(entry.name, entry.description, action, u, body, enabled = !installingAddon && (installed || state?.offer != null)) {
+                StoreRow(entry.name, entry.description, action, u, body, enabled = !installingAddon && (installed || state?.offer != null), stripe = row++ % 2 == 1) {
                     if (installed) installedFolder(listOf(entry.folder))?.let { uninstallAddon(it, entry.name) } else installFromStore(entry)
                 }
             }
@@ -651,18 +705,14 @@ class ThorStartActivity : ComponentActivity() {
                     for (item in wowi) {
                         val installed = isInstalled(item.folders)
                         StoreRow(item.title, "${item.version} by ${item.author} (WoWInterface)", if (installed) "Uninstall" else "Install",
-                            u, body, enabled = !installingAddon) {
+                            u, body, enabled = !installingAddon, stripe = row++ % 2 == 1) {
                             if (installed) installedFolder(item.folders)?.let { uninstallAddon(it, item.title) } else installFromWowInterface(item)
                         }
                     }
                 }
             }
         }
-        Spacer(Modifier.height(u / 2))
-        val bw = (panelWidth - u * 4) / 3
-        Row(horizontalArrangement = Arrangement.spacedBy(u)) {
-            StartButton(null, "Back", u, bw, focusRequester = back, onClick = { showStore = false; addonStatus = "" })
-        }
+        StartButton(null, "Back", u, u * 13 / 2, height = u * 7 / 5, fontSize = u * 11 / 20, focusRequester = back, onClick = { showStore = false; addonStatus = "" })
         LaunchedEffect(Unit) { runCatching { back.requestFocus() } }
     }
 
@@ -671,19 +721,23 @@ class ThorStartActivity : ComponentActivity() {
      * a tap, so swiping through the list never installs or uninstalls anything.
      */
     @Composable
-    private fun StoreRow(name: String, description: String, action: String, u: Dp, body: TextStyle, enabled: Boolean, onClick: () -> Unit) {
+    private fun StoreRow(name: String, description: String, action: String, u: Dp, body: TextStyle, enabled: Boolean, stripe: Boolean, onClick: () -> Unit) {
         var focused by remember { mutableStateOf(false) }
         val px = onePx()
         Row(
-            Modifier.fillMaxWidth().height(u * 3 / 2).padding(horizontal = u / 4),
+            Modifier.fillMaxWidth().height(u * 3 / 2)
+                .background(if (stripe) Color.White.copy(alpha = 0.03f) else Color.Transparent)
+                .padding(horizontal = u / 4),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text(name, style = body, color = GoldLight, maxLines = 1)
-                Text(description, style = body.copy(fontSize = textSize(u / 2)), color = Sky, maxLines = 1)
+                Text(name, style = body.copy(lineHeight = textSize(u * 3 / 4)), color = GoldLight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(description, style = body.copy(fontSize = textSize(u * 9 / 20), lineHeight = textSize(u * 3 / 5)), color = Sky,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            Spacer(Modifier.width(u / 2))
             Box(
-                Modifier.height(u * 5 / 4)
+                Modifier.width(u * 21 / 5).height(u * 11 / 10)
                     .onFocusChanged { focused = it.isFocused }
                     .onKeyEvent {
                         if (enabled && it.type == KeyEventType.KeyUp && it.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_BUTTON_A) {
@@ -691,11 +745,10 @@ class ThorStartActivity : ComponentActivity() {
                         } else false
                     }
                     .clickable(enabled = enabled, onClick = onClick)
-                    .border(px, if (focused) GoldLight else if (enabled) Edge else Color.Transparent)
-                    .padding(horizontal = u / 3),
+                    .border(px, if (focused) GoldLight else if (enabled) Edge else Color.Transparent),
                 contentAlignment = Alignment.Center
             ) {
-                Text(action, style = body, color = if (enabled) Teal else TextColor, maxLines = 1)
+                Text(action, style = body, color = if (action == "Install") Teal else TextColor, maxLines = 1)
             }
         }
     }
@@ -710,8 +763,8 @@ class ThorStartActivity : ComponentActivity() {
     /** Play in the teal of the Forever logo, the others in deep blue; settings show a small label over the value. */
     @Composable
     private fun StartButton(
-        label: String?, text: String, u: Dp, width: Dp, play: Boolean = false, enabled: Boolean = true,
-        focusRequester: FocusRequester? = null, onClick: () -> Unit
+        label: String?, text: String, u: Dp, width: Dp, height: Dp = u * 2, fontSize: Dp = u * 3 / 5,
+        play: Boolean = false, enabled: Boolean = true, focusRequester: FocusRequester? = null, onClick: () -> Unit
     ) {
         val interaction = remember { MutableInteractionSource() }
         val pressed by interaction.collectIsPressedAsState()
@@ -725,7 +778,7 @@ class ThorStartActivity : ComponentActivity() {
         if (focused && enabled) edge = GoldLight
         val heading = FontFamily(Font(R.font.cinzel_bold, FontWeight.Bold))
         val px = onePx()
-        var modifier = Modifier.width(width).height(u * 5 / 2)
+        var modifier = Modifier.width(width).height(height)
         if (focusRequester != null) modifier = modifier.focusRequester(focusRequester)
         Box(
             modifier
@@ -747,16 +800,16 @@ class ThorStartActivity : ComponentActivity() {
                 // centred in the next 9/20.
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.fillMaxWidth().weight(9f), contentAlignment = Alignment.BottomCenter) {
-                        Text(label, color = if (enabled) Sky else ink, fontFamily = heading, fontSize = textSize(u / 2))
+                        Text(label, color = if (enabled) Sky else ink, fontFamily = heading, fontSize = textSize(u * 9 / 20))
                     }
                     Box(Modifier.fillMaxWidth().weight(9f), contentAlignment = Alignment.Center) {
-                        Text(text, color = if (enabled) GoldLight else ink, fontFamily = heading, fontSize = textSize(u * 2 / 3))
+                        Text(text, color = if (enabled) GoldLight else ink, fontFamily = heading, fontSize = textSize(fontSize))
                     }
                     Spacer(Modifier.weight(2f))
                 }
             } else {
-                Text(text, color = ink, fontFamily = heading, fontSize = textSize(u * 2 / 3),
-                    textAlign = TextAlign.Center, lineHeight = textSize(u * 9 / 10), modifier = Modifier.padding(horizontal = px * 4))
+                Text(text, color = ink, fontFamily = heading, fontSize = textSize(fontSize),
+                    textAlign = TextAlign.Center, lineHeight = textSize(fontSize * 23 / 20), modifier = Modifier.padding(horizontal = px * 4))
             }
         }
     }
