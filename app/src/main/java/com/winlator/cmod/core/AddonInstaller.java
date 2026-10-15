@@ -111,11 +111,31 @@ public final class AddonInstaller {
      */
     private static String readHead(File toc) throws IOException {
         try (InputStream in = new java.io.FileInputStream(toc)) {
-            byte[] buffer = new byte[16384];
-            int n = 0;
-            for (int r; n < buffer.length && (r = in.read(buffer, n, buffer.length - n)) > 0; ) n += r;
-            return new String(buffer, 0, n, StandardCharsets.UTF_8);
+            return readHead(in);
         }
+    }
+
+    private static String readHead(InputStream in) throws IOException {
+        byte[] buffer = new byte[16384];
+        int n = 0;
+        for (int r; n < buffer.length && (r = in.read(buffer, n, buffer.length - n)) > 0; ) n += r;
+        return new String(buffer, 0, n, StandardCharsets.UTF_8);
+    }
+
+    /** Whether one of the add-ons in the .zip has a .toc listing the game's (major) interface number. */
+    private static boolean madeForGame(ZipFile zipFile, Map<String, String> roots, int gameInterface) throws IOException {
+        for (Enumeration<? extends ZipEntry> e = zipFile.entries(); e.hasMoreElements(); ) {
+            ZipEntry entry = e.nextElement();
+            String name = entry.getName().replace('\\', '/');
+            for (Map.Entry<String, String> root : roots.entrySet()) {
+                String rest = name.startsWith(root.getValue()) ? name.substring(root.getValue().length()) : null;
+                if (rest == null || rest.contains("/") || !isTocOf(root.getKey(), rest)) continue;
+                try (InputStream in = zipFile.getInputStream(entry)) {
+                    for (int i : interfacesFromToc(readHead(in))) if (i / 100 == gameInterface / 100) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** The numbers of a .toc's "## Interface: 11508, 11509" line. */
@@ -193,11 +213,21 @@ public final class AddonInstaller {
      * changes nothing, when the .zip has no add-on or one of them is already installed.
      */
     public static List<String> install(File zip, File addonsDir) throws IOException {
+        return install(zip, addonsDir, 0);
+    }
+
+    /**
+     * Like install(zip, addonsDir), and with gameInterface (like 16001) also refuses a .zip in
+     * which no add-on has a .toc made for the game (that number, or the same major version).
+     */
+    public static List<String> install(File zip, File addonsDir, int gameInterface) throws IOException {
         try (ZipFile zipFile = new ZipFile(zip)) {
             List<String> names = new ArrayList<>();
             for (Enumeration<? extends ZipEntry> e = zipFile.entries(); e.hasMoreElements(); ) names.add(e.nextElement().getName());
             Map<String, String> roots = addonRoots(names);
             if (roots.isEmpty()) throw new IOException("No add-on in that file. Pick the add-on's own .zip (not the source code .zip)");
+            if (gameInterface > 0 && !madeForGame(zipFile, roots, gameInterface))
+                throw new IOException("It is not made for your game version");
             List<String> existing = new ArrayList<>();
             for (String folder : roots.keySet()) if (new File(addonsDir, folder).exists()) existing.add(folder);
             if (!existing.isEmpty()) throw new AlreadyInstalledException(existing);

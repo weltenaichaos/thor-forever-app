@@ -140,7 +140,7 @@ public final class AddonStore {
      * Downloads the offered .zip into cacheDir and installs it into addonsDir. The download is
      * removed afterwards. Returns the installed folders.
      */
-    public static List<String> install(Entry entry, Offer offer, File addonsDir, File cacheDir, ThorSetup.Progress progress) throws IOException {
+    public static List<String> install(Entry entry, Offer offer, int gameInterface, File addonsDir, File cacheDir, ThorSetup.Progress progress) throws IOException {
         File zip = new File(cacheDir, "addon-store.zip");
         try {
             URL url = new URL(String.format(DOWNLOAD_URL, entry.repo, offer.filename.replace(" ", "%20")));
@@ -166,7 +166,8 @@ public final class AddonStore {
             } finally {
                 connection.disconnect();
             }
-            return AddonInstaller.install(zip, addonsDir);
+            // Checked again in the files themselves: the store only installs what is made for the game.
+            return AddonInstaller.install(zip, addonsDir, gameInterface);
         } finally {
             zip.delete();
         }

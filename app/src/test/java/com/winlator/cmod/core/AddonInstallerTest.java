@@ -81,6 +81,21 @@ public class AddonInstallerTest {
     }
 
     @Test
+    public void theStoreOnlyInstallsWhatIsMadeForTheGame() throws IOException {
+        File dir = Files.createTempDirectory("addons").toFile();
+        File addons = new File(dir, "AddOns");
+        File classic = zip(dir, "Old/Old.toc", "## Interface: 11507\n## Title: Old\n");
+        try {
+            AddonInstaller.install(classic, addons, 16001);
+            fail();
+        } catch (IOException expected) {}
+        assertFalse(new File(addons, "Old").exists());
+        // Like Questie: the Forever .toc is a suffixed one, and a patch (16002) still counts.
+        File forever = zip(dir, "New/New.toc", "## Interface: 00000\n", "New/New_Camelot.toc", "## Interface: 16001\n");
+        assertEquals(Arrays.asList("New"), AddonInstaller.install(forever, addons, 16002));
+    }
+
+    @Test
     public void neverOverwritesAnInstalledAddon() throws IOException {
         File dir = Files.createTempDirectory("addons").toFile();
         File addons = new File(dir, "AddOns");
