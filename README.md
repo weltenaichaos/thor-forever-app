@@ -1,5 +1,7 @@
 <p align="center"><img src="docs/images/start-screen.png" alt="Thor Forever start screen" width="720"></p>
 
+<p align="center"><img src="docs/images/app-icon.png" alt="Thor Forever app icon" width="128"></p>
+
 # Thor Forever
 
 Thor Forever is an Android app that starts World of Warcraft: Forever on the AYN Thor with one tap.
