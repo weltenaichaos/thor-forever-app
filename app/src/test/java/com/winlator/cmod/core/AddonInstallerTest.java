@@ -126,6 +126,57 @@ public class AddonInstallerTest {
         assertFalse(new File(addons, "Evil").exists());
     }
 
+    @Test
+    public void uninstallRemovesTheWholeAddonAndNothingElse() throws IOException {
+        File dir = Files.createTempDirectory("addons").toFile();
+        File addons = new File(dir, "AddOns");
+        File record = new File(dir, "own/addon-installs.txt");
+        File zip = zip(dir, "BigWigs/BigWigs.toc", "## Title: BigWigs\n", "BigWigs_Core/BigWigs_Core.toc", "x",
+                "BigWigs_Plugins/BigWigs_Plugins.toc", "x");
+        AddonInstaller.remember(record, AddonInstaller.install(zip, addons));
+        File other = zip(dir, "Questie/Questie.toc", "## Title: Questie\n");
+        AddonInstaller.remember(record, AddonInstaller.install(other, addons));
+
+        List<String> group = AddonInstaller.foldersWith(record, addons, "BigWigs_Core");
+        assertEquals(Arrays.asList("BigWigs", "BigWigs_Core", "BigWigs_Plugins"), group);
+        AddonInstaller.uninstall(record, addons, group);
+        assertFalse(new File(addons, "BigWigs").exists());
+        assertFalse(new File(addons, "BigWigs_Core").exists());
+        assertFalse(new File(addons, "BigWigs_Plugins").exists());
+        assertTrue(new File(addons, "Questie/Questie.toc").isFile());
+        // Installed by hand: only that folder.
+        new File(addons, "Manual").mkdirs();
+        assertEquals(Arrays.asList("Manual"), AddonInstaller.foldersWith(record, addons, "Manual"));
+    }
+
+    @Test
+    public void uninstallNeverReachesOutsideTheAddonsFolder() throws IOException {
+        File dir = Files.createTempDirectory("addons").toFile();
+        File addons = new File(dir, "AddOns");
+        File record = new File(dir, "record.txt");
+        File outside = new File(dir, "Outside");
+        outside.mkdirs();
+        File keep = new File(outside, "keep.txt");
+        Files.write(keep.toPath(), "x".getBytes(StandardCharsets.UTF_8));
+        new File(addons, "Real").mkdirs();
+        // A link inside an add-on is removed, not followed.
+        Files.createSymbolicLink(new File(addons, "Real/link").toPath(), outside.toPath());
+        // An add-on "folder" that is a link to somewhere else is refused.
+        Files.createSymbolicLink(new File(addons, "Linked").toPath(), outside.toPath());
+        for (String bad : new String[] { "..", "../Outside", "Real/link", "Linked", "Missing", "" }) {
+            try {
+                AddonInstaller.uninstall(record, addons, Arrays.asList("Real", bad));
+                fail(bad);
+            } catch (IOException expected) {}
+            // Nothing was deleted, not even the good one.
+            assertTrue(new File(addons, "Real").isDirectory());
+        }
+        AddonInstaller.uninstall(record, addons, Arrays.asList("Real"));
+        assertFalse(new File(addons, "Real").exists());
+        assertTrue(keep.isFile());
+        assertTrue(Files.isSymbolicLink(new File(addons, "Linked").toPath()));
+    }
+
     private static File zip(File dir, String... nameThenText) throws IOException {
         File zip = new File(dir, "addon.zip");
         try (ZipOutputStream out = new ZipOutputStream(new FileOutputStream(zip))) {

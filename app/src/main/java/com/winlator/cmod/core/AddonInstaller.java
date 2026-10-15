@@ -6,6 +6,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -19,7 +25,8 @@ import java.util.zip.ZipFile;
 /**
  * Installs World of Warcraft add-ons from a .zip, the way add-on sites pack them: one or more
  * folders, each with a .toc file named like the folder. They go into the game's
- * Interface\AddOns folder. Only adds folders: it never replaces or deletes one.
+ * Interface\AddOns folder. Installing only adds folders and never replaces one; only
+ * uninstall deletes, and only folders directly inside that AddOns folder.
  */
 public final class AddonInstaller {
     private AddonInstaller() {}
@@ -278,5 +285,89 @@ public final class AddonInstaller {
             }
             return new ArrayList<>(roots.keySet());
         }
+    }
+
+    /**
+     * Notes which folders one install added, in record (a file in the app's own folder), so
+     * uninstalling one of them later removes the whole add-on (BigWigs comes as several).
+     */
+    public static void remember(File record, List<String> folders) throws IOException {
+        if (folders.isEmpty()) return;
+        List<String> lines = record.isFile() ? Files.readAllLines(record.toPath(), StandardCharsets.UTF_8) : new ArrayList<>();
+        lines.add(String.join("\t", folders));
+        File parent = record.getParentFile();
+        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) throw new IOException("Could not create " + parent);
+        Files.write(record.toPath(), lines, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * The folders that belong with folder: the ones installed together with it, as far as they
+     * are still there, else just folder itself.
+     */
+    public static List<String> foldersWith(File record, File addonsDir, String folder) throws IOException {
+        List<String> folders = new ArrayList<>();
+        if (record.isFile()) {
+            for (String line : Files.readAllLines(record.toPath(), StandardCharsets.UTF_8)) {
+                List<String> group = new ArrayList<>();
+                for (String f : line.split("\t")) if (!f.isEmpty()) group.add(f);
+                boolean contains = false;
+                for (String f : group) contains |= f.equalsIgnoreCase(folder);
+                if (!contains) continue;
+                for (String f : group) if (new File(addonsDir, f).isDirectory() && !containsIgnoreCase(folders, f)) folders.add(f);
+            }
+        }
+        if (!containsIgnoreCase(folders, folder)) folders.add(0, folder);
+        return folders;
+    }
+
+    private static boolean containsIgnoreCase(List<String> list, String value) {
+        for (String s : list) if (s.equalsIgnoreCase(value)) return true;
+        return false;
+    }
+
+    /**
+     * Deletes the add-on folders, which must sit directly in addonsDir. Checks every name first
+     * and deletes nothing when one is unsafe. Links inside are removed, never followed.
+     * Forgets the folders in record.
+     */
+    public static void uninstall(File record, File addonsDir, List<String> folders) throws IOException {
+        Path base = addonsDir.getCanonicalFile().toPath();
+        List<Path> targets = new ArrayList<>();
+        for (String folder : folders) {
+            if (folder.isEmpty() || folder.equals(".") || folder.equals("..") || folder.contains("/") || folder.contains("\\"))
+                throw new IOException("Not an add-on folder: " + folder);
+            Path path = base.resolve(folder);
+            // The folder itself must be a real folder in AddOns, not a link to somewhere else.
+            if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) || !base.equals(path.getParent()))
+                throw new IOException("Not an add-on folder: " + folder);
+            targets.add(path);
+        }
+        for (Path path : targets) deleteTree(path);
+        if (!record.isFile()) return;
+        List<String> kept = new ArrayList<>();
+        for (String line : Files.readAllLines(record.toPath(), StandardCharsets.UTF_8)) {
+            List<String> group = new ArrayList<>();
+            for (String f : line.split("\t")) if (!f.isEmpty() && !containsIgnoreCase(folders, f)) group.add(f);
+            if (!group.isEmpty()) kept.add(String.join("\t", group));
+        }
+        Files.write(record.toPath(), kept, StandardCharsets.UTF_8);
+    }
+
+    private static void deleteTree(Path root) throws IOException {
+        // walkFileTree doesn't follow links by default: a link is deleted as a file.
+        Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                Files.delete(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException e) throws IOException {
+                if (e != null) throw e;
+                Files.delete(dir);
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 }
