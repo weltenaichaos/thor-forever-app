@@ -20,12 +20,15 @@ public class ThorSetupTest {
 
     @Test
     public void setsTheTunedGraphicsSettings() {
-        String env = ThorSetup.thorEnvVars("WINEESYNC=1 TU_DEBUG=noconform,sysmem DXVK_HUD=fps VKD3D_SHADER_MODEL=6_6");
-        EnvVars vars = new EnvVars(env);
+        String container = "WINEESYNC=1 TU_DEBUG=noconform,sysmem DXVK_HUD=fps VKD3D_SHADER_MODEL=6_6";
+        String env = ThorSetup.thorEnvVars(container);
+        // As a game starts: the container's variables, then the shortcut's.
+        EnvVars vars = new EnvVars(container);
+        vars.putAll(env);
         assertEquals("1", vars.get("WINEESYNC"));
         assertEquals("6_6", vars.get("VKD3D_SHADER_MODEL"));
-        assertFalse(vars.has("TU_DEBUG"));
-        assertFalse(vars.has("DXVK_HUD"));
+        assertEquals("", vars.get("TU_DEBUG"));
+        assertEquals("", vars.get("DXVK_HUD"));
         assertEquals("profiled", vars.get("TU_AUTOTUNE_ALGO"));
         assertEquals("dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False", vars.get("DXVK_CONFIG"));
         assertEquals("profiled", new EnvVars(ThorSetup.thorEnvVars(null)).get("TU_AUTOTUNE_ALGO"));

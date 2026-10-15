@@ -180,6 +180,7 @@ class ThorStartActivity : ComponentActivity() {
         Thread {
             val manager = runCatching { ContainerManager(this) }.getOrNull()
             manager?.let { m -> runCatching { ThorSetup.turnOffEsyncForBattleNet(m) } }
+            manager?.let { m -> runCatching { ThorSetup.fixAddedWowShortcuts(m) } }
             var found = runCatching { manager?.let { ThorGame.find(it) } }.getOrNull()
             var container: Container? = null
             var step = Setup.NONE
