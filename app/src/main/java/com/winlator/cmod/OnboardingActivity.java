@@ -55,6 +55,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -100,6 +101,17 @@ public class OnboardingActivity extends AppCompatActivity {
     private String pendingInstallVersion;
     private int pendingInstallVersionCode;
     private boolean autoInstallDispatched;
+
+    /** The recommended Thor Forever setup, bundled in the app's assets: type, version name, code, file. */
+    private static final String[][] THOR_PACKAGES = {
+            {"Wine", "11.0-arm64ec", "7", "thor/thor-wine-11.0-arm64ec-7.wcp", "Wine 11 (ARM64)"},
+            {"DXVK", "2.6.2-thor-arm64x", "1", "thor/dxvk-2.6.2-thor-arm64x.wcp", "DXVK 2.6.2 Thor"},
+    };
+    private static final String THOR_DXVK = "2.6.2-thor-arm64x-1";
+    private static final String THOR_TURNIP = "thor-turnip-26.2.3";
+    private boolean recommendedRunning;
+    /** The Wine entry name when the recommended setup is installed, else null. */
+    private String recommendedWine;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -185,6 +197,11 @@ public class OnboardingActivity extends AppCompatActivity {
                     public void onCloseComponents() {
                         finish();
                     }
+
+                    @Override
+                    public void onInstallRecommended() {
+                        installRecommended();
+                    }
                 }
         );
 
@@ -222,6 +239,77 @@ public class OnboardingActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    /**
+     * Installs the recommended setup from the app's assets (whatever isn't installed yet) and
+     * picks its Wine for the first container, so a new player doesn't choose components.
+     */
+    private void installRecommended() {
+        if (recommendedRunning || recommendedWine != null || installBusy || !coreReady) {
+            if (recommendedWine != null) composeController.updateRecommended(true, null);
+            return;
+        }
+        recommendedRunning = true;
+        installBusy = true;
+        composeController.updateRecommended(false, null);
+        composeController.setInstallBusy("thor-setup", true);
+        io.execute(() -> {
+            String error = null;
+            for (String[] pkg : THOR_PACKAGES) {
+                if (findInstalled(pkg) != null) continue;
+                error = installAssetPackage(pkg);
+                if (error != null) break;
+            }
+            contentsManager.syncContents();
+            ContentProfile wine = error == null ? findInstalled(THOR_PACKAGES[0]) : null;
+            if (error == null && wine == null) error = "Wine 11 is not installed.";
+            final String failure = error;
+            final String wineEntry = wine != null ? ContentsManager.getEntryName(wine) : null;
+            runOnUiThread(() -> {
+                recommendedRunning = false;
+                installBusy = false;
+                composeController.setInstallBusy(null, false);
+                syncComposeCatalog();
+                if (failure == null) {
+                    recommendedWine = wineEntry;
+                    selectedInitialWine = wineEntry;
+                    preferences.edit().putString(PREF_INITIAL_WINE, wineEntry).apply();
+                }
+                composeController.updateRecommended(failure == null, failure == null ? null : "Setup stopped: " + failure);
+            });
+        });
+    }
+
+    private ContentProfile findInstalled(String[] pkg) {
+        for (ContentProfile.ContentType type : ContentProfile.ContentType.values()) {
+            if (!type.toString().equals(pkg[0])) continue;
+            for (ContentProfile profile : contentsManager.getInstalledProfiles(type))
+                if (pkg[1].equals(profile.verName) && String.valueOf(profile.verCode).equals(pkg[2])) return profile;
+        }
+        return null;
+    }
+
+    /** Copies one bundled package to the cache and installs it like a picked .wcp file. Returns an error, or null. */
+    private String installAssetPackage(String[] pkg) {
+        String name = pkg[4];
+        File archive = new File(getCacheDir(), "thor-setup-" + System.nanoTime() + ".wcp");
+        try {
+            postInstallProgress("Unpacking " + name, 0);
+            try (InputStream in = getAssets().open(pkg[3]); FileOutputStream out = new FileOutputStream(archive)) {
+                byte[] buffer = new byte[256 * 1024];
+                for (int n; (n = in.read(buffer)) > 0; ) out.write(buffer, 0, n);
+            }
+            CountDownLatch done = new CountDownLatch(1);
+            String[] error = new String[1];
+            installContentArchive(Uri.fromFile(archive), name, 5, done::countDown, e -> { error[0] = e; done.countDown(); });
+            done.await();
+            return error[0];
+        } catch (Exception e) {
+            return "could not install " + name + " (" + e.getMessage() + ")";
+        } finally {
+            archive.delete();
+        }
     }
 
     private void refreshBundledRuntimeState() {
@@ -896,11 +984,18 @@ public class OnboardingActivity extends AppCompatActivity {
             data.put("screenSize", Container.DEFAULT_SCREEN_SIZE);
             data.put("envVars", Container.DEFAULT_ENV_VARS);
             data.put("graphicsDriver", Container.DEFAULT_GRAPHICS_DRIVER);
-            data.put("graphicsDriverConfig", Container.DEFAULT_GRAPHICSDRIVERCONFIG);
+            ContentProfile thorWine = findInstalled(THOR_PACKAGES[0]);
+            boolean thor = thorWine != null && runtime.equals(ContentsManager.getEntryName(thorWine));
+            // The recommended setup: our DXVK and Turnip, as tested on the Thor.
+            data.put("graphicsDriverConfig", thor
+                    ? Container.DEFAULT_GRAPHICSDRIVERCONFIG.replace(";version=;", ";version=" + THOR_TURNIP + ";")
+                    : Container.DEFAULT_GRAPHICSDRIVERCONFIG);
             data.put("rendererNative", false);
             data.put("rendererPresentMode", "fifo");
             data.put("dxwrapper", Container.DEFAULT_DXWRAPPER);
-            data.put("dxwrapperConfig", Container.DEFAULT_DXWRAPPERCONFIG);
+            data.put("dxwrapperConfig", thor
+                    ? Container.DEFAULT_DXWRAPPERCONFIG.replaceFirst("^version=[^,]*", "version=" + THOR_DXVK)
+                    : Container.DEFAULT_DXWRAPPERCONFIG);
             data.put("audioDriver", Container.DEFAULT_AUDIO_DRIVER);
             data.put("emulator", wineInfo.isArm64EC() ? "FEXCore" : "Box64");
             data.put("wincomponents", Container.DEFAULT_WINCOMPONENTS);
@@ -961,7 +1056,8 @@ public class OnboardingActivity extends AppCompatActivity {
                 .putBoolean(PREF_ONBOARDING_COMPLETE, true)
                 .putString(PREF_INITIAL_WINE, selectedInitialWine == null ? "" : selectedInitialWine)
                 .apply();
-        startActivity(new Intent(this, MainActivity.class));
+        // Straight to the Thor Forever start screen, which goes on with installing Battle.net.
+        startActivity(new Intent(this, com.winlator.cmod.ui.start.ThorStartActivity.class));
         overridePendingTransition(0, 0);
         finish();
     }

@@ -49,6 +49,8 @@ interface OnboardingCallbacks {
     fun onRequestPermissions()
     fun onRetryCore()
     fun onCloseComponents()
+    /** Installs the recommended Thor Forever setup bundled in the app; the result comes back through updateRecommended. */
+    fun onInstallRecommended()
 }
 
 class OnboardingComposeController internal constructor(
@@ -61,8 +63,15 @@ class OnboardingComposeController internal constructor(
     private val installingLabel: MutableState<String?>,
     private val installingProgress: MutableState<Int>,
     private val initialContainerPreparing: MutableState<Boolean>,
-    private val initialContainerReady: MutableState<Boolean>
+    private val initialContainerReady: MutableState<Boolean>,
+    private val recommendedDone: MutableState<Boolean>,
+    private val recommendedError: MutableState<String?>
 ) {
+    fun updateRecommended(done: Boolean, error: String?) {
+        recommendedDone.value = done
+        recommendedError.value = error
+    }
+
     fun updateCore(ready: Boolean, progress: Int) {
         coreReady.value = ready
         coreProgress.value = progress.coerceIn(0, 100)
@@ -120,6 +129,8 @@ object OnboardingComposeHost {
         val installProgress = mutableStateOf(-1)
         val containerPreparing = mutableStateOf(false)
         val containerReady = mutableStateOf(false)
+        val recommendedDone = mutableStateOf(false)
+        val recommendedError = mutableStateOf<String?>(null)
         val controller = OnboardingComposeController(
             ready,
             progress,
@@ -130,7 +141,9 @@ object OnboardingComposeHost {
             installLabel,
             installProgress,
             containerPreparing,
-            containerReady
+            containerReady,
+            recommendedDone,
+            recommendedError
         )
 
         applyAppFullscreen(activity)
@@ -148,6 +161,8 @@ object OnboardingComposeHost {
                     installProgress,
                     containerPreparing,
                     containerReady,
+                    recommendedDone,
+                    recommendedError,
                     componentManagerMode,
                     callbacks
                 )
@@ -157,7 +172,7 @@ object OnboardingComposeHost {
     }
 }
 
-private enum class OnboardingPage { Welcome, Theme, Components, Runtime, Access }
+private enum class OnboardingPage { Welcome, Theme, ThorSetup, Components, Runtime, Access }
 
 private fun prepareInitialContainer(
     activity: ComponentActivity,
@@ -242,6 +257,8 @@ private fun OnboardingFlow(
     installingProgress: State<Int>,
     containerPreparing: MutableState<Boolean>,
     containerReady: MutableState<Boolean>,
+    recommendedDone: State<Boolean>,
+    recommendedError: State<String?>,
     managerMode: Boolean,
     cb: OnboardingCallbacks
 ) {
@@ -269,8 +286,24 @@ private fun OnboardingFlow(
         )
 
         OnboardingPage.Theme -> OnboardingThemeScreen(
-            onContinue = { page = OnboardingPage.Components }
+            onContinue = { page = OnboardingPage.ThorSetup }
         )
+
+        OnboardingPage.ThorSetup -> {
+            // Starts once the system files are in; the activity ignores repeated calls.
+            LaunchedEffect(ready.value) { if (ready.value) cb.onInstallRecommended() }
+            OnboardingThorSetupScreen(
+                coreReady = ready.value,
+                coreProgress = progress.value,
+                label = installingLabel.value,
+                progress = installingProgress.value,
+                done = recommendedDone.value,
+                error = recommendedError.value,
+                onRetry = { if (ready.value) cb.onInstallRecommended() else cb.onRetryCore() },
+                onContinue = { page = OnboardingPage.Access },
+                onChooseComponents = { page = OnboardingPage.Components }
+            )
+        }
 
         OnboardingPage.Components -> OnboardingComponentsScreen(
             ready = ready,
@@ -284,7 +317,7 @@ private fun OnboardingFlow(
             managerMode = managerMode,
             onBack = {
                 if (managerMode) cb.onCloseComponents()
-                else page = OnboardingPage.Theme
+                else page = OnboardingPage.ThorSetup
             },
             onContinue = {
                 if (managerMode) cb.onCloseComponents()
@@ -307,7 +340,7 @@ private fun OnboardingFlow(
         )
 
         OnboardingPage.Access -> OnboardingAccessScreen(
-            back = { page = OnboardingPage.Runtime },
+            back = { page = if (recommendedDone.value) OnboardingPage.ThorSetup else OnboardingPage.Runtime },
             next = { cb.onRequestPermissions() }
         )
     }
