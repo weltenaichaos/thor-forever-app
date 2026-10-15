@@ -19,6 +19,7 @@ Copied from thor-companion's `app/voice` branch, commit `27aa50f` (0.24.2):
 | `app/src/main/assets/thor/companion/ThorCompanion` | `addon/ThorCompanion` (unchanged) |
 | `app/src/main/java/thor/companion/CompanionActivity.kt` | `app/.../MainActivity.kt` (only renamed) |
 | `MapView.kt`, `NameStore.kt`, `TipStore.kt`, `IconStore.kt`, `Ui.kt` | unchanged |
+| `GameFiles.kt` | `app/.../GameFiles.kt` (one change, below) |
 
 These are written for Thor Forever instead:
 
@@ -26,6 +27,10 @@ These are written for Thor Forever instead:
   (Android's PixelCopy), not with a root `screencap`.
 - `KeySender.kt` sends a tap's key straight into Thor Forever's X server, which hands it to
   WoW. One tap is one key press, as before; chat sends your text and Enter.
+- `KeySender.open` follows the game through its files with `GameFiles`, like the standalone
+  app's root helper, but inside the app: the game's files are the app's own. The start screen
+  tells it the game folder. `GameFiles.process` also takes that folder, because inside Thor
+  Forever the game's command line has its Windows path (`C:\...`), not an Android one.
 - `RootShell.kt` runs as the app itself: no root is needed. `Updater.kt` and
   `AddonInstaller.kt` do nothing: the companion updates with the app, and the start screen
   installs the addon (`core/CompanionAddon.java`).
@@ -37,5 +42,5 @@ replacements above.
 
 ## Not yet
 
-- The game isn't followed through its files yet (the standalone app's root helper did that);
-  the companion follows the game by its picture alone.
+- The companion's log button saves Thor Forever's own log, but no screenshot: taking one
+  needs root.

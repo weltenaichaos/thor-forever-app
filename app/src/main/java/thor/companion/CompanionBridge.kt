@@ -16,6 +16,7 @@ import com.winlator.cmod.xserver.XServer
 object CompanionBridge {
     private const val PREFS = "thor_companion"
     private const val KEY_ENABLED = "enabled"
+    private const val KEY_GAME_FOLDER = "gameFolder"
     /** The shortcut that starts WoW Forever; Battle.net gets no companion. */
     private const val WOW_SHORTCUT_FILE = "World of Warcraft Forever.desktop"
 
@@ -38,6 +39,16 @@ object CompanionBridge {
     @JvmStatic
     fun enabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+
+    /** The game's folder (the one with WTF, Logs and Interface), which the companion follows through its files. */
+    @JvmStatic
+    fun gameFolder(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_GAME_FOLDER, null)
+
+    @JvmStatic
+    fun setGameFolder(context: Context, path: String?) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_GAME_FOLDER, path).apply()
+    }
 
     @JvmStatic
     fun setEnabled(context: Context, enabled: Boolean) {
