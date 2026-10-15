@@ -830,18 +830,27 @@ public class XServerDisplayActivity extends AppCompatActivity {
         }
     }
 
+    /** onPause left the game running because the companion took the focus; onStop pauses it after all. */
+    private boolean pauseDeferred = false;
+
     @Override
     public void onResume() {
         super.onResume();
 
-        if (environment != null) {
-            xServerView.onResume();
-            environment.onResume();
+        if (pauseDeferred) {
+            // Never paused: the game kept running while the companion had the focus.
+            pauseDeferred = false;
+        }
+        else {
+            if (environment != null) {
+                xServerView.onResume();
+                environment.onResume();
+            }
+            if (!isInPictureInPictureMode())
+                ProcessHelper.resumeAllWineProcesses();
         }
         startTime = System.currentTimeMillis();
         handler.postDelayed(savePlaytimeRunnable, SAVE_INTERVAL_MS);
-        if (!isInPictureInPictureMode())
-            ProcessHelper.resumeAllWineProcesses();
     }
 
     @Override
@@ -850,16 +859,28 @@ public class XServerDisplayActivity extends AppCompatActivity {
         super.onPause();
 
         if (!isInPictureInPictureMode()) {
-            if (environment != null) {
-                environment.onPause();
-                xServerView.onPause();
+            // Typing in the companion on the other screen takes the focus from the game, and
+            // Android pauses it, though it is still on the top screen. Freezing it then stopped
+            // the game until the top screen was tapped. With the companion shown, the game
+            // keeps running and is only paused when it is really gone (onStop).
+            if (thor.companion.CompanionBridge.shown()) {
+                Log.i("XServerDisplayActivity", "Paused with the companion shown: the game keeps running");
+                pauseDeferred = true;
             }
-
-            ProcessHelper.pauseAllWineProcesses();
+            else
+                pauseGame();
         }
 
         savePlaytimeData();
         handler.removeCallbacks(savePlaytimeRunnable);
+    }
+
+    private void pauseGame() {
+        if (environment != null) {
+            environment.onPause();
+            xServerView.onPause();
+        }
+        ProcessHelper.pauseAllWineProcesses();
     }
 
     private void enterPipMode() {
@@ -1002,6 +1023,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
+        if (pauseDeferred) {
+            pauseDeferred = false;
+            pauseGame();
+        }
         savePlaytimeData();
         handler.removeCallbacks(savePlaytimeRunnable);
     }

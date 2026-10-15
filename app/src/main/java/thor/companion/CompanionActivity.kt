@@ -246,6 +246,7 @@ class CompanionActivity : Activity() {
     override fun onStart() {
         super.onStart()
         android.util.Log.i("ThorCompanion", "onStart")
+        CompanionBridge.setShown(true)
         worker = Thread(::loop, "strip-reader").apply { isDaemon = true; start() }
         content.removeCallbacks(updateCheck)
         content.post(updateCheck)
@@ -359,6 +360,7 @@ class CompanionActivity : Activity() {
 
     override fun onStop() {
         android.util.Log.i("ThorCompanion", "onStop")
+        CompanionBridge.setShown(false)
         closeCompose()
         content.removeCallbacks(updateCheck)
         worker = null

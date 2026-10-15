@@ -24,6 +24,17 @@ object CompanionBridge {
     @Volatile var xServer: XServer? = null
         private set
 
+    /** True while the companion shows on the other screen; the game then keeps running when it loses focus. */
+    @Volatile private var companionShown = false
+
+    @JvmStatic
+    fun shown(): Boolean = companionShown
+
+    @JvmStatic
+    fun setShown(on: Boolean) {
+        companionShown = on
+    }
+
     @JvmStatic
     fun enabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
