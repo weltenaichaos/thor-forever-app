@@ -116,11 +116,23 @@ public final class ThorGame {
 
     /** The installed game version, like 5.0.1.70009, or "" when it can't be read. */
     public String installedVersion() {
+        return fromBuildInfo("Version");
+    }
+
+    /** The game's product name for Blizzard, like wow_classic_beta, or "" when it can't be read. */
+    public String product() {
+        return flavorDir == null ? "" : flavorProduct(readText(new File(flavorDir, ".flavor.info")));
+    }
+
+    /** The region Battle.net installed the game from, like eu, or "" when it can't be read. */
+    public String region() {
+        return fromBuildInfo("Branch");
+    }
+
+    private String fromBuildInfo(String column) {
         if (flavorDir == null) return "";
-        File wowDir = flavorDir.getParentFile();
-        String buildInfo = readText(new File(wowDir, ".build.info"));
-        String product = flavorProduct(readText(new File(flavorDir, ".flavor.info")));
-        return versionFromBuildInfo(buildInfo, product);
+        String buildInfo = readText(new File(flavorDir.getParentFile(), ".build.info"));
+        return fieldFromBuildInfo(buildInfo, product(), column);
     }
 
     /** The product name (like wow_classic_beta) from a .flavor.info file. */
@@ -131,16 +143,21 @@ public final class ThorGame {
 
     /** The Version column of the row for product (any row when product is empty). */
     static String versionFromBuildInfo(String buildInfo, String product) {
+        return fieldFromBuildInfo(buildInfo, product, "Version");
+    }
+
+    /** A column of the row for product (any row when product is empty), or "". */
+    static String fieldFromBuildInfo(String buildInfo, String product, String name) {
         String[] lines = buildInfo.split("\r?\n");
         if (lines.length < 2) return "";
         int productCol = column(lines[0], "Product");
-        int versionCol = column(lines[0], "Version");
-        if (versionCol < 0) return "";
+        int col = column(lines[0], name);
+        if (col < 0) return "";
         for (int i = 1; i < lines.length; i++) {
             if (lines[i].trim().isEmpty()) continue;
             if (!product.isEmpty() && productCol >= 0 && !product.equals(field(lines[i], productCol))) continue;
-            String version = field(lines[i], versionCol);
-            if (!version.isEmpty()) return version;
+            String value = field(lines[i], col);
+            if (!value.isEmpty()) return value;
         }
         return "";
     }

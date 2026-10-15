@@ -3,6 +3,7 @@ package com.winlator.cmod.ui.start
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent as AndroidKeyEvent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -69,6 +70,7 @@ import com.winlator.cmod.MainActivity
 import com.winlator.cmod.R
 import com.winlator.cmod.container.ContainerManager
 import com.winlator.cmod.container.Container
+import com.winlator.cmod.core.GameUpdateCheck
 import com.winlator.cmod.core.ThorGame
 import com.winlator.cmod.core.ThorSetup
 import com.winlator.cmod.xenvironment.ImageFs
@@ -91,6 +93,8 @@ class ThorStartActivity : ComponentActivity() {
     private var game by mutableStateOf<ThorGame?>(null)
     private var loaded by mutableStateOf(false)
     private var version by mutableStateOf("")
+    /** The version Battle.net would update to, when it differs from the installed one. */
+    private var newVersion by mutableStateOf("")
     private var status by mutableStateOf("")
     private var fpsCap by mutableStateOf(0)
     private var overlay by mutableStateOf(0)
@@ -195,7 +199,25 @@ class ThorStartActivity : ComponentActivity() {
             }
             prefs.edit().putBoolean(KEY_UPDATE_RAN, false).apply()
             loaded = true
+            newVersion = ""
+            if (found != null && installed.isNotEmpty() && !added) checkForUpdate(found, installed)
         }
+    }
+
+    /** Asks Blizzard's version server whether Battle.net has a newer game version waiting. */
+    private fun checkForUpdate(found: ThorGame, installed: String) {
+        Thread {
+            val latest = runCatching { GameUpdateCheck.latestVersion(found.product(), found.region()) }
+                .onFailure { Log.w("ThorStart", "Update check failed", it) }
+                .getOrDefault("")
+            runOnUiThread {
+                // Only for the game still shown: the screen may have reloaded meanwhile.
+                if (game === found && GameUpdateCheck.updateAvailable(installed, latest)) {
+                    newVersion = latest
+                    status = "Update available: $latest. Press Update with Battle.net to install it."
+                }
+            }
+        }.start()
     }
 
     private fun play() {
@@ -333,8 +355,11 @@ class ThorStartActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize().padding(px * 3).border(px, SkyDark))
                 Column(Modifier.fillMaxSize().padding(start = u, end = u, top = headerHeight + u / 2)) {
                     val body = TextStyle(fontFamily = FontFamily(Font(R.font.wine_tahoma)), fontSize = textSize(u * 2 / 3), lineHeight = textSize(u))
-                    Text(if (version.isEmpty()) "Installed game version: unknown" else "Installed game version: $version",
-                        style = body, color = GoldLight, modifier = Modifier.height(u))
+                    Text(when {
+                            version.isEmpty() -> "Installed game version: unknown"
+                            newVersion.isNotEmpty() -> "Installed game version: $version (new: $newVersion)"
+                            else -> "Installed game version: $version"
+                        }, style = body, color = GoldLight, modifier = Modifier.height(u))
                     Text(status, style = body, color = TextColor, modifier = Modifier.height(u * 2))
                     Spacer(Modifier.height(u))
                     val enabled = loaded && game != null
