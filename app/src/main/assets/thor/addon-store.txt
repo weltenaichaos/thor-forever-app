@@ -1,0 +1,13 @@
+# The add-on store's list: Name|GitHub repository|main folder|what it does
+# Each add-on's latest GitHub release must have a release.json (from the BigWigs packager),
+# which says which game versions its .zip is for.
+Questie|Questie/Questie|Questie|Shows quests, objectives and NPCs on the map
+Deadly Boss Mods|DeadlyBossMods/DeadlyBossMods|DBM-Core|Boss fight timers and warnings
+DBM Classic raids|DeadlyBossMods/DBM-Vanilla|DBM-Raids-Vanilla|Deadly Boss Mods for the classic raids
+BigWigs|BigWigsMods/BigWigs|BigWigs|Boss fight timers and warnings
+BigWigs Classic raids|BigWigsMods/BigWigs_Classic|BigWigs_Classic|BigWigs for the classic raids
+Bartender4|Nevcairiel/Bartender4|Bartender4|Moves and resizes the action bars
+Dominos|tullamods/Dominos|Dominos|Moves and resizes the action bars
+Plater|Tercioo/Plater-Nameplates|Plater|Clearer nameplates
+WeakAuras|WeakAuras/WeakAuras2|WeakAuras|Custom alerts for buffs, cooldowns and more
+OmniCC|tullamods/OmniCC|OmniCC|Cooldown numbers on buttons
