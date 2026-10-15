@@ -5,15 +5,11 @@ import android.content.Context;
 import com.winlator.cmod.container.Container;
 import com.winlator.cmod.container.ContainerManager;
 import com.winlator.cmod.container.Shortcut;
-import com.winlator.cmod.xenvironment.ImageFs;
 
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -56,7 +52,7 @@ public final class ThorGame {
         // A Battle.net shortcut, the one in the game's container first.
         Shortcut battleNet = null;
         for (Shortcut shortcut : shortcuts) {
-            if (!isBattleNetExe(shortcut.path)) continue;
+            if (!isBattleNetExe(shortcut.path) || isBattleNetSetupExe(shortcut.path)) continue;
             if (battleNet == null || shortcut.container == best.container) battleNet = shortcut;
         }
         File exe = toAndroidPath(best.container, best.path);
@@ -73,11 +69,16 @@ public final class ThorGame {
         return exe.startsWith("wow") && !exe.startsWith("wowvoice");
     }
 
-    /** True for Battle.net's own launcher or app. */
+    /** True for Battle.net's own launcher or app, and its installer (which goes on to start the app). */
     public static boolean isBattleNetExe(String dosPath) {
         if (dosPath == null) return false;
         String path = dosPath.toLowerCase(Locale.ROOT);
-        return path.contains("battle.net launcher.exe") || path.contains("battle.net.exe");
+        return path.contains("battle.net launcher.exe") || path.contains("battle.net.exe") || isBattleNetSetupExe(dosPath);
+    }
+
+    /** True for Battle.net's installer, Battle.net-Setup.exe. */
+    static boolean isBattleNetSetupExe(String dosPath) {
+        return dosPath != null && dosPath.toLowerCase(Locale.ROOT).contains("battle.net-setup");
     }
 
     /**
@@ -157,23 +158,10 @@ public final class ThorGame {
 
     /** Battle.net's launcher in this container as a Windows path, or null when it isn't installed. */
     public String battleNetPath() {
-        Container container = shortcut.container;
-        List<String> drives = new ArrayList<>();
-        drives.add("C");
-        for (String[] drive : container.drivesIterator()) drives.add(drive[0].toUpperCase(Locale.ROOT));
         // The game's own drive first: Battle.net is often installed next to it.
-        if (shortcut.path != null && shortcut.path.length() > 1 && shortcut.path.charAt(1) == ':')
-            drives.add(0, String.valueOf(Character.toUpperCase(shortcut.path.charAt(0))));
-        String[] folders = { "Program Files (x86)\\Battle.net", "Program Files\\Battle.net", "Battle.net" };
-        String[] names = { "Battle.net Launcher.exe", "Battle.net.exe" };
-        for (String drive : drives)
-            for (String folder : folders)
-                for (String name : names) {
-                    String candidate = drive + ":\\" + folder + "\\" + name;
-                    File file = toAndroidPath(container, candidate);
-                    if (file != null && file.isFile()) return candidate;
-                }
-        return null;
+        String drive = shortcut.path != null && shortcut.path.length() > 1 && shortcut.path.charAt(1) == ':'
+                ? String.valueOf(shortcut.path.charAt(0)) : null;
+        return ThorSetup.findBattleNet(shortcut.container, drive);
     }
 
     /**
@@ -182,23 +170,7 @@ public final class ThorGame {
      * the container's desktop.
      */
     public File writeBattleNetShortcut(Context context, String battleNetPath) throws IOException {
-        Container container = shortcut.container;
-        File file = new File(context.getCacheDir(), "thor_battle_net.desktop");
-        String winePrefix = wineHome(context, container) + "/.wine";
-        try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
-            writer.println("[Desktop Entry]");
-            writer.println("Name=Battle.net");
-            writer.println("Exec=env WINEPREFIX=\"" + winePrefix + "\" wine " + StringUtils.escapeFileDOSPath(battleNetPath));
-            writer.println("Type=Application");
-            writer.println("container_id:" + container.id);
-        }
-        return file;
-    }
-
-    private static String wineHome(Context context, Container container) {
-        String imagefs = ImageFs.find(context).getRootDir().getAbsolutePath();
-        String root = container.getRootDir().getAbsolutePath();
-        return root.startsWith(imagefs) ? root.substring(imagefs.length()) : "/home/" + ImageFs.USER;
+        return ThorSetup.writeRunShortcut(context, shortcut.container, "Battle.net", battleNetPath);
     }
 
     /** Turns a Windows path like E:\Games\Wow.exe into the file on Android, or null. */

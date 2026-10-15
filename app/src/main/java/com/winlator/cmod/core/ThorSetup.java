@@ -1,0 +1,259 @@
+package com.winlator.cmod.core;
+
+import android.content.Context;
+import android.os.Environment;
+
+import com.winlator.cmod.container.Container;
+import com.winlator.cmod.container.ContainerManager;
+import com.winlator.cmod.container.Shortcut;
+import com.winlator.cmod.xenvironment.ImageFs;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * The first setup from the Thor Forever start screen: download Blizzard's Battle.net installer
+ * into the container and start it, and once World of Warcraft is installed, add its shortcut
+ * with the Thor settings. Only writes inside the app's own containers and cache.
+ */
+public final class ThorSetup {
+    /** Blizzard's own download link for the Windows Battle.net installer. */
+    public static final String INSTALLER_URL = "https://downloader.battle.net/download/getInstaller?os=win&installer=Battle.net-Setup.exe";
+    /** Where the installer is kept in the container, as Windows sees it. */
+    public static final String INSTALLER_DOS_PATH = "C:\\ProgramData\\ThorForever\\Battle.net-Setup.exe";
+    /** The DXVK settings that tested best on the Thor (see the graphics tuning guide). */
+    static final String DXVK_CONFIG = "dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False";
+    /** Smaller than this is an error page, not the installer (it is about 5 MB). */
+    private static final long MIN_INSTALLER_BYTES = 1024 * 1024;
+
+    private ThorSetup() {}
+
+    public interface Progress {
+        /** percent is 0 to 100, or -1 when the size is unknown. */
+        void onProgress(int percent);
+    }
+
+    /** The container for the game: the one Battle.net is installed in, else the first one. */
+    public static Container pickContainer(ContainerManager manager) {
+        List<Container> containers = manager.getContainers();
+        for (Container container : containers)
+            if (findBattleNet(container, null) != null) return container;
+        return containers.isEmpty() ? null : containers.get(0);
+    }
+
+    /** Battle.net's launcher in the container as a Windows path, or null when it isn't installed. */
+    public static String findBattleNet(Container container, String preferDrive) {
+        String[] folders = { "Program Files (x86)\\Battle.net", "Program Files\\Battle.net", "Battle.net" };
+        String[] names = { "Battle.net Launcher.exe", "Battle.net.exe" };
+        for (String drive : drives(container, preferDrive))
+            for (String folder : folders)
+                for (String name : names) {
+                    String candidate = drive + ":\\" + folder + "\\" + name;
+                    File file = ThorGame.toAndroidPath(container, candidate);
+                    if (file != null && file.isFile()) return candidate;
+                }
+        return null;
+    }
+
+    /** C, the container's other drives, and preferDrive (when given) first. */
+    private static List<String> drives(Container container, String preferDrive) {
+        List<String> drives = new ArrayList<>();
+        drives.add("C");
+        for (String[] drive : container.drivesIterator()) drives.add(drive[0].toUpperCase(Locale.ROOT));
+        if (preferDrive != null) drives.add(0, preferDrive.toUpperCase(Locale.ROOT));
+        return drives;
+    }
+
+    /**
+     * WoW's .exe as Battle.net installed it (like C:\Program Files (x86)\World of Warcraft\
+     * _classic_beta_\WowB-ARM64.exe), or null. With several game versions, the one changed last.
+     */
+    public static String findInstalledWow(Container container) {
+        String[] folders = { "Program Files (x86)\\World of Warcraft", "Program Files\\World of Warcraft", "World of Warcraft" };
+        String best = null;
+        long bestTime = -1;
+        for (String drive : drives(container, null))
+            for (String folder : folders) {
+                String wowDos = drive + ":\\" + folder;
+                File wowDir = ThorGame.toAndroidPath(container, wowDos);
+                if (wowDir == null) continue;
+                File[] flavors = wowDir.listFiles(File::isDirectory);
+                if (flavors == null) continue;
+                for (File flavor : flavors) {
+                    if (!flavor.getName().startsWith("_")) continue;
+                    String exe = pickWowExe(flavor.list());
+                    if (exe == null) continue;
+                    long time = new File(flavor, exe).lastModified();
+                    if (time > bestTime) {
+                        best = wowDos + "\\" + flavor.getName() + "\\" + exe;
+                        bestTime = time;
+                    }
+                }
+            }
+        return best;
+    }
+
+    /** The game's .exe among a game folder's files: the ARM64 one when there is one. */
+    static String pickWowExe(String[] names) {
+        if (names == null) return null;
+        String found = null;
+        for (String name : names) {
+            if (!name.toLowerCase(Locale.ROOT).endsWith(".exe") || !ThorGame.isWowExe("C:\\" + name)) continue;
+            if (name.toLowerCase(Locale.ROOT).contains("arm64")) return name;
+            if (found == null) found = name;
+        }
+        return found;
+    }
+
+    /**
+     * The container's environment with the Thor settings that tested best: Turnip's autotuner
+     * for the rendering mode (in place of TU_DEBUG's sysmem/gmem), DXVK's HUD off and DXVK_CONFIG.
+     */
+    static String thorEnvVars(String containerEnvVars) {
+        EnvVars envVars = new EnvVars(containerEnvVars != null ? containerEnvVars : "");
+        envVars.remove("TU_DEBUG");
+        envVars.remove("DXVK_HUD");
+        envVars.put("TU_AUTOTUNE_ALGO", "profiled");
+        envVars.put("DXVK_CONFIG", DXVK_CONFIG);
+        return envVars.toString();
+    }
+
+    /**
+     * Adds a World of Warcraft shortcut to the container's desktop, as the library shows it. Its
+     * own file name, so it never replaces the shortcut Battle.net may put there for its launcher.
+     */
+    public static Shortcut createWowShortcut(Context context, Container container, String wowDosPath) throws IOException {
+        File desktop = container.getDesktopDir();
+        if (!desktop.isDirectory() && !desktop.mkdirs()) throw new IOException("Could not create " + desktop);
+        File file = new File(desktop, "World of Warcraft Forever.desktop");
+        writeDesktopEntry(context, file, container, "World of Warcraft", wowDosPath);
+        Shortcut shortcut = new Shortcut(container, file);
+        shortcut.putExtra("envVars", thorEnvVars(container.getEnvVars()));
+        shortcut.saveData();
+        return shortcut;
+    }
+
+    /** Writes a shortcut that runs a Windows program in the container, into the app's cache. */
+    public static File writeRunShortcut(Context context, Container container, String name, String dosPath) throws IOException {
+        File file = new File(context.getCacheDir(), "thor_" + name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "_") + ".desktop");
+        writeDesktopEntry(context, file, container, name, dosPath);
+        return file;
+    }
+
+    private static void writeDesktopEntry(Context context, File file, Container container, String name, String dosPath) throws IOException {
+        String winePrefix = wineHome(context, container) + "/.wine";
+        try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
+            writer.println("[Desktop Entry]");
+            writer.println("Name=" + name);
+            writer.println("Exec=env WINEPREFIX=\"" + winePrefix + "\" wine " + StringUtils.escapeFileDOSPath(dosPath));
+            writer.println("Type=Application");
+            writer.println("container_id:" + container.id);
+        }
+    }
+
+    private static String wineHome(Context context, Container container) {
+        String imagefs = ImageFs.find(context).getRootDir().getAbsolutePath();
+        String root = container.getRootDir().getAbsolutePath();
+        return root.startsWith(imagefs) ? root.substring(imagefs.length()) : "/home/" + ImageFs.USER;
+    }
+
+    /**
+     * Puts the Battle.net installer at INSTALLER_DOS_PATH: downloaded from Blizzard, or, when
+     * that fails, copied from a Battle.net-Setup .exe the player saved in Android's Download folder.
+     */
+    public static void fetchInstaller(Container container, Progress progress) throws IOException {
+        File target = ThorGame.toAndroidPath(container, INSTALLER_DOS_PATH);
+        File dir = target.getParentFile();
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Could not create " + dir);
+        File part = new File(dir, target.getName() + ".part");
+        IOException downloadError;
+        try {
+            download(INSTALLER_URL, part, progress);
+            finish(part, target);
+            return;
+        } catch (IOException e) {
+            downloadError = e;
+        }
+        File saved = savedInstaller(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS));
+        if (saved == null) throw downloadError;
+        try (InputStream in = new java.io.FileInputStream(saved)) {
+            copy(in, part, saved.length(), progress);
+        }
+        finish(part, target);
+    }
+
+    /** The newest Battle.net-Setup*.exe in the folder, or null. */
+    static File savedInstaller(File folder) {
+        File[] files = folder != null ? folder.listFiles() : null;
+        if (files == null) return null;
+        File best = null;
+        for (File file : files) {
+            String name = file.getName().toLowerCase(Locale.ROOT);
+            if (!file.isFile() || !name.startsWith("battle.net-setup") || !name.endsWith(".exe")) continue;
+            if (best == null || file.lastModified() > best.lastModified()) best = file;
+        }
+        return best;
+    }
+
+    private static void download(String url, File part, Progress progress) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        try {
+            connection.setInstanceFollowRedirects(true);
+            connection.setConnectTimeout(20000);
+            connection.setReadTimeout(30000);
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+            int code = connection.getResponseCode();
+            if (code != HttpURLConnection.HTTP_OK) throw new IOException("Blizzard's server answered " + code);
+            try (InputStream in = connection.getInputStream()) {
+                copy(in, part, connection.getContentLengthLong(), progress);
+            }
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private static void copy(InputStream in, File part, long total, Progress progress) throws IOException {
+        try (OutputStream out = new FileOutputStream(part)) {
+            byte[] buffer = new byte[65536];
+            long done = 0;
+            int lastPercent = -2;
+            for (int n; (n = in.read(buffer)) > 0; ) {
+                out.write(buffer, 0, n);
+                done += n;
+                int percent = total > 0 ? (int) (done * 100 / total) : -1;
+                if (percent != lastPercent) {
+                    progress.onProgress(percent);
+                    lastPercent = percent;
+                }
+            }
+        }
+    }
+
+    /** Checks the file is a Windows program, then puts it in place. */
+    private static void finish(File part, File target) throws IOException {
+        if (!looksLikeExe(part)) throw new IOException("The download is not the Battle.net installer");
+        if (!part.renameTo(target)) {
+            FileUtils.copy(part, target);
+            if (!target.isFile() || target.length() != part.length()) throw new IOException("Could not save " + target);
+        }
+    }
+
+    private static boolean looksLikeExe(File file) {
+        if (file.length() < MIN_INSTALLER_BYTES) return false;
+        try (InputStream in = new java.io.FileInputStream(file)) {
+            return in.read() == 'M' && in.read() == 'Z';
+        } catch (IOException e) {
+            return false;
+        }
+    }
+}
