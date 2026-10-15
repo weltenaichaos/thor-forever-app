@@ -280,6 +280,8 @@ class ThorStartActivity : ComponentActivity() {
      * straight from here, WoW crashed natively within a second.
      */
     private fun startShortcut(containerId: Int, shortcutPath: String, update: Boolean) {
+        // Battle.net runs, but not smoothly in Wine: its window often stays white for a while.
+        if (update) Toast.makeText(this, BATTLE_NET_HINT, Toast.LENGTH_LONG).show()
         startActivity(Intent(this, MainActivity::class.java)
             .putExtra("container_id", containerId)
             .putExtra(MainActivity.EXTRA_RUN_SHORTCUT, shortcutPath)
@@ -738,6 +740,7 @@ class ThorStartActivity : ComponentActivity() {
     companion object {
         private const val PREFS = "thor_start"
         private const val KEY_UPDATE_RAN = "update_ran"
+        private const val BATTLE_NET_HINT = "Battle.net may show a white window for a minute while it loads. If it stays white, close it and try again."
         private const val EXTRA_FPS_LIMIT = "nativeFpsLimit"
         private val FPS_CAPS = listOf(0, 30, 40, 45, 60)
         private val OVERLAYS = listOf("Off", "FPS", "FPS + graph")
