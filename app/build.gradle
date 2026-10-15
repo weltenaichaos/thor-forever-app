@@ -100,6 +100,13 @@ android {
 
     defaultConfig {
         applicationId "com.winlator.cmod"
+        manifestPlaceholders = [appLabel: "Winlator Ludashi"]
+        // A second copy for testing the first setup: it installs next to the normal app,
+        // with its own data, so it starts like a new installation (-PthorSetupTest=true).
+        if (project.findProperty("thorSetupTest") == "true") {
+            applicationId "com.winlator.cmod.setuptest"
+            manifestPlaceholders = [appLabel: "Thor Setup Test"]
+        }
         minSdkVersion 28
         // We’re preserving Winlator’s request to keep targetSdkVersion at 28
         targetSdkVersion 28
