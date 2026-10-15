@@ -112,12 +112,17 @@ android {
             applicationId "com.winlator.cmod.setuptest"
             manifestPlaceholders = [appLabel: "Thor Setup Test"]
         }
+        // The public release: Thor Forever, as its own app next to any Winlator (-PthorRelease=true).
+        if (project.findProperty("thorRelease") == "true") {
+            applicationId "com.thorforever.app"
+            manifestPlaceholders = [appLabel: "Thor Forever"]
+        }
         minSdkVersion 28
         // We’re preserving Winlator’s request to keep targetSdkVersion at 28
         targetSdkVersion 28
 
-        versionCode 20
-        versionName "4.1"
+        versionCode 21
+        versionName "0.1.0"
 
         // Which CI build this is, so the app can tell whether a newer test build exists.
         buildConfigField "int", "CI_BUILD_NUMBER", (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
