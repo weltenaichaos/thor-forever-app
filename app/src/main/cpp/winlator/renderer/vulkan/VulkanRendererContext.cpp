@@ -1031,7 +1031,6 @@ void VulkanRendererContext::recordCmdBuf(VkCommandBuffer cb, uint32_t imgIdx,
 {
     VkCommandBufferBeginInfo bi{}; bi.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     if (vk_.BeginCommandBuffer(cb,&bi)!=VK_SUCCESS) throw std::runtime_error("begin cb");
-    timestampRecording = timestampPool != VK_NULL_HANDLE && compositorStatsEnabled();
     if (timestampRecording) {
         vk_.CmdResetQueryPool(cb, timestampPool, currentFrame * 2, 2);
         vk_.CmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestampPool, currentFrame * 2);
@@ -1426,6 +1425,9 @@ void VulkanRendererContext::renderFrame() {
         curW=cursorTexW; curH=cursorTexH;
     }
 
+    // The CMake build swaps recordCmdBuf for the one in VulkanRendererFilters.cpp; both write
+    // the timestamps when this is set.
+    timestampRecording = timestampPool != VK_NULL_HANDLE && compositorStatsEnabled();
     recordCmdBuf(cmdBufs[currentFrame],imgIdx,frameDraws,
         frameAhbTransitions,framePreUpload,framePostUpload,
         curUpload,hasCurUpload,

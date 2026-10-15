@@ -105,6 +105,10 @@ void VulkanRendererContext::recordCmdBuf(VkCommandBuffer cb, uint32_t imgIdx,
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     if (vk_.BeginCommandBuffer(cb, &bi) != VK_SUCCESS)
         throw std::runtime_error("begin cb");
+    if (timestampRecording) {
+        vk_.CmdResetQueryPool(cb, timestampPool, currentFrame * 2, 2);
+        vk_.CmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestampPool, currentFrame * 2);
+    }
 
     ahbTransitions.clear();
     preUpload.clear();
@@ -358,6 +362,8 @@ void VulkanRendererContext::recordCmdBuf(VkCommandBuffer cb, uint32_t imgIdx,
     }
 
     vk_.CmdEndRenderPass(cb);
+    if (timestampRecording)
+        vk_.CmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestampPool, currentFrame * 2 + 1);
 
     VkResult endStatus = vk_.EndCommandBuffer(cb);
     if (endStatus != VK_SUCCESS) {
