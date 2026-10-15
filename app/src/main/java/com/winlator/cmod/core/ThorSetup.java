@@ -176,10 +176,20 @@ public final class ThorSetup {
         try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
             writer.println("[Desktop Entry]");
             writer.println("Name=" + name);
-            writer.println("Exec=env WINEPREFIX=\"" + winePrefix + "\" wine " + StringUtils.escapeFileDOSPath(dosPath));
+            writer.println("Exec=env WINEPREFIX=\"" + winePrefix + "\" wine " + execPath(dosPath));
             writer.println("Type=Application");
             writer.println("container_id:" + container.id);
         }
+    }
+
+    /**
+     * The program's path as the Exec line needs it, so that Shortcut reads back exactly dosPath.
+     * StringUtils.escapeFileDOSPath can't be used: it turns spaces into backslashes, which
+     * Shortcut drops, so "Battle.net Launcher.exe" became "Battle.netLauncher.exe" (Wine:
+     * "File not found").
+     */
+    static String execPath(String dosPath) {
+        return dosPath.replace("\\", "\\\\\\\\");
     }
 
     private static String wineHome(Context context, Container container) {
