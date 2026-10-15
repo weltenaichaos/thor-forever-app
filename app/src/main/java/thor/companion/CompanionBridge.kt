@@ -79,9 +79,18 @@ object CompanionBridge {
         val dm = activity.getSystemService(DisplayManager::class.java) ?: return
         val other = dm.displays.firstOrNull { it.displayId != here } ?: return
         val options = ActivityOptions.makeBasic().setLaunchDisplayId(other.displayId)
-        activity.startActivity(
-            Intent(activity, CompanionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            options.toBundle()
-        )
+        // Starting the companion pauses the game's screen before the companion's onStart runs:
+        // count it as shown already, or the game freezes on its loading screen until the top
+        // screen is tapped.
+        companionShown = true
+        try {
+            activity.startActivity(
+                Intent(activity, CompanionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                options.toBundle()
+            )
+        } catch (e: RuntimeException) {
+            companionShown = false
+            throw e
+        }
     }
 }
