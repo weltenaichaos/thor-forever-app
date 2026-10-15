@@ -229,5 +229,14 @@ jobs:
           apks=(app/build/outputs/apk/release/*.apk)
           [ ${#apks[@]} -eq 1 ] || { echo "Expected one APK, found ${#apks[@]}"; exit 1; }
           cp "${apks[0]}" "Thor-Forever-$TAG.apk"
-          gh release create "$TAG" "Thor-Forever-$TAG.apk" --draft --prerelease \
-            --target "$TARGET" --title "Thor Forever $TAG (alpha)" --notes-file docs/RELEASE-NOTES.md
+          # A draft with this tag already there gets the new APK and notes; a published release is never touched.
+          draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || echo none)
+          if [ "$draft" = "true" ]; then
+            gh release upload "$TAG" "Thor-Forever-$TAG.apk" --clobber
+            gh release edit "$TAG" --draft --prerelease --target "$TARGET" --notes-file docs/RELEASE-NOTES.md
+          elif [ "$draft" = "none" ]; then
+            gh release create "$TAG" "Thor-Forever-$TAG.apk" --draft --prerelease \
+              --target "$TARGET" --title "Thor Forever $TAG (alpha)" --notes-file docs/RELEASE-NOTES.md
+          else
+            echo "Release $TAG is already published: not changed."; exit 1
+          fi
