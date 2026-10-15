@@ -37,6 +37,18 @@ public class ThorSetupTest {
     }
 
     @Test
+    public void setsTheFexPresetOfTheWorkingShortcut() {
+        EnvVars fex = new EnvVars(ThorSetup.thorFexEnvVars());
+        assertEquals("0", fex.get("FEX_TSOENABLED"));
+        assertEquals("1", fex.get("FEX_X87REDUCEDPRECISION"));
+        assertEquals("5000", fex.get("FEX_MAXINST"));
+        assertEquals("mtrack", fex.get("FEX_SMCCHECKS"));
+        assertEquals("0", fex.get("FEX_DYNAMICL1CACHE"));
+        // A preset is stored as id|name|vars, and presets are split on commas.
+        assertFalse(ThorSetup.thorFexEnvVars().contains(",") || ThorSetup.thorFexEnvVars().contains("|"));
+    }
+
+    @Test
     public void keepsSpacesInTheShortcutPath() {
         String[] paths = {
                 "C:\\Program Files (x86)\\Battle.net\\Battle.net Launcher.exe",
