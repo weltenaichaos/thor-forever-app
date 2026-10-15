@@ -364,7 +364,7 @@ class ThorStartActivity : ComponentActivity() {
                     if (input == null) throw java.io.IOException("Could not open the file")
                     copy.outputStream().use { input.copyTo(it) }
                 }
-                AddonInstaller.install(copy, addonsDir)
+                AddonInstaller.install(copy, addonsDir).also { runCatching { AddonInstaller.remember(addonRecord(), it) } }
             }
             copy.delete()
             val list = runCatching { AddonInstaller.installed(addonsDir, AddonStore.interfaceOf(version)) }.getOrDefault(addons)
@@ -441,6 +441,41 @@ class ThorStartActivity : ComponentActivity() {
     private fun isInstalled(folders: List<String>): Boolean =
         folders.any { f -> addons.any { it.folder.equals(f, ignoreCase = true) } }
 
+    /** Which folders each install added, in the app's own folder (for uninstalling). */
+    private fun addonRecord() = java.io.File(filesDir, "thor/addon-installs.txt")
+
+    /** Asks first, then deletes the add-on's folders (all that were installed with it). */
+    private fun uninstallAddon(folder: String, name: String) {
+        val addonsDir = AddonInstaller.addonsDir(game) ?: return
+        if (installingAddon) return
+        val folders = runCatching { AddonInstaller.foldersWith(addonRecord(), addonsDir, folder) }.getOrDefault(listOf(folder))
+        val extra = if (folders.size > 1) "\n\nThis removes these folders: ${folders.joinToString(", ")}." else ""
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Uninstall $name?")
+            .setMessage("$name will be deleted from WoW's AddOns folder.$extra")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Uninstall") { _, _ ->
+                installingAddon = true
+                addonStatus = "Uninstalling $name..."
+                Thread {
+                    val result = runCatching { AddonInstaller.uninstall(addonRecord(), addonsDir, folders) }
+                    val list = runCatching { AddonInstaller.installed(addonsDir, AddonStore.interfaceOf(version)) }.getOrDefault(addons)
+                    runOnUiThread {
+                        installingAddon = false
+                        addons = list
+                        addonStatus = result.fold(
+                            { "$name is uninstalled. WoW notices it the next time it starts." },
+                            { e -> "Could not uninstall $name: ${e.message}" })
+                    }
+                }.start()
+            }
+            .show()
+    }
+
+    /** The installed folder of a store entry, by name, for uninstalling it. */
+    private fun installedFolder(folders: List<String>): String? =
+        addons.firstOrNull { a -> folders.any { it.equals(a.folder, ignoreCase = true) } }?.folder
+
     private fun installStoreAddon(name: String, folders: List<String>, install: (java.io.File, ThorSetup.Progress) -> List<String>) {
         val addonsDir = AddonInstaller.addonsDir(game) ?: return
         if (installingAddon || isInstalled(folders)) return
@@ -450,7 +485,7 @@ class ThorStartActivity : ComponentActivity() {
             val result = runCatching {
                 install(addonsDir, ThorSetup.Progress { percent ->
                     if (percent >= 0) runOnUiThread { addonStatus = "Downloading $name... $percent%" }
-                })
+                }).also { runCatching { AddonInstaller.remember(addonRecord(), it) } }
             }
             val list = runCatching { AddonInstaller.installed(addonsDir, AddonStore.interfaceOf(version)) }.getOrDefault(addons)
             runOnUiThread {
@@ -563,7 +598,9 @@ class ThorStartActivity : ComponentActivity() {
             style = body, color = TextColor, modifier = Modifier.height(u * 2))
         Column(Modifier.fillMaxWidth().height(u * 7 / 2).verticalScroll(rememberScrollState())) {
             if (addons.isEmpty()) Text("No add-ons installed.", style = body, color = Sky)
-            for (addon in addons) Text(addon.title, style = body, color = Sky, maxLines = 1)
+            for (addon in addons) StoreRow(addon.title, addon.folder, "Uninstall", u, body, enabled = !installingAddon) {
+                uninstallAddon(addon.folder, addon.title)
+            }
         }
         Spacer(Modifier.height(u / 2))
         val bw = (panelWidth - u * 4) / 3
@@ -576,13 +613,13 @@ class ThorStartActivity : ComponentActivity() {
         LaunchedEffect(Unit) { runCatching { install.requestFocus() } }
     }
 
-    /** The store's add-ons, one row each: tap (or A) to install. */
+    /** The store's add-ons, one row each: Install or Uninstall on the right (tap or A). */
     @Composable
     private fun StorePage(u: Dp, body: TextStyle, panelWidth: Dp) {
         BackHandler { showStore = false; addonStatus = "" }
         val back = remember { FocusRequester() }
         Text("Add-on store", style = body, color = GoldLight, modifier = Modifier.height(u))
-        Text(addonStatus.ifEmpty { "Add-ons with a version for your game. Tap one to install it." },
+        Text(addonStatus.ifEmpty { "Add-ons with a version for your game. Tap Install or Uninstall on the right." },
             style = body, color = TextColor, maxLines = 1, modifier = Modifier.height(u))
         Column(Modifier.fillMaxWidth().height(u * 9 / 2).verticalScroll(rememberScrollState())) {
             // Only add-ons with a file made for this game: others would only give false hope.
@@ -594,12 +631,14 @@ class ThorStartActivity : ComponentActivity() {
                 val installed = isInstalled(listOf(entry.folder))
                 val state = storeOffers[entry.repo]
                 val action = when {
-                    installed -> "Installed"
+                    installed -> "Uninstall"
                     state == null -> "Checking..."
                     state.offer != null -> "Install"
                     else -> "Not reachable"
                 }
-                StoreRow(entry.name, entry.description, action, u, body, enabled = !installed && state?.offer != null) { installFromStore(entry) }
+                StoreRow(entry.name, entry.description, action, u, body, enabled = !installingAddon && (installed || state?.offer != null)) {
+                    if (installed) installedFolder(listOf(entry.folder))?.let { uninstallAddon(it, entry.name) } else installFromStore(entry)
+                }
             }
             // WoWInterface: only add-ons whose own files were checked to be made for the game.
             when {
@@ -608,8 +647,10 @@ class ThorStartActivity : ComponentActivity() {
                 else -> {
                     for (item in wowi) {
                         val installed = isInstalled(item.folders)
-                        StoreRow(item.title, "${item.version} by ${item.author} (WoWInterface)", if (installed) "Installed" else "Install",
-                            u, body, enabled = !installed) { installFromWowInterface(item) }
+                        StoreRow(item.title, "${item.version} by ${item.author} (WoWInterface)", if (installed) "Uninstall" else "Install",
+                            u, body, enabled = !installingAddon) {
+                            if (installed) installedFolder(item.folders)?.let { uninstallAddon(it, item.title) } else installFromWowInterface(item)
+                        }
                     }
                 }
             }
@@ -622,28 +663,37 @@ class ThorStartActivity : ComponentActivity() {
         LaunchedEffect(Unit) { runCatching { back.requestFocus() } }
     }
 
+    /**
+     * One add-on: name and description, and on the right its action. Only the action reacts to
+     * a tap, so swiping through the list never installs or uninstalls anything.
+     */
     @Composable
     private fun StoreRow(name: String, description: String, action: String, u: Dp, body: TextStyle, enabled: Boolean, onClick: () -> Unit) {
         var focused by remember { mutableStateOf(false) }
         val px = onePx()
         Row(
-            Modifier.fillMaxWidth().height(u * 3 / 2)
-                .onFocusChanged { focused = it.isFocused }
-                .onKeyEvent {
-                    if (enabled && it.type == KeyEventType.KeyUp && it.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_BUTTON_A) {
-                        onClick(); true
-                    } else false
-                }
-                .clickable(enabled = enabled, onClick = onClick)
-                .border(px, if (focused) GoldLight else Color.Transparent)
-                .padding(horizontal = u / 4),
+            Modifier.fillMaxWidth().height(u * 3 / 2).padding(horizontal = u / 4),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
                 Text(name, style = body, color = GoldLight, maxLines = 1)
                 Text(description, style = body.copy(fontSize = textSize(u / 2)), color = Sky, maxLines = 1)
             }
-            Text(action, style = body, color = if (enabled) Teal else TextColor, maxLines = 1)
+            Box(
+                Modifier.height(u * 5 / 4)
+                    .onFocusChanged { focused = it.isFocused }
+                    .onKeyEvent {
+                        if (enabled && it.type == KeyEventType.KeyUp && it.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_BUTTON_A) {
+                            onClick(); true
+                        } else false
+                    }
+                    .clickable(enabled = enabled, onClick = onClick)
+                    .border(px, if (focused) GoldLight else if (enabled) Edge else Color.Transparent)
+                    .padding(horizontal = u / 3),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(action, style = body, color = if (enabled) Teal else TextColor, maxLines = 1)
+            }
         }
     }
 
