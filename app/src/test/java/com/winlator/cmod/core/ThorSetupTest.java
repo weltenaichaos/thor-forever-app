@@ -32,6 +32,20 @@ public class ThorSetupTest {
     }
 
     @Test
+    public void keepsSpacesInTheShortcutPath() {
+        String[] paths = {
+                "C:\\Program Files (x86)\\Battle.net\\Battle.net Launcher.exe",
+                "C:\\ProgramData\\ThorForever\\Battle.net-Setup.exe",
+                "C:\\Program Files (x86)\\World of Warcraft\\_classic_beta_\\WowB-ARM64.exe",
+        };
+        for (String path : paths) {
+            // As Shortcut reads the Exec line back.
+            String exec = "env WINEPREFIX=\"/home/xuser/.wine\" wine " + ThorSetup.execPath(path);
+            assertEquals(path, StringUtils.unescape(exec.substring(exec.lastIndexOf("wine ") + 4)));
+        }
+    }
+
+    @Test
     public void treatsTheInstallerAsBattleNet() {
         assertTrue(ThorGame.isBattleNetExe("C:\\ProgramData\\ThorForever\\Battle.net-Setup.exe"));
         assertTrue(ThorGame.isBattleNetSetupExe("D:\\Battle.net-Setup.exe"));

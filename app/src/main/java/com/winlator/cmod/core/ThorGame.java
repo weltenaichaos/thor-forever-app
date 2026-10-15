@@ -53,6 +53,10 @@ public final class ThorGame {
         Shortcut battleNet = null;
         for (Shortcut shortcut : shortcuts) {
             if (!isBattleNetExe(shortcut.path) || isBattleNetSetupExe(shortcut.path)) continue;
+            // Shortcuts made from Battle.net's .lnk can lose the spaces in their path ("Program
+            // Files (x86)"), and Wine then says "File not found": only take one that points to a file.
+            File target = toAndroidPath(shortcut.container, shortcut.path);
+            if (target == null || !target.isFile()) continue;
             if (battleNet == null || shortcut.container == best.container) battleNet = shortcut;
         }
         File exe = toAndroidPath(best.container, best.path);
