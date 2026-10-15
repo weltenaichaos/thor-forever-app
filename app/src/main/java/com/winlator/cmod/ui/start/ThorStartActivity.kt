@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.KeyEvent as AndroidKeyEvent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
@@ -29,6 +30,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -70,6 +73,7 @@ import com.winlator.cmod.MainActivity
 import com.winlator.cmod.R
 import com.winlator.cmod.container.ContainerManager
 import com.winlator.cmod.container.Container
+import com.winlator.cmod.core.AddonInstaller
 import com.winlator.cmod.core.GameUpdateCheck
 import com.winlator.cmod.core.ThorGame
 import com.winlator.cmod.core.ThorSetup
@@ -115,6 +119,15 @@ class ThorStartActivity : ComponentActivity() {
                 ThorSetup.copyInstaller(container, input ?: throw java.io.IOException("Could not open the file"), size, progress)
             }
         }
+    }
+
+    /** The add-ons page: the installed add-ons and Install from file. */
+    private var showAddons by mutableStateOf(false)
+    private var addons by mutableStateOf<List<AddonInstaller.Addon>>(emptyList())
+    private var addonStatus by mutableStateOf("")
+    private var installingAddon = false
+    private val addonPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) installAddon(uri)
     }
 
     private enum class Setup { NONE, NO_CONTAINER, INSTALL_BATTLE_NET, OPEN_BATTLE_NET }
@@ -170,10 +183,12 @@ class ThorStartActivity : ComponentActivity() {
                 }
             }
             val installed = runCatching { found?.installedVersion() ?: "" }.getOrDefault("")
+            val foundAddons = runCatching { AddonInstaller.installed(AddonInstaller.addonsDir(found)) }.getOrDefault(emptyList())
             runCatching { found?.applyCoverArt(this) }
             runOnUiThread {
                 setupContainer = container
                 setup = step
+                addons = foundAddons
                 show(found, installed, added)
             }
         }.start()
@@ -311,6 +326,39 @@ class ThorStartActivity : ComponentActivity() {
         startShortcut(container.id, shortcutPath, update = true)
     }
 
+    /**
+     * Copies the picked .zip into the app's cache (a picked file can only be read once) and
+     * unpacks its add-ons into the game's AddOns folder.
+     */
+    private fun installAddon(uri: android.net.Uri) {
+        val addonsDir = AddonInstaller.addonsDir(game) ?: return
+        if (installingAddon) return
+        installingAddon = true
+        addonStatus = "Installing..."
+        Thread {
+            val copy = java.io.File(cacheDir, "addon-import.zip")
+            val result = runCatching {
+                contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) throw java.io.IOException("Could not open the file")
+                    copy.outputStream().use { input.copyTo(it) }
+                }
+                AddonInstaller.install(copy, addonsDir)
+            }
+            copy.delete()
+            val list = runCatching { AddonInstaller.installed(addonsDir) }.getOrDefault(addons)
+            runOnUiThread {
+                installingAddon = false
+                addons = list
+                addonStatus = result.fold(
+                    { "Installed: ${it.joinToString(", ")}. It works the next time WoW starts." },
+                    { e ->
+                        if (e is AddonInstaller.AlreadyInstalledException) "${e.message}. Updating an add-on is not possible yet."
+                        else "Could not install it: ${e.message}"
+                    })
+            }
+        }.start()
+    }
+
     private fun nextFpsCap() {
         val shortcut = game?.shortcut ?: return
         val next = FPS_CAPS[(FPS_CAPS.indexOf(fpsCap) + 1) % FPS_CAPS.size]
@@ -355,6 +403,10 @@ class ThorStartActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize().padding(px * 3).border(px, SkyDark))
                 Column(Modifier.fillMaxSize().padding(start = u, end = u, top = headerHeight + u / 2)) {
                     val body = TextStyle(fontFamily = FontFamily(Font(R.font.wine_tahoma)), fontSize = textSize(u * 2 / 3), lineHeight = textSize(u))
+                    if (showAddons) {
+                        AddonsPage(u, body, panelWidth)
+                        return@Column
+                    }
                     Text(when {
                             version.isEmpty() -> "Installed game version: unknown"
                             newVersion.isNotEmpty() -> "Installed game version: $version (new: $newVersion)"
@@ -365,10 +417,13 @@ class ThorStartActivity : ComponentActivity() {
                     val enabled = loaded && game != null
                     val play = remember { FocusRequester() }
                     val bw = (panelWidth - u * 4) / 3
+                    // Four settings above the three big buttons.
+                    val sw = (panelWidth - u * 5) / 4
                     Row(horizontalArrangement = Arrangement.spacedBy(u)) {
-                        StartButton("FPS cap", if (fpsCap == 0) "Off" else fpsCap.toString(), u, bw, enabled = enabled, onClick = ::nextFpsCap)
-                        StartButton("Overlay", OVERLAYS[overlay.coerceIn(0, OVERLAYS.size - 1)], u, bw, enabled = enabled, onClick = ::nextOverlay)
-                        StartButton("More", "Winlator", u, bw, onClick = { openWinlator() })
+                        StartButton("FPS cap", if (fpsCap == 0) "Off" else fpsCap.toString(), u, sw, enabled = enabled, onClick = ::nextFpsCap)
+                        StartButton("Overlay", OVERLAYS[overlay.coerceIn(0, OVERLAYS.size - 1)], u, sw, enabled = enabled, onClick = ::nextOverlay)
+                        StartButton("Add-ons", addons.size.toString(), u, sw, enabled = enabled, onClick = { addonStatus = ""; showAddons = true })
+                        StartButton("More", "Winlator", u, sw, onClick = { openWinlator() })
                     }
                     Spacer(Modifier.height(u / 2))
                     Row(horizontalArrangement = Arrangement.spacedBy(u)) {
@@ -385,6 +440,28 @@ class ThorStartActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /** The installed add-ons in a list, with Install from file and Back. */
+    @Composable
+    private fun AddonsPage(u: Dp, body: TextStyle, panelWidth: Dp) {
+        BackHandler { showAddons = false }
+        val install = remember { FocusRequester() }
+        Text("Add-ons (${addons.size})", style = body, color = GoldLight, modifier = Modifier.height(u))
+        Text(addonStatus.ifEmpty { "Download an add-on's .zip in your browser, then press Install from file." },
+            style = body, color = TextColor, modifier = Modifier.height(u * 2))
+        Column(Modifier.fillMaxWidth().height(u * 7 / 2).verticalScroll(rememberScrollState())) {
+            if (addons.isEmpty()) Text("No add-ons installed.", style = body, color = Sky)
+            for (addon in addons) Text(addon.title, style = body, color = Sky, maxLines = 1)
+        }
+        Spacer(Modifier.height(u / 2))
+        val bw = (panelWidth - u * 4) / 3
+        Row(horizontalArrangement = Arrangement.spacedBy(u)) {
+            StartButton(null, "Install from file", u, bw, play = true, focusRequester = install,
+                onClick = { addonPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) })
+            StartButton(null, "Back", u, bw, onClick = { showAddons = false })
+        }
+        LaunchedEffect(Unit) { runCatching { install.requestFocus() } }
     }
 
     /** One screen pixel, for the thin frames of the old design. */
