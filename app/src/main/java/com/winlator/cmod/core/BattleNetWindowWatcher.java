@@ -13,7 +13,8 @@ import java.util.concurrent.TimeUnit;
  * For the start screen's "Update with Battle.net": closes the session once Battle.net's
  * window is closed, so the player is back on the start screen. Battle.net often stays in the
  * tray after its window closes, so it watches the window, not the process. While WoW runs
- * (Play pressed in Battle.net) it waits, and the WoW exit watcher takes over.
+ * (Play pressed in Battle.net) it waits, and the WoW exit watcher takes over. While Battle.net's
+ * installer runs it waits too, as the installer can swap windows on its way to the app.
  */
 public class BattleNetWindowWatcher {
     private static final String TAG = "BattleNetWindowWatcher";
@@ -48,10 +49,11 @@ public class BattleNetWindowWatcher {
         try (XLock lock = xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
             open = xServer.windowManager.hasApplicationWindowOfClass("battle.net");
         }
-        boolean wowRunning = WowExitWatcher.isWowRunning(WowExitWatcher.runningProcessNames());
+        java.util.List<String> processes = WowExitWatcher.runningProcessNames();
+        boolean busy = WowExitWatcher.isWowRunning(processes) || isInstallerRunning(processes);
         synchronized (this) {
             if (executor == null) return;
-            if (open || wowRunning) {
+            if (open || busy) {
                 seen |= open;
                 goneChecks = 0;
                 return;
@@ -61,5 +63,14 @@ public class BattleNetWindowWatcher {
         Log.i(TAG, "Battle.net's window was closed, closing the session");
         stop();
         onClosed.run();
+    }
+
+    /** True while Battle.net's installer runs (Linux cuts process names to 15 characters). */
+    static boolean isInstallerRunning(java.util.List<String> processNames) {
+        for (String name : processNames) {
+            String n = name.toLowerCase(java.util.Locale.ROOT);
+            if (n.startsWith("battle.net-setu") || (n.startsWith("battle.net") && n.contains("install"))) return true;
+        }
+        return false;
     }
 }

@@ -67,7 +67,9 @@ import androidx.compose.ui.unit.sp
 import com.winlator.cmod.MainActivity
 import com.winlator.cmod.R
 import com.winlator.cmod.container.ContainerManager
+import com.winlator.cmod.container.Container
 import com.winlator.cmod.core.ThorGame
+import com.winlator.cmod.core.ThorSetup
 import com.winlator.cmod.xenvironment.ImageFs
 import com.winlator.cmod.xenvironment.ImageFsInstaller
 import com.winlator.cmod.OnboardingActivity
@@ -81,7 +83,8 @@ import kotlin.math.sin
  * The Thor Forever start screen, the first thing the app shows: the installed game version,
  * Play, Update with Battle.net and a few settings, in the design of the old Windows start
  * screen (colours after World of Warcraft: Forever, Cinzel font; no game artwork). Play and
- * Update start a session; when it ends the app comes back here.
+ * Update start a session; when it ends the app comes back here. Without the game yet, it walks
+ * the player through the first setup: install Battle.net, log in, install World of Warcraft.
  */
 class ThorStartActivity : ComponentActivity() {
     private var game by mutableStateOf<ThorGame?>(null)
@@ -90,6 +93,12 @@ class ThorStartActivity : ComponentActivity() {
     private var status by mutableStateOf("")
     private var fpsCap by mutableStateOf(0)
     private var overlay by mutableStateOf(0)
+    /** The first-setup step shown while there is no WoW shortcut yet. */
+    private var setup by mutableStateOf(Setup.NONE)
+    private var setupContainer: Container? = null
+    private var downloading = false
+
+    private enum class Setup { NONE, NO_CONTAINER, INSTALL_BATTLE_NET, OPEN_BATTLE_NET }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -116,19 +125,41 @@ class ThorStartActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (!isFinishing) load()
+        if (!isFinishing && !downloading) load()
     }
 
     private fun load() {
         Thread {
-            val found = runCatching { ThorGame.find(ContainerManager(this)) }.getOrNull()
+            val manager = runCatching { ContainerManager(this) }.getOrNull()
+            var found = runCatching { manager?.let { ThorGame.find(it) } }.getOrNull()
+            var container: Container? = null
+            var step = Setup.NONE
+            var added = false
+            if (found == null && manager != null) {
+                container = runCatching { ThorSetup.pickContainer(manager) }.getOrNull()
+                // Battle.net installed the game: add its shortcut with the Thor settings.
+                val wow = container?.let { c -> runCatching { ThorSetup.findInstalledWow(c) }.getOrNull() }
+                if (container != null && wow != null && runCatching { ThorSetup.createWowShortcut(this, container, wow) }.isSuccess) {
+                    found = runCatching { ThorGame.find(manager) }.getOrNull()
+                    added = found != null
+                }
+                if (found == null) step = when {
+                    container == null -> Setup.NO_CONTAINER
+                    runCatching { ThorSetup.findBattleNet(container, null) }.getOrNull() != null -> Setup.OPEN_BATTLE_NET
+                    else -> Setup.INSTALL_BATTLE_NET
+                }
+            }
             val installed = runCatching { found?.installedVersion() ?: "" }.getOrDefault("")
             runCatching { found?.applyCoverArt(this) }
-            runOnUiThread { show(found, installed) }
+            runOnUiThread {
+                setupContainer = container
+                setup = step
+                show(found, installed, added)
+            }
         }.start()
     }
 
-    private fun show(found: ThorGame?, installed: String) {
+    private fun show(found: ThorGame?, installed: String, added: Boolean = false) {
         run {
             game = found
             version = installed
@@ -137,6 +168,10 @@ class ThorStartActivity : ComponentActivity() {
                 ?: if (found?.shortcut?.container?.isShowFPS == true) 1 else 0
             val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             status = when {
+                added -> "World of Warcraft is installed and set up for the Thor. Press Play."
+                setup == Setup.NO_CONTAINER -> "No container yet. Open More (Winlator) to create one, then come back."
+                setup == Setup.INSTALL_BATTLE_NET -> "Welcome! Press Install Battle.net. Then log in, install World of Warcraft and close Battle.net when it's done."
+                setup == Setup.OPEN_BATTLE_NET -> "Battle.net is installed. Open it, log in and install World of Warcraft. Keep it open until the download is done, then close it."
                 found == null -> "No World of Warcraft shortcut found. Add one in Winlator (More), then come back."
                 prefs.getBoolean(KEY_UPDATE_RAN, false) -> "Battle.net is closed. The version above is now installed."
                 else -> "Press Update with Battle.net to check for a game update."
@@ -184,6 +219,44 @@ class ThorStartActivity : ComponentActivity() {
             .putExtra("container_id", containerId)
             .putExtra(MainActivity.EXTRA_RUN_SHORTCUT, shortcutPath)
             .putExtra(ThorGame.EXTRA_UPDATE_SESSION, update))
+    }
+
+    /** Downloads Blizzard's installer into the container and starts it; it goes on to open Battle.net. */
+    private fun installBattleNet() {
+        val container = setupContainer ?: return
+        if (downloading) return
+        downloading = true
+        status = "Downloading the Battle.net installer from Blizzard..."
+        Thread {
+            val result = runCatching {
+                ThorSetup.fetchInstaller(container) { percent ->
+                    if (percent >= 0) runOnUiThread { status = "Downloading the Battle.net installer from Blizzard... $percent%" }
+                }
+                ThorSetup.writeRunShortcut(this, container, "Battle.net Setup", ThorSetup.INSTALLER_DOS_PATH).path
+            }
+            runOnUiThread {
+                downloading = false
+                result.onSuccess { shortcutPath ->
+                    status = "Starting the installer... Follow it, log in to Battle.net, install World of Warcraft, then close Battle.net."
+                    startShortcut(container.id, shortcutPath, update = true)
+                }.onFailure { e ->
+                    status = "Could not download the installer (${e.message}). Check the internet, or save Battle.net-Setup.exe from battle.net/download in Android's Download folder, then press Install Battle.net again."
+                }
+            }
+        }.start()
+    }
+
+    private fun openBattleNet() {
+        val container = setupContainer ?: return
+        val battleNet = ThorSetup.findBattleNet(container, null) ?: return
+        val shortcutPath = try {
+            ThorSetup.writeRunShortcut(this, container, "Battle.net", battleNet).path
+        } catch (e: Exception) {
+            Toast.makeText(this, "Could not start Battle.net: ${e.message}", Toast.LENGTH_LONG).show()
+            return
+        }
+        status = "Starting Battle.net... Log in, install World of Warcraft, then close Battle.net."
+        startShortcut(container.id, shortcutPath, update = true)
     }
 
     private fun nextFpsCap() {
@@ -244,11 +317,16 @@ class ThorStartActivity : ComponentActivity() {
                     }
                     Spacer(Modifier.height(u / 2))
                     Row(horizontalArrangement = Arrangement.spacedBy(u)) {
-                        StartButton(null, "Play", u, bw, play = true, enabled = enabled, focusRequester = play, onClick = ::play)
+                        when (setup) {
+                            Setup.INSTALL_BATTLE_NET -> StartButton(null, "Install Battle.net", u, bw, play = true, enabled = loaded, focusRequester = play, onClick = ::installBattleNet)
+                            Setup.OPEN_BATTLE_NET -> StartButton(null, "Open Battle.net", u, bw, play = true, enabled = loaded, focusRequester = play, onClick = ::openBattleNet)
+                            else -> StartButton(null, "Play", u, bw, play = true, enabled = enabled, focusRequester = play, onClick = ::play)
+                        }
                         StartButton(null, "Update with Battle.net", u, bw, enabled = enabled, onClick = ::update)
                         StartButton(null, "Quit", u, bw, onClick = { finishAndRemoveTask() })
                     }
-                    LaunchedEffect(enabled) { if (enabled) runCatching { play.requestFocus() } }
+                    val setupReady = loaded && (setup == Setup.INSTALL_BATTLE_NET || setup == Setup.OPEN_BATTLE_NET)
+                    LaunchedEffect(enabled, setupReady) { if (enabled || setupReady) runCatching { play.requestFocus() } }
                 }
             }
         }
