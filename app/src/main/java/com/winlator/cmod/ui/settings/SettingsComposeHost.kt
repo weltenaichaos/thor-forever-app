@@ -374,7 +374,7 @@ private fun SettingsScreen(model: SettingsModel, callbacks: SettingsCallbacks) {
                 val installed = TestBuildUpdater.installedBuild
                 NavigationRow(
                     Icons.Outlined.SystemUpdate,
-                    "Check for test build",
+                    if (TestBuildUpdater.listsReleases) "Check for updates" else "Check for test build",
                     if (installed > 0) "Installed: build $installed" else "Installed: local build"
                 ) { showUpdater = true }
                 if (showUpdater) TestBuildUpdateDialog { showUpdater = false }
