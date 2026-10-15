@@ -30,7 +30,9 @@ public class ThorSetupTest {
         assertEquals("", vars.get("TU_DEBUG"));
         assertEquals("", vars.get("DXVK_HUD"));
         assertEquals("profiled", vars.get("TU_AUTOTUNE_ALGO"));
-        assertEquals("dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False", vars.get("DXVK_CONFIG"));
+        assertEquals("dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False;d3d11.relaxedBarriers=True", vars.get("DXVK_CONFIG"));
+        assertEquals("0", vars.get("DXVK_STATE_CACHE"));
+        assertEquals("1", vars.get("WRAPPER_NO_PATCH_OPCONSTCOMP"));
         assertEquals("profiled", new EnvVars(ThorSetup.thorEnvVars(null)).get("TU_AUTOTUNE_ALGO"));
     }
 

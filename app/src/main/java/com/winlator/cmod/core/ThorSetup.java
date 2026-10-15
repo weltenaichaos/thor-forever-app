@@ -31,7 +31,9 @@ public final class ThorSetup {
     /** Where the installer is kept in the container, as Windows sees it. */
     public static final String INSTALLER_DOS_PATH = "C:\\ProgramData\\ThorForever\\Battle.net-Setup.exe";
     /** The DXVK settings that tested best on the Thor (see the graphics tuning guide). */
-    static final String DXVK_CONFIG = "dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False";
+    static final String DXVK_CONFIG = "dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False;d3d11.relaxedBarriers=True";
+    /** What an earlier version of the first setup wrote, to bring those shortcuts up to date. */
+    private static final String OLD_DXVK_CONFIG = "dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False";
     /** The file of the WoW shortcut the first setup adds. */
     static final String WOW_SHORTCUT_FILE = "World of Warcraft Forever.desktop";
     /** Smaller than this is an error page, not the installer (it is about 5 MB). */
@@ -117,8 +119,9 @@ public final class ThorSetup {
     }
 
     /**
-     * The container's environment with the Thor settings that tested best: Turnip's autotuner
-     * for the rendering mode (in place of TU_DEBUG's sysmem/gmem), DXVK's HUD off and DXVK_CONFIG.
+     * The container's environment with the settings of Jesse's WoW shortcut that runs well on the
+     * Thor: Turnip's autotuner for the rendering mode (in place of TU_DEBUG's sysmem/gmem), DXVK's
+     * HUD off, DXVK_CONFIG, DXVK's state cache off and the wrapper's OpConstantComposite patch off.
      * TU_DEBUG and DXVK_HUD are set empty, not left out: a game starts with the container's
      * variables and then the shortcut's, so a variable the shortcut lacks keeps the container's value.
      */
@@ -128,6 +131,8 @@ public final class ThorSetup {
         envVars.put("DXVK_HUD", "");
         envVars.put("TU_AUTOTUNE_ALGO", "profiled");
         envVars.put("DXVK_CONFIG", DXVK_CONFIG);
+        envVars.put("DXVK_STATE_CACHE", "0");
+        envVars.put("WRAPPER_NO_PATCH_OPCONSTCOMP", "1");
         return envVars.toString();
     }
 
@@ -179,17 +184,22 @@ public final class ThorSetup {
 
     /**
      * Fixes WoW shortcuts an earlier version of the first setup added: they left TU_DEBUG and
-     * DXVK_HUD out, so the game still got the container's values, and had no present mode.
-     * Only those change.
+     * DXVK_HUD out, so the game still got the container's values, had no present mode, a shorter
+     * DXVK_CONFIG and no DXVK_STATE_CACHE or WRAPPER_NO_PATCH_OPCONSTCOMP. Only those change, and
+     * only where the shortcut still has what the setup wrote.
      */
     public static void fixAddedWowShortcuts(ContainerManager manager) {
         for (Shortcut shortcut : manager.loadShortcuts()) {
             if (!WOW_SHORTCUT_FILE.equals(shortcut.file.getName())) continue;
             EnvVars envVars = new EnvVars(shortcut.getExtra("envVars"));
             boolean presentMode = shortcut.getExtra("rendererPresentMode").isEmpty();
-            if (envVars.has("TU_DEBUG") && envVars.has("DXVK_HUD") && !presentMode) continue;
+            String before = envVars.toString();
             if (!envVars.has("TU_DEBUG")) envVars.put("TU_DEBUG", "");
             if (!envVars.has("DXVK_HUD")) envVars.put("DXVK_HUD", "");
+            if (OLD_DXVK_CONFIG.equals(envVars.get("DXVK_CONFIG"))) envVars.put("DXVK_CONFIG", DXVK_CONFIG);
+            if (!envVars.has("DXVK_STATE_CACHE")) envVars.put("DXVK_STATE_CACHE", "0");
+            if (!envVars.has("WRAPPER_NO_PATCH_OPCONSTCOMP")) envVars.put("WRAPPER_NO_PATCH_OPCONSTCOMP", "1");
+            if (before.equals(envVars.toString()) && !presentMode) continue;
             shortcut.putExtra("envVars", envVars.toString());
             if (presentMode) shortcut.putExtra("rendererPresentMode", "mailbox");
             shortcut.saveData();
