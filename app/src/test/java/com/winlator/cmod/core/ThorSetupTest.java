@@ -7,8 +7,6 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
-import java.io.File;
-import java.nio.file.Files;
 import java.util.Arrays;
 
 public class ThorSetupTest {
@@ -31,21 +29,6 @@ public class ThorSetupTest {
         assertEquals("profiled", vars.get("TU_AUTOTUNE_ALGO"));
         assertEquals("dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False", vars.get("DXVK_CONFIG"));
         assertEquals("profiled", new EnvVars(ThorSetup.thorEnvVars(null)).get("TU_AUTOTUNE_ALGO"));
-    }
-
-    @Test
-    public void findsTheNewestSavedInstaller() throws Exception {
-        File dir = Files.createTempDirectory("dl").toFile();
-        assertNull(ThorSetup.savedInstaller(dir));
-        File old = new File(dir, "Battle.net-Setup.exe");
-        File newer = new File(dir, "Battle.net-Setup (1).exe");
-        Files.write(old.toPath(), new byte[] { 1 });
-        Files.write(newer.toPath(), new byte[] { 1 });
-        Files.write(new File(dir, "Battle.net-Setup.zip").toPath(), new byte[] { 1 });
-        old.setLastModified(1000000L);
-        newer.setLastModified(2000000L);
-        assertEquals(newer, ThorSetup.savedInstaller(dir));
-        assertNull(ThorSetup.savedInstaller(new File(dir, "missing")));
     }
 
     @Test

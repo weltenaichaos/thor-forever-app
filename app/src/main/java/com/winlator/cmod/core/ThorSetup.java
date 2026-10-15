@@ -1,7 +1,6 @@
 package com.winlator.cmod.core;
 
 import android.content.Context;
-import android.os.Environment;
 
 import com.winlator.cmod.container.Container;
 import com.winlator.cmod.container.ContainerManager;
@@ -167,42 +166,24 @@ public final class ThorSetup {
         return root.startsWith(imagefs) ? root.substring(imagefs.length()) : "/home/" + ImageFs.USER;
     }
 
-    /**
-     * Puts the Battle.net installer at INSTALLER_DOS_PATH: downloaded from Blizzard, or, when
-     * that fails, copied from a Battle.net-Setup .exe the player saved in Android's Download folder.
-     */
-    public static void fetchInstaller(Container container, Progress progress) throws IOException {
-        File target = ThorGame.toAndroidPath(container, INSTALLER_DOS_PATH);
-        File dir = target.getParentFile();
-        if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Could not create " + dir);
-        File part = new File(dir, target.getName() + ".part");
-        IOException downloadError;
-        try {
-            download(INSTALLER_URL, part, progress);
-            finish(part, target);
-            return;
-        } catch (IOException e) {
-            downloadError = e;
-        }
-        File saved = savedInstaller(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS));
-        if (saved == null) throw downloadError;
-        try (InputStream in = new java.io.FileInputStream(saved)) {
-            copy(in, part, saved.length(), progress);
-        }
-        finish(part, target);
+    /** Downloads Blizzard's Battle.net installer to INSTALLER_DOS_PATH. */
+    public static void downloadInstaller(Container container, Progress progress) throws IOException {
+        File part = partFile(container);
+        download(INSTALLER_URL, part, progress);
+        finish(part, ThorGame.toAndroidPath(container, INSTALLER_DOS_PATH));
     }
 
-    /** The newest Battle.net-Setup*.exe in the folder, or null. */
-    static File savedInstaller(File folder) {
-        File[] files = folder != null ? folder.listFiles() : null;
-        if (files == null) return null;
-        File best = null;
-        for (File file : files) {
-            String name = file.getName().toLowerCase(Locale.ROOT);
-            if (!file.isFile() || !name.startsWith("battle.net-setup") || !name.endsWith(".exe")) continue;
-            if (best == null || file.lastModified() > best.lastModified()) best = file;
-        }
-        return best;
+    /** Copies an installer the player picked (when the download failed) to INSTALLER_DOS_PATH. */
+    public static void copyInstaller(Container container, InputStream in, long size, Progress progress) throws IOException {
+        File part = partFile(container);
+        copy(in, part, size, progress);
+        finish(part, ThorGame.toAndroidPath(container, INSTALLER_DOS_PATH));
+    }
+
+    private static File partFile(Container container) throws IOException {
+        File dir = ThorGame.toAndroidPath(container, INSTALLER_DOS_PATH).getParentFile();
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Could not create " + dir);
+        return new File(dir, "Battle.net-Setup.exe.part");
     }
 
     private static void download(String url, File part, Progress progress) throws IOException {
@@ -241,7 +222,7 @@ public final class ThorSetup {
 
     /** Checks the file is a Windows program, then puts it in place. */
     private static void finish(File part, File target) throws IOException {
-        if (!looksLikeExe(part)) throw new IOException("The download is not the Battle.net installer");
+        if (!looksLikeExe(part)) throw new IOException("That file is not the Battle.net installer");
         if (!part.renameTo(target)) {
             FileUtils.copy(part, target);
             if (!target.isFile() || target.length() != part.length()) throw new IOException("Could not save " + target);

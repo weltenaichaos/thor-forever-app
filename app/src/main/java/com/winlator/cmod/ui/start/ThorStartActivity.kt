@@ -7,6 +7,7 @@ import android.view.KeyEvent as AndroidKeyEvent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -97,6 +98,20 @@ class ThorStartActivity : ComponentActivity() {
     private var setup by mutableStateOf(Setup.NONE)
     private var setupContainer: Container? = null
     private var downloading = false
+    /** The download failed: the player picks the installer they downloaded themselves. */
+    private var pickInstaller by mutableStateOf(false)
+    private val installerPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) prepareInstaller { container, progress ->
+            val size = runCatching {
+                contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) c.getLong(0) else -1L
+                }
+            }.getOrNull() ?: -1L
+            contentResolver.openInputStream(uri).use { input ->
+                ThorSetup.copyInstaller(container, input ?: throw java.io.IOException("Could not open the file"), size, progress)
+            }
+        }
+    }
 
     private enum class Setup { NONE, NO_CONTAINER, INSTALL_BATTLE_NET, OPEN_BATTLE_NET }
 
@@ -169,6 +184,7 @@ class ThorStartActivity : ComponentActivity() {
             status = when {
                 added -> "World of Warcraft is installed and set up for the Thor. Press Play."
                 setup == Setup.NO_CONTAINER -> "No container yet. Open More (Winlator) to create one, then come back."
+                setup == Setup.INSTALL_BATTLE_NET && pickInstaller -> "Download Battle.net-Setup.exe from battle.net/download in your browser, then press Choose installer and pick it."
                 setup == Setup.INSTALL_BATTLE_NET -> "Welcome! Press Install Battle.net. Then log in, install World of Warcraft and close Battle.net when it's done."
                 setup == Setup.OPEN_BATTLE_NET -> "Battle.net is installed. Open it, log in and install World of Warcraft. Keep it open until the download is done, then close it."
                 found == null -> "No World of Warcraft shortcut found. Add one in Winlator (More), then come back."
@@ -222,24 +238,37 @@ class ThorStartActivity : ComponentActivity() {
 
     /** Downloads Blizzard's installer into the container and starts it; it goes on to open Battle.net. */
     private fun installBattleNet() {
+        if (pickInstaller) {
+            installerPicker.launch(arrayOf("*/*"))
+            return
+        }
+        prepareInstaller { container, progress -> ThorSetup.downloadInstaller(container, progress) }
+    }
+
+    /** Puts the installer in the container (fetch does the download or copy), then starts it. */
+    private fun prepareInstaller(fetch: (Container, ThorSetup.Progress) -> Unit) {
         val container = setupContainer ?: return
         if (downloading) return
         downloading = true
-        status = "Downloading the Battle.net installer from Blizzard..."
+        val action = if (pickInstaller) "Copying the Battle.net installer" else "Downloading the Battle.net installer from Blizzard"
+        status = "$action..."
         Thread {
             val result = runCatching {
-                ThorSetup.fetchInstaller(container) { percent ->
-                    if (percent >= 0) runOnUiThread { status = "Downloading the Battle.net installer from Blizzard... $percent%" }
-                }
+                fetch(container, ThorSetup.Progress { percent ->
+                    if (percent >= 0) runOnUiThread { status = "$action... $percent%" }
+                })
                 ThorSetup.writeRunShortcut(this, container, "Battle.net Setup", ThorSetup.INSTALLER_DOS_PATH).path
             }
             runOnUiThread {
                 downloading = false
                 result.onSuccess { shortcutPath ->
+                    pickInstaller = false
                     status = "Starting the installer... Follow it, log in to Battle.net, install World of Warcraft, then close Battle.net."
                     startShortcut(container.id, shortcutPath, update = true)
                 }.onFailure { e ->
-                    status = "Could not download the installer (${e.message}). Check the internet, or save Battle.net-Setup.exe from battle.net/download in Android's Download folder, then press Install Battle.net again."
+                    status = if (pickInstaller) "Could not use that file (${e.message}). Press Choose installer and pick Battle.net-Setup.exe."
+                    else "The download did not work (${e.message}). Download Battle.net-Setup.exe from battle.net/download in your browser, then press Choose installer and pick it."
+                    pickInstaller = true
                 }
             }
         }.start()
@@ -317,7 +346,7 @@ class ThorStartActivity : ComponentActivity() {
                     Spacer(Modifier.height(u / 2))
                     Row(horizontalArrangement = Arrangement.spacedBy(u)) {
                         when (setup) {
-                            Setup.INSTALL_BATTLE_NET -> StartButton(null, "Install Battle.net", u, bw, play = true, enabled = loaded, focusRequester = play, onClick = ::installBattleNet)
+                            Setup.INSTALL_BATTLE_NET -> StartButton(null, if (pickInstaller) "Choose installer" else "Install Battle.net", u, bw, play = true, enabled = loaded, focusRequester = play, onClick = ::installBattleNet)
                             Setup.OPEN_BATTLE_NET -> StartButton(null, "Open Battle.net", u, bw, play = true, enabled = loaded, focusRequester = play, onClick = ::openBattleNet)
                             else -> StartButton(null, "Play", u, bw, play = true, enabled = enabled, focusRequester = play, onClick = ::play)
                         }
