@@ -37,11 +37,11 @@ local BAR_IDLE = 1.5   -- seconds after the last part before the bar goes away
 --  safe: every part 0.35 s, all parts twice; every message stays at least 1.5 s.
 --  fast: every part 0.45 s, once. While messages follow each other (one went up in
 --   the last BUSY_SECONDS) the app reads five times a second, so a single part stays
---   only 0.6 s; after a quiet spell the app looks once a second, so the first part of
---   the next message stays 1.1 s. A message the app still missed comes again when
---   the square is quiet (see Data.lua).
+--   only 0.6 s; after a quiet spell the app (Thor Forever's built-in one) looks every
+--   0.4 s where the bar was, so the first part of the next message stays 0.6 s too.
+--   A message the app still missed comes again when the square is quiet (see Data.lua).
 local SAFE = { step = 0.35, rounds = 2, min = 1.5 }
-local FAST = { step = 0.45, rounds = 1, min = 0.6, first = 1.1 }
+local FAST = { step = 0.45, rounds = 1, min = 0.6, first = 0.6 }
 local BUSY_SECONDS = 2.5
 local function speed() return (ThorCompanionDB and ThorCompanionDB.speed == "safe") and SAFE or FAST end
 function ns.StripFast() return speed() == FAST end
