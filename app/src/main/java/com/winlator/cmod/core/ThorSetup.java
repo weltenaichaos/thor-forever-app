@@ -5,6 +5,8 @@ import android.content.Context;
 import com.winlator.cmod.container.Container;
 import com.winlator.cmod.container.ContainerManager;
 import com.winlator.cmod.container.Shortcut;
+import com.winlator.cmod.fexcore.FEXCorePreset;
+import com.winlator.cmod.fexcore.FEXCorePresetManager;
 import com.winlator.cmod.xenvironment.ImageFs;
 
 import java.io.File;
@@ -36,6 +38,8 @@ public final class ThorSetup {
     private static final String OLD_DXVK_CONFIG = "dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False";
     /** The file of the WoW shortcut the first setup adds. */
     static final String WOW_SHORTCUT_FILE = "World of Warcraft Forever.desktop";
+    /** The FEXCore preset of Jesse's WoW shortcut that runs well ("GameHub Extreme" there). */
+    static final String FEX_PRESET_NAME = "Thor Extreme";
     /** Smaller than this is an error page, not the installer (it is about 5 MB). */
     private static final long MIN_INSTALLER_BYTES = 1024 * 1024;
 
@@ -136,6 +140,39 @@ public final class ThorSetup {
         return envVars.toString();
     }
 
+    /** The values of Jesse's "GameHub Extreme" FEXCore preset, as in his screenshots. */
+    static String thorFexEnvVars() {
+        EnvVars envVars = new EnvVars();
+        envVars.put("FEX_TSOENABLED", "0");
+        envVars.put("FEX_VECTORTSOENABLED", "0");
+        envVars.put("FEX_HALFBARRIERTSOENABLED", "0");
+        envVars.put("FEX_MEMCPYSETTSOENABLED", "0");
+        envVars.put("FEX_X87REDUCEDPRECISION", "1");
+        envVars.put("FEX_MULTIBLOCK", "1");
+        envVars.put("FEX_MAXINST", "5000");
+        envVars.put("FEX_HOSTFEATURES", "off");
+        envVars.put("FEX_SMALLTSCSCALE", "1");
+        envVars.put("FEX_SMCCHECKS", "mtrack");
+        envVars.put("FEX_VOLATILEMETADATA", "1");
+        envVars.put("FEX_MONOHACKS", "1");
+        envVars.put("FEX_HIDEHYPERVISORBIT", "0");
+        envVars.put("FEX_DISABLEL2CACHE", "0");
+        envVars.put("FEX_DYNAMICL1CACHE", "0");
+        return envVars.toString();
+    }
+
+    /** The id of the "Thor Extreme" FEXCore preset, added to the app's presets when missing. */
+    static String thorFexPreset(Context context) {
+        for (FEXCorePreset preset : FEXCorePresetManager.getPresets(context)) {
+            if (preset.isCustom() && FEX_PRESET_NAME.equals(preset.name)) return preset.id;
+        }
+        FEXCorePresetManager.editPreset(context, null, FEX_PRESET_NAME, new EnvVars(thorFexEnvVars()));
+        for (FEXCorePreset preset : FEXCorePresetManager.getPresets(context)) {
+            if (preset.isCustom() && FEX_PRESET_NAME.equals(preset.name)) return preset.id;
+        }
+        return null;
+    }
+
     /**
      * Adds a World of Warcraft shortcut to the container's desktop, as the library shows it. Its
      * own file name, so it never replaces the shortcut Battle.net may put there for its launcher.
@@ -149,6 +186,8 @@ public final class ThorSetup {
         shortcut.putExtra("envVars", thorEnvVars(container.getEnvVars()));
         // As in the WoW shortcut that runs well on the Thor; the container's default is fifo.
         shortcut.putExtra("rendererPresentMode", "mailbox");
+        String fexPreset = thorFexPreset(context);
+        if (fexPreset != null) shortcut.putExtra("fexcorePreset", fexPreset);
         shortcut.saveData();
         return shortcut;
     }
@@ -185,7 +224,8 @@ public final class ThorSetup {
     /**
      * Fixes WoW shortcuts an earlier version of the first setup added: they left TU_DEBUG and
      * DXVK_HUD out, so the game still got the container's values, had no present mode, a shorter
-     * DXVK_CONFIG and no DXVK_STATE_CACHE or WRAPPER_NO_PATCH_OPCONSTCOMP. Only those change, and
+     * DXVK_CONFIG, no DXVK_STATE_CACHE or WRAPPER_NO_PATCH_OPCONSTCOMP and no FEXCore preset of
+     * their own. Only those change, and
      * only where the shortcut still has what the setup wrote.
      */
     public static void fixAddedWowShortcuts(ContainerManager manager) {
@@ -193,15 +233,18 @@ public final class ThorSetup {
             if (!WOW_SHORTCUT_FILE.equals(shortcut.file.getName())) continue;
             EnvVars envVars = new EnvVars(shortcut.getExtra("envVars"));
             boolean presentMode = shortcut.getExtra("rendererPresentMode").isEmpty();
+            boolean fexPreset = shortcut.getExtra("fexcorePreset").isEmpty();
             String before = envVars.toString();
             if (!envVars.has("TU_DEBUG")) envVars.put("TU_DEBUG", "");
             if (!envVars.has("DXVK_HUD")) envVars.put("DXVK_HUD", "");
             if (OLD_DXVK_CONFIG.equals(envVars.get("DXVK_CONFIG"))) envVars.put("DXVK_CONFIG", DXVK_CONFIG);
             if (!envVars.has("DXVK_STATE_CACHE")) envVars.put("DXVK_STATE_CACHE", "0");
             if (!envVars.has("WRAPPER_NO_PATCH_OPCONSTCOMP")) envVars.put("WRAPPER_NO_PATCH_OPCONSTCOMP", "1");
-            if (before.equals(envVars.toString()) && !presentMode) continue;
+            if (before.equals(envVars.toString()) && !presentMode && !fexPreset) continue;
             shortcut.putExtra("envVars", envVars.toString());
             if (presentMode) shortcut.putExtra("rendererPresentMode", "mailbox");
+            String thorFex = fexPreset ? thorFexPreset(manager.getContext()) : null;
+            if (thorFex != null) shortcut.putExtra("fexcorePreset", thorFex);
             shortcut.saveData();
         }
     }
