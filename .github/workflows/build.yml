@@ -2,6 +2,11 @@ name: Android CI Bionic
 
 on:
   workflow_dispatch:
+    inputs:
+      setup_test_copy:
+        description: 'Build the "Thor Setup Test" copy that installs next to the normal app and starts fresh'
+        type: boolean
+        default: false
   push:
     branches:
       - 4.1
@@ -185,7 +190,7 @@ jobs:
       - name: Build with Gradle
         env:
           THOR_KEYSTORE_PASSWORD: ${{ secrets.THOR_KEYSTORE_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease -PthorSetupTest=${{ inputs.setup_test_copy == true }}
 
       - name: Run unit tests
         run: ./gradlew testReleaseUnitTest
@@ -193,6 +198,6 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Bionic-Build-${{ github.run_number }}
+          name: ${{ inputs.setup_test_copy == true && 'Thor-Setup-Test' || 'Bionic-Build' }}-${{ github.run_number }}
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
