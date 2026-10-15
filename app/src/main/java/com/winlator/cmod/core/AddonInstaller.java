@@ -122,6 +122,20 @@ public final class AddonInstaller {
         return new String(buffer, 0, n, StandardCharsets.UTF_8);
     }
 
+    /**
+     * The add-on folders of a .zip when one of them is made for the game (its .toc lists the
+     * game's interface number, or the same major version), else an empty list.
+     */
+    public static List<String> foldersForGame(File zip, int gameInterface) throws IOException {
+        try (ZipFile zipFile = new ZipFile(zip)) {
+            List<String> names = new ArrayList<>();
+            for (Enumeration<? extends ZipEntry> e = zipFile.entries(); e.hasMoreElements(); ) names.add(e.nextElement().getName());
+            Map<String, String> roots = addonRoots(names);
+            if (roots.isEmpty() || !madeForGame(zipFile, roots, gameInterface)) return new ArrayList<>();
+            return new ArrayList<>(roots.keySet());
+        }
+    }
+
     /** Whether one of the add-ons in the .zip has a .toc listing the game's (major) interface number. */
     private static boolean madeForGame(ZipFile zipFile, Map<String, String> roots, int gameInterface) throws IOException {
         for (Enumeration<? extends ZipEntry> e = zipFile.entries(); e.hasMoreElements(); ) {

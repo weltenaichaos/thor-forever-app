@@ -143,33 +143,51 @@ public final class AddonStore {
     public static List<String> install(Entry entry, Offer offer, int gameInterface, File addonsDir, File cacheDir, ThorSetup.Progress progress) throws IOException {
         File zip = new File(cacheDir, "addon-store.zip");
         try {
-            URL url = new URL(String.format(DOWNLOAD_URL, entry.repo, offer.filename.replace(" ", "%20")));
-            HttpURLConnection connection = open(url);
-            try {
-                int code = connection.getResponseCode();
-                if (code != HttpURLConnection.HTTP_OK) throw new IOException("GitHub answered " + code);
-                long total = connection.getContentLengthLong();
-                try (InputStream in = connection.getInputStream(); OutputStream out = new FileOutputStream(zip)) {
-                    byte[] buffer = new byte[65536];
-                    long done = 0;
-                    int last = -2;
-                    for (int n; (n = in.read(buffer)) > 0; ) {
-                        out.write(buffer, 0, n);
-                        done += n;
-                        int percent = total > 0 ? (int) (done * 100 / total) : -1;
-                        if (percent != last) {
-                            progress.onProgress(percent);
-                            last = percent;
-                        }
-                    }
-                }
-            } finally {
-                connection.disconnect();
-            }
+            download(new URL(String.format(DOWNLOAD_URL, entry.repo, offer.filename.replace(" ", "%20"))), zip, progress);
             // Checked again in the files themselves: the store only installs what is made for the game.
             return AddonInstaller.install(zip, addonsDir, gameInterface);
         } finally {
             zip.delete();
+        }
+    }
+
+    /** Downloads url into file, following redirects to the file's host. */
+    static void download(URL url, File file, ThorSetup.Progress progress) throws IOException {
+        HttpURLConnection connection = open(url);
+        try {
+            int code = connection.getResponseCode();
+            if (code != HttpURLConnection.HTTP_OK) throw new IOException("The server answered " + code);
+            long total = connection.getContentLengthLong();
+            try (InputStream in = connection.getInputStream(); OutputStream out = new FileOutputStream(file)) {
+                byte[] buffer = new byte[65536];
+                long done = 0;
+                int last = -2;
+                for (int n; (n = in.read(buffer)) > 0; ) {
+                    out.write(buffer, 0, n);
+                    done += n;
+                    int percent = total > 0 ? (int) (done * 100 / total) : -1;
+                    if (percent != last && progress != null) {
+                        progress.onProgress(percent);
+                        last = percent;
+                    }
+                }
+            }
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /** The text at url (at most limit bytes). */
+    static String fetchText(URL url, int limit) throws IOException {
+        HttpURLConnection connection = open(url);
+        try {
+            int code = connection.getResponseCode();
+            if (code != HttpURLConnection.HTTP_OK) throw new IOException("The server answered " + code);
+            try (InputStream in = connection.getInputStream()) {
+                return readAll(in, limit);
+            }
+        } finally {
+            connection.disconnect();
         }
     }
 
@@ -182,12 +200,12 @@ public final class AddonStore {
         return connection;
     }
 
-    private static String readAll(InputStream in, int limit) throws IOException {
+    static String readAll(InputStream in, int limit) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         byte[] buffer = new byte[8192];
         for (int n; (n = in.read(buffer)) > 0; ) {
             out.write(buffer, 0, n);
-            if (out.size() > limit) throw new IOException("release.json is too large");
+            if (out.size() > limit) throw new IOException("The answer is too large");
         }
         return out.toString(StandardCharsets.UTF_8.name());
     }
