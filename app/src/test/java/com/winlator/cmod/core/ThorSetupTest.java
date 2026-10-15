@@ -61,6 +61,14 @@ public class ThorSetupTest {
     }
 
     @Test
+    public void copiesTheThorDxvkFilesAgainOnce() {
+        assertTrue(ThorSetup.needsDxvkRedo("dxvk-2.6.2-thor-arm64x-1;vkd3d-None;None", ""));
+        assertFalse(ThorSetup.needsDxvkRedo("dxvk-2.6.2-thor-arm64x-1;vkd3d-None;None", "1"));
+        assertFalse(ThorSetup.needsDxvkRedo("dxvk-2.4.1;vkd3d-None;None", ""));
+        assertFalse(ThorSetup.needsDxvkRedo("", ""));
+    }
+
+    @Test
     public void keepsSpacesInTheShortcutPath() {
         String[] paths = {
                 "C:\\Program Files (x86)\\Battle.net\\Battle.net Launcher.exe",

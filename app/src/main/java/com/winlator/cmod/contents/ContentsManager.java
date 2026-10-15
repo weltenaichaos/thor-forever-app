@@ -409,8 +409,10 @@ public class ContentsManager {
         List<ContentProfile> profiles = profilesMap.get(type);
         if (profiles == null) return null;
 
+        // The launcher asks for "dxvk-<version>" and "vkd3d-<version>", in lower case, while entry
+        // names start with the type's own spelling ("DXVK-"), so the type is compared ignoring case.
         for (ContentProfile profile : profiles) {
-            if (entryName.equals(getEntryName(profile))) return profile;
+            if (entryName.equalsIgnoreCase(getEntryName(profile))) return profile;
         }
 
         if (type == ContentProfile.ContentType.CONTENT_TYPE_WINE || type == ContentProfile.ContentType.CONTENT_TYPE_PROTON) return null;
