@@ -611,7 +611,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
                     if (!simulateTouchScreen) {
                         xServerView.setCursorVisible(true);
                     }
-                    preloaderDialog.closeOnUiThread();
+                    // WoW opens its window black and draws the login screen only later: the
+                    // loading screen stays until the game shows something.
+                    if (isWowForeverShortcut()) runOnUiThread(() -> new PreloaderUntilDrawn().run());
+                    else preloaderDialog.closeOnUiThread();
                     winStarted[0] = true;
                 }
 
@@ -881,6 +884,56 @@ public class XServerDisplayActivity extends AppCompatActivity {
             xServerView.onPause();
         }
         ProcessHelper.pauseAllWineProcesses();
+    }
+
+    private boolean isWowForeverShortcut() {
+        return shortcut != null && shortcut.file.getPath().endsWith("/World of Warcraft Forever.desktop");
+    }
+
+    /**
+     * Keeps the loading screen up until the game's picture is no longer black (WoW's login
+     * screen), looking at a small copy of it twice a second; after two minutes it goes anyway.
+     */
+    private class PreloaderUntilDrawn implements Runnable {
+        private static final long LIMIT_MS = 120_000;
+        private final long deadline = android.os.SystemClock.uptimeMillis() + LIMIT_MS;
+        private final android.graphics.Bitmap probe = android.graphics.Bitmap.createBitmap(64, 36, android.graphics.Bitmap.Config.ARGB_8888);
+        private final Handler main = new Handler(Looper.getMainLooper());
+
+        @Override
+        public void run() {
+            if (isFinishing() || xServerView == null || android.os.SystemClock.uptimeMillis() > deadline) {
+                done("limit");
+                return;
+            }
+            try {
+                android.view.PixelCopy.request(xServerView, probe, result -> {
+                    if (result == android.view.PixelCopy.SUCCESS && !isDark(probe)) done("drawn");
+                    else main.postDelayed(this, 500);
+                }, main);
+            } catch (IllegalArgumentException e) {
+                // No surface yet or any more.
+                done("no surface");
+            }
+        }
+
+        private void done(String why) {
+            Log.i("XServerDisplayActivity", "Loading screen closed: " + why);
+            preloaderDialog.close();
+            probe.recycle();
+        }
+    }
+
+    /** True when (almost) every pixel is close to black. */
+    static boolean isDark(android.graphics.Bitmap bitmap) {
+        int w = bitmap.getWidth(), h = bitmap.getHeight();
+        int[] pixels = new int[w * h];
+        bitmap.getPixels(pixels, 0, w, 0, 0, w, h);
+        int lit = 0;
+        for (int c : pixels) {
+            if (Color.red(c) + Color.green(c) + Color.blue(c) > 90) lit++;
+        }
+        return lit * 50 < pixels.length;
     }
 
     private void enterPipMode() {
