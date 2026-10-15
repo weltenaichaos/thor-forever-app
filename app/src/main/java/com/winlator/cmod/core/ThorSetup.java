@@ -40,6 +40,8 @@ public final class ThorSetup {
     static final String WOW_SHORTCUT_FILE = "World of Warcraft Forever.desktop";
     /** The FEXCore preset of Jesse's WoW shortcut that runs well ("GameHub Extreme" there). */
     static final String FEX_PRESET_NAME = "Thor Extreme";
+    /** WoW's start argument in the shortcut that runs well: it makes WoW use Direct3D 11. */
+    static final String WOW_EXEC_ARGS = "-d3d11";
     /** Smaller than this is an error page, not the installer (it is about 5 MB). */
     private static final long MIN_INSTALLER_BYTES = 1024 * 1024;
 
@@ -186,6 +188,7 @@ public final class ThorSetup {
         shortcut.putExtra("envVars", thorEnvVars(container.getEnvVars()));
         // As in the WoW shortcut that runs well on the Thor; the container's default is fifo.
         shortcut.putExtra("rendererPresentMode", "mailbox");
+        shortcut.putExtra("execArgs", WOW_EXEC_ARGS);
         String fexPreset = thorFexPreset(context);
         if (fexPreset != null) shortcut.putExtra("fexcorePreset", fexPreset);
         shortcut.saveData();
@@ -225,7 +228,7 @@ public final class ThorSetup {
      * Fixes WoW shortcuts an earlier version of the first setup added: they left TU_DEBUG and
      * DXVK_HUD out, so the game still got the container's values, had no present mode, a shorter
      * DXVK_CONFIG, no DXVK_STATE_CACHE or WRAPPER_NO_PATCH_OPCONSTCOMP and no FEXCore preset of
-     * their own. Only those change, and
+     * their own and no -d3d11. Only those change, and
      * only where the shortcut still has what the setup wrote.
      */
     public static void fixAddedWowShortcuts(ContainerManager manager) {
@@ -234,15 +237,17 @@ public final class ThorSetup {
             EnvVars envVars = new EnvVars(shortcut.getExtra("envVars"));
             boolean presentMode = shortcut.getExtra("rendererPresentMode").isEmpty();
             boolean fexPreset = shortcut.getExtra("fexcorePreset").isEmpty();
+            boolean execArgs = shortcut.getExtra("execArgs").isEmpty();
             String before = envVars.toString();
             if (!envVars.has("TU_DEBUG")) envVars.put("TU_DEBUG", "");
             if (!envVars.has("DXVK_HUD")) envVars.put("DXVK_HUD", "");
             if (OLD_DXVK_CONFIG.equals(envVars.get("DXVK_CONFIG"))) envVars.put("DXVK_CONFIG", DXVK_CONFIG);
             if (!envVars.has("DXVK_STATE_CACHE")) envVars.put("DXVK_STATE_CACHE", "0");
             if (!envVars.has("WRAPPER_NO_PATCH_OPCONSTCOMP")) envVars.put("WRAPPER_NO_PATCH_OPCONSTCOMP", "1");
-            if (before.equals(envVars.toString()) && !presentMode && !fexPreset) continue;
+            if (before.equals(envVars.toString()) && !presentMode && !fexPreset && !execArgs) continue;
             shortcut.putExtra("envVars", envVars.toString());
             if (presentMode) shortcut.putExtra("rendererPresentMode", "mailbox");
+            if (execArgs) shortcut.putExtra("execArgs", WOW_EXEC_ARGS);
             String thorFex = fexPreset ? thorFexPreset(manager.getContext()) : null;
             if (thorFex != null) shortcut.putExtra("fexcorePreset", thorFex);
             shortcut.saveData();
