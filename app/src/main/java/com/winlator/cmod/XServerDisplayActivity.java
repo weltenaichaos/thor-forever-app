@@ -1234,6 +1234,17 @@ public class XServerDisplayActivity extends AppCompatActivity {
                             audioDriver.equals("pulse-audio-gn")));
         }
 
+        // Debug: the graphics settings the game really starts with, so a test run shows them.
+        for (String name : envVars) {
+            if (name.startsWith("DXVK_") || name.startsWith("TU_") || name.startsWith("MESA_")
+                    || name.startsWith("WRAPPER_") || name.startsWith("VKD3D_") || name.contains("BCN")
+                    || name.contains("VKBASALT") || name.startsWith("ADRENOTOOLS_") || name.startsWith("VK_"))
+                com.winlator.cmod.core.CpuDebugLog.note("graphics env " + name + "=" + envVars.get(name));
+        }
+        if (graphicsDriverConfig != null && dxwrapperConfig != null)
+            com.winlator.cmod.core.CpuDebugLog.note("graphics config driver=" + graphicsDriverConfig.get("version")
+                    + " dxwrapper=" + dxwrapper + " gpuName=" + graphicsDriverConfig.get("gpuName")
+                    + " dxvkGpuName=" + dxwrapperConfig.get("gpuName"));
         guestProgramLauncherComponent.setEnvVars(envVars);
         guestProgramLauncherComponent.setTerminationCallback((status) -> runOnUiThread(this::exit));
 
