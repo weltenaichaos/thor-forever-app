@@ -32,6 +32,8 @@ public final class ThorSetup {
     public static final String INSTALLER_DOS_PATH = "C:\\ProgramData\\ThorForever\\Battle.net-Setup.exe";
     /** The DXVK settings that tested best on the Thor (see the graphics tuning guide). */
     static final String DXVK_CONFIG = "dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False";
+    /** The file of the WoW shortcut the first setup adds. */
+    static final String WOW_SHORTCUT_FILE = "World of Warcraft Forever.desktop";
     /** Smaller than this is an error page, not the installer (it is about 5 MB). */
     private static final long MIN_INSTALLER_BYTES = 1024 * 1024;
 
@@ -117,11 +119,13 @@ public final class ThorSetup {
     /**
      * The container's environment with the Thor settings that tested best: Turnip's autotuner
      * for the rendering mode (in place of TU_DEBUG's sysmem/gmem), DXVK's HUD off and DXVK_CONFIG.
+     * TU_DEBUG and DXVK_HUD are set empty, not left out: a game starts with the container's
+     * variables and then the shortcut's, so a variable the shortcut lacks keeps the container's value.
      */
     static String thorEnvVars(String containerEnvVars) {
         EnvVars envVars = new EnvVars(containerEnvVars != null ? containerEnvVars : "");
-        envVars.remove("TU_DEBUG");
-        envVars.remove("DXVK_HUD");
+        envVars.put("TU_DEBUG", "");
+        envVars.put("DXVK_HUD", "");
         envVars.put("TU_AUTOTUNE_ALGO", "profiled");
         envVars.put("DXVK_CONFIG", DXVK_CONFIG);
         return envVars.toString();
@@ -134,7 +138,7 @@ public final class ThorSetup {
     public static Shortcut createWowShortcut(Context context, Container container, String wowDosPath) throws IOException {
         File desktop = container.getDesktopDir();
         if (!desktop.isDirectory() && !desktop.mkdirs()) throw new IOException("Could not create " + desktop);
-        File file = new File(desktop, "World of Warcraft Forever.desktop");
+        File file = new File(desktop, WOW_SHORTCUT_FILE);
         writeDesktopEntry(context, file, container, "World of Warcraft", wowDosPath);
         Shortcut shortcut = new Shortcut(container, file);
         shortcut.putExtra("envVars", thorEnvVars(container.getEnvVars()));
@@ -166,6 +170,22 @@ public final class ThorSetup {
             EnvVars envVars = new EnvVars(own.isEmpty() ? shortcut.container.getEnvVars() : own);
             if ("0".equals(envVars.get("WINEESYNC"))) continue;
             envVars.put("WINEESYNC", "0");
+            shortcut.putExtra("envVars", envVars.toString());
+            shortcut.saveData();
+        }
+    }
+
+    /**
+     * Fixes WoW shortcuts an earlier version of the first setup added: they left TU_DEBUG and
+     * DXVK_HUD out, so the game still got the container's values. Only those two change.
+     */
+    public static void fixAddedWowShortcuts(ContainerManager manager) {
+        for (Shortcut shortcut : manager.loadShortcuts()) {
+            if (!WOW_SHORTCUT_FILE.equals(shortcut.file.getName())) continue;
+            EnvVars envVars = new EnvVars(shortcut.getExtra("envVars"));
+            if (envVars.has("TU_DEBUG") && envVars.has("DXVK_HUD")) continue;
+            if (!envVars.has("TU_DEBUG")) envVars.put("TU_DEBUG", "");
+            if (!envVars.has("DXVK_HUD")) envVars.put("DXVK_HUD", "");
             shortcut.putExtra("envVars", envVars.toString());
             shortcut.saveData();
         }
