@@ -58,7 +58,8 @@ object TestBuildUpdater {
     /** Only builds of the test branch are listed: other branches' builds are CI checks for pull requests. */
     const val TEST_BRANCH = "debug/window-log"
     private const val RUNS_URL = "https://api.github.com/repos/$REPO/actions/workflows/build.yml/runs?status=success&per_page=10&branch=$TEST_BRANCH"
-    private const val FILE_PROVIDER = "com.winlator.cmod.tileprovider"
+    /** The app's FileProvider, under its own package name (the test copy has its own). */
+    private const val FILE_PROVIDER_SUFFIX = ".tileprovider"
     private const val TOKEN_FILE = "github-token"
     private const val APK_ARTIFACT_PREFIX = "Bionic-Build-"
 
@@ -179,7 +180,7 @@ object TestBuildUpdater {
     }
 
     fun openInstaller(context: Context, apk: File) {
-        val uri = FileProvider.getUriForFile(context, FILE_PROVIDER, apk)
+        val uri = FileProvider.getUriForFile(context, context.packageName + FILE_PROVIDER_SUFFIX, apk)
         context.startActivity(
             Intent(Intent.ACTION_VIEW)
                 .setDataAndType(uri, "application/vnd.android.package-archive")
