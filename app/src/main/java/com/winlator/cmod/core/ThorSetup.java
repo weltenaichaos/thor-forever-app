@@ -142,6 +142,8 @@ public final class ThorSetup {
         writeDesktopEntry(context, file, container, "World of Warcraft", wowDosPath);
         Shortcut shortcut = new Shortcut(container, file);
         shortcut.putExtra("envVars", thorEnvVars(container.getEnvVars()));
+        // As in the WoW shortcut that runs well on the Thor; the container's default is fifo.
+        shortcut.putExtra("rendererPresentMode", "mailbox");
         shortcut.saveData();
         return shortcut;
     }
@@ -177,16 +179,19 @@ public final class ThorSetup {
 
     /**
      * Fixes WoW shortcuts an earlier version of the first setup added: they left TU_DEBUG and
-     * DXVK_HUD out, so the game still got the container's values. Only those two change.
+     * DXVK_HUD out, so the game still got the container's values, and had no present mode.
+     * Only those change.
      */
     public static void fixAddedWowShortcuts(ContainerManager manager) {
         for (Shortcut shortcut : manager.loadShortcuts()) {
             if (!WOW_SHORTCUT_FILE.equals(shortcut.file.getName())) continue;
             EnvVars envVars = new EnvVars(shortcut.getExtra("envVars"));
-            if (envVars.has("TU_DEBUG") && envVars.has("DXVK_HUD")) continue;
+            boolean presentMode = shortcut.getExtra("rendererPresentMode").isEmpty();
+            if (envVars.has("TU_DEBUG") && envVars.has("DXVK_HUD") && !presentMode) continue;
             if (!envVars.has("TU_DEBUG")) envVars.put("TU_DEBUG", "");
             if (!envVars.has("DXVK_HUD")) envVars.put("DXVK_HUD", "");
             shortcut.putExtra("envVars", envVars.toString());
+            if (presentMode) shortcut.putExtra("rendererPresentMode", "mailbox");
             shortcut.saveData();
         }
     }
