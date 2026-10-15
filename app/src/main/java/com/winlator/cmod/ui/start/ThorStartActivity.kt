@@ -343,13 +343,15 @@ class ThorStartActivity : ComponentActivity() {
             Modifier.fillMaxSize().background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
-            val u = (maxHeight / 24).coerceAtLeast(16.dp)
-            val panelWidth = (maxWidth * 3 / 5).coerceAtLeast(u * 24).coerceAtMost(maxWidth)
+            // The panel fills the screen: it is 15.25 units high (header 4.25, body 11) and needs
+            // about 25.6 wide, so the unit is the largest size for which both fit.
+            val u = minOf(maxHeight / 15.25f, maxWidth / 25.6f).coerceAtLeast(16.dp)
+            val panelWidth = maxWidth
             val headerHeight = u * 17 / 4
             val px = onePx()
             // The old screen's frame, in screen pixels: gold, dark bronze, and 3 pixels in, sky blue.
             Box(
-                Modifier.width(panelWidth).height(headerHeight + u * 11)
+                Modifier.fillMaxSize()
                     .background(Background)
                     .border(px, Gold)
                     .padding(px).border(px, Color(74, 52, 24))
