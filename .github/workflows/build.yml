@@ -11,6 +11,14 @@ on:
         description: 'Build the public "Thor Forever" release APK (its own app, com.thorforever.app)'
         type: boolean
         default: false
+      draft_release_tag:
+        description: 'With release: also put the APK on a DRAFT GitHub release with this tag, like v0.1.0 (only the owner sees a draft)'
+        type: string
+        default: ''
+      draft_release_target:
+        description: 'Commit or branch the tag will point to when the draft is published (empty: the built commit)'
+        type: string
+        default: ''
   push:
     branches:
       - 4.1
@@ -208,3 +216,18 @@ jobs:
           name: ${{ inputs.release == true && 'Thor-Forever' || (inputs.setup_test_copy == true && 'Thor-Setup-Test' || 'Bionic-Build') }}-${{ github.run_number }}
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+      # Only a draft: it stays private until the owner presses Publish on GitHub.
+      - name: Draft GitHub release
+        if: inputs.release == true && inputs.draft_release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.draft_release_tag }}
+          TARGET: ${{ inputs.draft_release_target != '' && inputs.draft_release_target || github.sha }}
+        run: |
+          apks=(app/build/outputs/apk/release/*.apk)
+          [ ${#apks[@]} -eq 1 ] || { echo "Expected one APK, found ${#apks[@]}"; exit 1; }
+          cp "${apks[0]}" "Thor-Forever-$TAG.apk"
+          gh release create "$TAG" "Thor-Forever-$TAG.apk" --draft --prerelease \
+            --target "$TARGET" --title "Thor Forever $TAG (alpha)" --notes-file docs/RELEASE-NOTES.md
