@@ -106,17 +106,23 @@ android {
     defaultConfig {
         applicationId "com.winlator.cmod"
         manifestPlaceholders = [appLabel: "Winlator Ludashi"]
+        // The CI artifact this kind of app comes as: the in-app updater looks only for those.
+        def apkArtifact = "Bionic-Build-"
         // A second copy for testing the first setup: it installs next to the normal app,
         // with its own data, so it starts like a new installation (-PthorSetupTest=true).
         if (project.findProperty("thorSetupTest") == "true") {
             applicationId "com.winlator.cmod.setuptest"
             manifestPlaceholders = [appLabel: "Thor Setup Test"]
+            apkArtifact = "Thor-Setup-Test-"
         }
         // The public release: Thor Forever, as its own app next to any Winlator (-PthorRelease=true).
         if (project.findProperty("thorRelease") == "true") {
             applicationId "com.thorforever.app"
             manifestPlaceholders = [appLabel: "Thor Forever"]
+            apkArtifact = "Thor-Forever-"
         }
+        buildConfigField "String", "APK_ARTIFACT_PREFIX", "\"" + apkArtifact + "\""
+        buildConfigField "boolean", "THOR_RELEASE", (project.findProperty("thorRelease") == "true").toString()
         minSdkVersion 28
         // We’re preserving Winlator’s request to keep targetSdkVersion at 28
         targetSdkVersion 28
