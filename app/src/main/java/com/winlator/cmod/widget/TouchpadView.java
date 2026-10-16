@@ -802,6 +802,13 @@ public class TouchpadView extends View {
     private class GameInput extends BaseInputConnection {
         /** What the keyboard has typed but not yet settled on (some keyboards type words this way). */
         private String composing = "";
+        /**
+         * What was typed since the keyboard opened, as the keyboard asks for it: many keyboards
+         * only delete when they see text before the cursor. Room in front of it (spaces) lets
+         * them delete what was in the game's field before, too.
+         */
+        private final StringBuilder typed = new StringBuilder();
+        private static final int ROOM = 64;
 
         GameInput() {
             super(TouchpadView.this, false);
@@ -822,18 +829,53 @@ public class TouchpadView extends View {
             for (int i = 0; i < s.length(); ) {
                 int cp = s.codePointAt(i);
                 i += Character.charCount(cp);
-                if (cp == '\n') { press(XKeycode.KEY_ENTER, 0); continue; }
+                if (cp == '\n') { press(XKeycode.KEY_ENTER, 0); typed.setLength(0); continue; }
+                typed.appendCodePoint(cp);
                 // X keysyms: Latin-1 as it is, everything else as 0x01000000 + the code point.
                 press(XKeycode.KEY_A, cp >= 0x20 && cp <= 0xFF ? cp : 0x01000000 | cp);
             }
         }
 
         private void erase(int count) {
-            for (int i = 0; i < count; i++) press(XKeycode.KEY_BKSP, 0);
+            for (int i = 0; i < count; i++) {
+                press(XKeycode.KEY_BKSP, 0);
+                if (typed.length() > 0) typed.setLength(typed.offsetByCodePoints(typed.length(), -1));
+            }
+        }
+
+        @Override
+        public CharSequence getTextBeforeCursor(int n, int flags) {
+            StringBuilder text = new StringBuilder();
+            for (int i = 0; i < ROOM; i++) text.append(' ');
+            text.append(typed);
+            return text.subSequence(Math.max(0, text.length() - n), text.length());
+        }
+
+        @Override
+        public CharSequence getTextAfterCursor(int n, int flags) {
+            return "";
+        }
+
+        @Override
+        public boolean sendKeyEvent(android.view.KeyEvent event) {
+            int code = event.getKeyCode();
+            Log.i("SoftKeyboard", "key " + code + " action " + event.getAction());
+            // Delete and Enter straight to the game, whatever the activity does with keys.
+            if (code == android.view.KeyEvent.KEYCODE_DEL || code == android.view.KeyEvent.KEYCODE_FORWARD_DEL
+                    || code == android.view.KeyEvent.KEYCODE_ENTER) {
+                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+                    if (code == android.view.KeyEvent.KEYCODE_DEL) erase(1);
+                    else if (code == android.view.KeyEvent.KEYCODE_FORWARD_DEL) press(XKeycode.KEY_DEL, 0);
+                    else { press(XKeycode.KEY_ENTER, 0); typed.setLength(0); }
+                }
+                return true;
+            }
+            return super.sendKeyEvent(event);
         }
 
         @Override
         public boolean commitText(CharSequence text, int newCursorPosition) {
+            Log.i("SoftKeyboard", "commit " + text.length() + " letters");
             erase(composing.codePointCount(0, composing.length()));
             composing = "";
             type(text);
@@ -860,6 +902,7 @@ public class TouchpadView extends View {
 
         @Override
         public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+            Log.i("SoftKeyboard", "delete " + beforeLength + " before, " + afterLength + " after");
             erase(beforeLength);
             for (int i = 0; i < afterLength; i++) press(XKeycode.KEY_DEL, 0);
             return true;
@@ -872,7 +915,9 @@ public class TouchpadView extends View {
 
         @Override
         public boolean performEditorAction(int actionCode) {
+            Log.i("SoftKeyboard", "action " + actionCode);
             press(XKeycode.KEY_ENTER, 0);
+            typed.setLength(0);
             // Done (a password and Enter, most of the time): the keyboard goes away.
             hideSoftKeyboard();
             return true;
