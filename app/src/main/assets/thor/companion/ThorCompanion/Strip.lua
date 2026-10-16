@@ -24,6 +24,35 @@
 
 local _, ns = ...
 
+-- How much memory each part of the addon makes (KB, summed since the last /thor mem):
+-- the game frees it again now and then, so what counts is how fast it climbs. Only counts
+-- what runs in between: another addon's code never runs inside these calls.
+local memUse, memSince = {}, nil
+function ns.Measured(label, fn, ...)
+    local before = collectgarbage("count")
+    local r = { pcall(fn, ...) }
+    local made = collectgarbage("count") - before
+    -- Negative when the game freed memory in between: that call is left out.
+    if made > 0 then memUse[label] = (memUse[label] or 0) + made end
+    return unpack(r)
+end
+
+-- The parts that made the most, per second since the last call; then counting starts again.
+function ns.MemReport()
+    local now = GetTime()
+    local seconds = memSince and math.max(1, now - memSince) or nil
+    local list = {}
+    for label, kb in pairs(memUse) do list[#list + 1] = { label, kb } end
+    table.sort(list, function(a, b) return a[2] > b[2] end)
+    local out = {}
+    for i = 1, math.min(10, #list) do
+        out[#out + 1] = seconds and string.format("%s %.0f KB/s", list[i][1], list[i][2] / seconds)
+            or string.format("%s %.0f KB", list[i][1], list[i][2])
+    end
+    memUse, memSince = {}, now
+    return #out > 0 and table.concat(out, "\n") or "nothing measured yet"
+end
+
 -- A builder that runs again only when the game says something it reads changed (one of
 -- events), after a loading screen, or when maxAge seconds went by (so a missed event
 -- can't leave it wrong for long). Otherwise its last result comes back as it was.
@@ -231,7 +260,7 @@ local function build()
     end
     place()
     frame:Show()
-    C_Timer.NewTicker(0.25, idleCheck)
+    C_Timer.NewTicker(0.25, function() ns.Measured("bar: idle check", idleCheck) end)
 end
 
 local function step()
@@ -316,7 +345,7 @@ function ns.StripWrite(payload, hold)
     nextStepAt = now + ((sp == FAST and quiet) and sp.first or sp.step) - 0.02
     lastDrawAt = now
     draw(1)
-    if #parts > 1 and not stepper then stepper = C_Timer.NewTicker(0.05, step) end
+    if #parts > 1 and not stepper then stepper = C_Timer.NewTicker(0.05, function() ns.Measured("bar: next part", step) end) end
 end
 
 -- Applies changed /thor cell, shade or position settings.

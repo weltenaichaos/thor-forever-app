@@ -206,7 +206,7 @@ f:SetScript("OnEvent", function(_, event, text, sender, _, channelName)
         kind = kind == "whisper" and "bnwhisper" or "bnwhisper_to"
         sender = ""
     end
-    add(kind, sender, kind == "channel" and channelName or "", text)
+    ns.Measured("chat lines", add, kind, sender, kind == "channel" and channelName or "", text)
 end)
 
 -- The public channels you are in: "1 General,2 Trade,...".
