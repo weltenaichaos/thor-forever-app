@@ -187,6 +187,9 @@ local function map()
     local force = mapForce
     mapForce = false
     if id and tostring(id) == mapID and GetTime() - mapAt < MAP_SECONDS and not force then return nil end
+    -- Counted from when it was built, not from when it last went out: a map that stayed the
+    -- same was otherwise built again every half second (most of the addon's memory use).
+    mapAt, mapID = GetTime(), id and tostring(id) or mapID
     return ns.MapPayload()
 end
 

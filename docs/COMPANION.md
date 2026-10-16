@@ -36,7 +36,7 @@ These are written for Thor Forever instead:
   installs the addon (`core/CompanionAddon.java`).
 - `CompanionBridge.kt` connects the companion to the game screen and opens it on the other
   screen.
-- The addon (0.24.4 here): it builds the bags, gear, character, quests and cooldowns again
+- The addon (0.24.5 here): it builds the bags, gear, character, quests and cooldowns again
   only when the game says they changed, or every few seconds (`ns.Remember` in `Strip.lua`);
   it skips its idle wait for urgent changes; and it shows the first part of a message after a
   quiet spell for 0.6 s, since the reading loop here looks every 0.4 s where the bar was.
