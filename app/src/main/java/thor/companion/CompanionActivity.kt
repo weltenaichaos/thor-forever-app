@@ -26,6 +26,7 @@ import thor.companion.strip.ChatFile
 import thor.companion.strip.Cooldowns
 import thor.companion.strip.BagItem
 import thor.companion.strip.Compass
+import thor.companion.strip.CornerAreas
 import thor.companion.strip.Errands
 import thor.companion.strip.Readiness
 import thor.companion.strip.Delta
@@ -37,6 +38,7 @@ import thor.companion.strip.ItemNames
 import thor.companion.strip.MapPicture
 import thor.companion.strip.LevelPlan
 import thor.companion.strip.PartAssembler
+import thor.companion.strip.Pixels
 import thor.companion.strip.Quest
 import thor.companion.strip.QuestLog
 import thor.companion.strip.QuestPages
@@ -111,6 +113,9 @@ class CompanionActivity : Activity() {
     @Volatile private var lastKeyAt = 0L
     /** When the square was last read: the dot by the status line is green while that is recent. */
     @Volatile private var frameAt = 0L
+    /** When one of the addon's corner squares was last read, and their cell size (0: none read yet). */
+    @Volatile private var cornersAt = 0L
+    @Volatile private var cornerCell = 0.0
     /** When the last status (with the position) came in: it is only sent when something changed. */
     private var movedAt = 0L
     /** Start time and duration (ms) of each capture in the last minute, for the battery check. */
@@ -501,7 +506,6 @@ class CompanionActivity : Activity() {
         var absent = 0
         var messageAt = 0L
         var changedAt = 0L
-        var lastShown = -1
         var near = -1
         // Where the square or bar was last read, with room around it: only that corner of
         // the picture is copied (see [lockAround]). Let go when the picture changes size,
@@ -511,6 +515,19 @@ class CompanionActivity : Activity() {
         var lockAt = 0L
         var whyAt = 0L
         val assembler = PartAssembler()
+        // The addon's corner squares (its default, see Corners.lua): your position top left,
+        // the chat bottom left, the status bottom right, everything else top right. Each has
+        // its own message numbers, so each its own assembler. Only those four small parts of
+        // the picture are copied; the whole picture only while no corner square was read
+        // lately (an older addon, or another /thor shape).
+        val cornerParts = HashMap<Int, PartAssembler>()
+        fun assemblerOf(version: Int) =
+            if (version == StripDecoder.POSITION_VERSION || version == StripDecoder.CHAT_VERSION || version == StripDecoder.STATUS_VERSION)
+                cornerParts.getOrPut(version) { PartAssembler() } else assembler
+        val cornerNear = IntArray(4) { -1 }
+        var cornerAreasFor: Rect? = null
+        var cornerAreas: List<IntArray> = emptyList()
+        val shownLast = HashMap<Int, Int>()
         while (worker === Thread.currentThread()) {
             val t0 = SystemClock.uptimeMillis()
             // The game's files say there is nothing to see (closed, starting, the character
@@ -521,13 +538,55 @@ class CompanionActivity : Activity() {
                 continue
             }
             val size = screen.size()
-            if (lock != null && (size != lockSize || t0 - lockAt > LOCK_MS)) lock = null
-            val shot = lock?.let { screen.captureArea(it) } ?: screen.capture()?.let { TopScreen.Shot(0, 0, it) }
-            val px = shot?.pixels
-            val result = if (px == null) null else StripDecoder.decode(px, if (near >= 0) near - shot!!.top else -1)
-            val frame = (result as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
+            // The four corners first. (Their places follow the picture's size and the cell size read last.)
+            val frames = ArrayList<StripFrame>()
+            var result: StripDecoder.Result? = null
+            var px: Pixels? = null
+            if (size != null) {
+                if (size != cornerAreasFor) {
+                    cornerAreasFor = size
+                    cornerAreas = CornerAreas.areas(size.width(), size.height(), cornerCell)
+                    cornerNear.fill(-1)
+                }
+                for ((i, a) in cornerAreas.withIndex()) {
+                    val shot = screen.captureArea(Rect(a[0], a[1], a[2], a[3])) ?: continue
+                    px = shot.pixels
+                    val r = StripDecoder.decode(shot.pixels, cornerNear[i])
+                    val f = (r as? StripDecoder.Result.Ok)?.frame
+                    cornerNear[i] = f?.row ?: -1
+                    if (f != null && f.crcOk) frames += CornerAreas.moved(f, shot.left, shot.top)
+                    if (result !is StripDecoder.Result.Ok) result = r
+                }
+            }
+            val corners = frames.any { it.version in StripDecoder.POSITION_VERSION..StripDecoder.DATA_VERSION }
+            if (corners) {
+                cornersAt = t0
+                val cell = frames.first { it.version in StripDecoder.POSITION_VERSION..StripDecoder.DATA_VERSION }.cellPx
+                // Cells much bigger than guessed (/thor cell): bigger areas, so the squares fit.
+                if (cornerCell == 0.0 || kotlin.math.abs(cell - cornerCell) > 0.5) {
+                    cornerCell = cell
+                    cornerAreasFor = null
+                }
+            }
+            // No corner square lately: the whole picture (or where the bar or square was last read).
+            if (frames.isEmpty() && t0 - cornersAt > LOCK_MS) {
+                if (lock != null && (size != lockSize || t0 - lockAt > LOCK_MS)) lock = null
+                val shot = lock?.let { screen.captureArea(it) } ?: screen.capture()?.let { TopScreen.Shot(0, 0, it) }
+                px = shot?.pixels
+                val r = if (shot == null) null else StripDecoder.decode(shot.pixels, if (near >= 0) near - shot.top else -1)
+                if (r != null && result !is StripDecoder.Result.Ok) result = r
+                val f = (r as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
+                if (f != null) {
+                    near = f.row + shot!!.top
+                    lock = lockAround(f, shot.left, shot.top)
+                    lockSize = size
+                    lockAt = t0
+                    frames += CornerAreas.moved(f, shot.left, shot.top)
+                }
+            }
+            val read = frames.isNotEmpty()
             // Why a read failed, now and then, for the log (long-press the status line).
-            if (frame == null && t0 - whyAt > 5000) {
+            if (!read && t0 - whyAt > 5000) {
                 whyAt = t0
                 val why = when (result) {
                     null -> "capture failed"
@@ -540,24 +599,30 @@ class CompanionActivity : Activity() {
                 captures.addLast(longArrayOf(t0, SystemClock.uptimeMillis() - t0))
                 while (captures.first()[0] < t0 - 60_000) captures.removeFirst()
             }
-            if (frame != null) {
+            if (read) {
                 misses = 0
                 frameAt = SystemClock.uptimeMillis()
-                near = frame.row + shot!!.top
-                lock = lockAround(frame, shot.left, shot.top)
-                lockSize = size
-                lockAt = t0
-                // Something new on the square (a part or a message): more is likely to follow.
+            }
+            for (frame in frames) {
+                // Something new on the data square (a part or a message): more is likely to follow.
+                // (The position changes all the time while walking: that says nothing.)
                 val shown = frame.seq * 16 + frame.part
-                if (shown != lastShown) { lastShown = shown; changedAt = SystemClock.uptimeMillis() }
-                val message = assembler.add(frame)
+                if (shownLast[frame.version] != shown) {
+                    shownLast[frame.version] = shown
+                    if (frame.version != StripDecoder.POSITION_VERSION) changedAt = SystemClock.uptimeMillis()
+                }
+                val parts = assemblerOf(frame.version)
+                val message = parts.add(frame)
                 if (message != null) {
                     if (seenAt == 0L) seenAt = SystemClock.uptimeMillis()
                     messageAt = SystemClock.uptimeMillis()
                     if (game != Game.UNKNOWN && game != Game.IN_WORLD) game = Game.IN_WORLD
                     if (away) { away = false; runOnUiThread { render() } }
-                    if (message.startsWith("TS1|") || !awaitStatus) {
-                        handle(message, assembler.lastSeq)
+                    if (message.startsWith("TP2|")) {
+                        // Only your position (the top-left corner): into the last status.
+                        if (!awaitStatus) moved(message)
+                    } else if (message.startsWith("TS1|") || !awaitStatus) {
+                        handle(message, parts.lastSeq)
                         // Who is playing is known now: what came before the status is theirs.
                         if (message.startsWith("TS1|") && awaitStatus) {
                             awaitStatus = false
@@ -573,7 +638,8 @@ class CompanionActivity : Activity() {
                     // While the start-up card shows, each message may tick something off.
                     if (!ready) runOnUiThread { if (!ready) render() }
                 }
-            } else if (++misses == 4 && !barMode && listening == null && SystemClock.uptimeMillis() >= quietUntil) {
+            }
+            if (!read && ++misses == 4 && !barMode && listening == null && SystemClock.uptimeMillis() >= quietUntil) {
                 near = -1
                 val why = when {
                     px == null -> "the capture failed"
@@ -589,7 +655,7 @@ class CompanionActivity : Activity() {
             // while the game isn't showing the square at all.
             // The addon shows each part once (its fast speed) as long as the square keeps
             // changing, so keep reading fast for a moment after anything new.
-            val fast = assembler.waiting || SystemClock.uptimeMillis() - lastKeyAt < 3000 ||
+            val fast = assembler.waiting || cornerParts.values.any { it.waiting } || SystemClock.uptimeMillis() - lastKeyAt < 3000 ||
                 SystemClock.uptimeMillis() - changedAt < BUSY_MS
             // While you walk the position changes all the time: look more often, so the
             // arrow on the map keeps up, and slow down again once you stand still.
@@ -602,7 +668,7 @@ class CompanionActivity : Activity() {
             // while it was taken) is read again at the usual pace.
             if (result is StripDecoder.Result.Ok) {
                 absent = 0; seenSquare = true
-                barMode = result.frame.version == StripDecoder.BAR_VERSION
+                barMode = result.frame.version == StripDecoder.BAR_VERSION || t0 - cornersAt < LOCK_MS
             } else absent++
             // Gone for a few seconds: logged out, the character screen or a loading screen.
             // The card stands in for the tabs until the game says again who is playing,
@@ -632,6 +698,9 @@ class CompanionActivity : Activity() {
                 // The bar comes and goes: look a few times a second for the next message
                 // (only its corner is copied, so this is cheap; the addon shows a message
                 // that comes after a quiet spell for at least 0.6 s).
+                // The corner squares too come and go; only four small parts are copied, so looking
+                // often is cheap (the position stays 0.4 s, the rest at least 0.6 s).
+                t0 - cornersAt < LOCK_MS -> CORNERS_MS
                 barMode && absent > 0 && lock != null -> 400L
                 barMode && absent > 0 -> 1000L
                 absent in 1..4 -> 1000L
@@ -765,6 +834,23 @@ class CompanionActivity : Activity() {
         } else runOnUiThread { if (!ready) render() }
     }
 
+    /**
+     * Your position from the top-left corner square (TP2|mapID|x|y|facing): the same
+     * fields as in the status, so the last status with these in it is taken as a new one.
+     */
+    private fun moved(message: String) {
+        val p = message.split('|')
+        val status = lastMessages["TS1|"]?.split('|')?.toMutableList() ?: return
+        if (p.size < 4 || status.size < 8) return
+        status[4] = p[1]; status[5] = p[2]; status[6] = p[3]; status[7] = p.getOrElse(4) { "" }
+        handle(status.joinToString("|"), -1)
+    }
+
+    /** The addon's data square in a whole picture: in the top-right corner while it uses the corners. */
+    private fun dataFrame(px: Pixels): StripFrame? =
+        if (SystemClock.uptimeMillis() - cornersAt < LOCK_MS) CornerAreas.dataFrame(px, cornerCell)
+        else (StripDecoder.decode(px) as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
+
     /** Messages that came while the app waits for the status (see [awaitStatus]), oldest first. */
     private val held = ArrayDeque<String>()
 
@@ -886,9 +972,7 @@ class CompanionActivity : Activity() {
             if (panel == Panel.MAP) updateMap()
         }
         val px = screen.capture(rows = 4000) ?: return fail("the screenshot failed")
-        val found = StripDecoder.decode(px)
-        val frame = (found as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
-            ?: return fail("the data square was not readable in the screenshot (${(found as? StripDecoder.Result.Failed)?.reason ?: "damaged"})")
+        val frame = dataFrame(px) ?: return fail("the data square was not readable in the screenshot")
         if (String(frame.payload) != message) return fail("the map was closed or changed before the screenshot")
         val r = pic.onScreen(frame)
         val l = r[0].coerceIn(0, px.width); val t = r[1].coerceIn(0, px.height)
@@ -917,7 +1001,7 @@ class CompanionActivity : Activity() {
             if (panel == Panel.BAGS || panel == Panel.CHARACTER) render()
         }
         val px = screen.capture(rows = 4000) ?: return done("Item icons not taken: the screenshot failed")
-        val frame = (StripDecoder.decode(px) as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
+        val frame = dataFrame(px)
         if (frame == null || frame.seq != seq) return done("Item icons not taken: they went away before the screenshot")
         // The icons sit on black: if the gaps around them aren't black, the grid had gone
         // (the square can still show its message) and these would be bits of the world.
@@ -2578,6 +2662,8 @@ class CompanionActivity : Activity() {
         const val STALE_MS = 30_000L
         /** Nothing read in the remembered corner for this long: look at the whole top again. */
         const val LOCK_MS = 25_000L
+        /** How often the four corners are read while the addon uses them. */
+        const val CORNERS_MS = 150L
         /** Rows above and below the remembered place that are copied too (the decoder looks 16 either way). */
         const val LOCK_ROWS = 24
         /** The start-up card's rows before the status says what there is. */
