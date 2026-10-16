@@ -94,10 +94,15 @@ function ns.CornerCapacity(name)
 end
 
 -- True while the corner's message has not been up for its time, or has parts still to show.
+-- The last part of a longer message stays up as long as the others: written over at once,
+-- the app missed it, and with it the whole message (your own chat line, with the next one
+-- right behind it).
 function ns.CornerBusy(name)
     local sq = squares[name]
     if not sq then return false end
-    return GetTime() - sq.shownAt < (sq.hold or HOLD) or sq.part < #sq.parts
+    local now = GetTime()
+    return now - sq.shownAt < (sq.hold or HOLD) or sq.part < #sq.parts
+        or (#sq.parts > 1 and now - sq.drawnAt < STEP)
 end
 
 -- Shows payload in the corner (hold: how long it stays at least).
