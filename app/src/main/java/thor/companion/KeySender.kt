@@ -19,6 +19,8 @@ object KeySender {
         "ALT" to XKeycode.KEY_ALT_L,
         "ENTER" to XKeycode.KEY_ENTER,
         "ESCAPE" to XKeycode.KEY_ESC,
+        "BACKSPACE" to XKeycode.KEY_BKSP,
+        "TAB" to XKeycode.KEY_TAB,
         "V" to XKeycode.KEY_V,
     ) + (1..12).associate { "F$it" to XKeycode.valueOf("KEY_F$it") } +
         (0..9).associate { "NUMPAD$it" to XKeycode.valueOf("KEY_KP_$it") }

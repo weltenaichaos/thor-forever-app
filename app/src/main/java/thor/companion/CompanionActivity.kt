@@ -1135,6 +1135,13 @@ class CompanionActivity : Activity() {
             }
         }
         if (sub.isNotEmpty()) box.addView(line(sub, DIM, 13f).apply { setPadding(0, dp(4), 0, dp(10)) })
+        // The login screen (and the character screen): type there from this screen, with the
+        // keyboard down here, and fix typos before they go in.
+        if ((g == Game.STARTING || g == Game.OUT) && composing == null) {
+            box.addView(chip("⌨  Type in the game (password, names)") { typeInGame() }.apply {
+                background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK)
+            }, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(10) })
+        }
         val rows = parts ?: if (seen && !away || g == Game.LOADING) PLACEHOLDER.map { Readiness.Part(it, Readiness.Status.MISSING, "waiting") } else emptyList()
         for (part in rows) {
             val r = LinearLayout(this).apply {
@@ -1978,6 +1985,81 @@ class CompanionActivity : Activity() {
         row.addView(chip("Send") { send() }.apply { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) })
         row.addView(chip("✕") { closeCompose() }, LinearLayout.LayoutParams(dp(44), -2).apply { marginStart = dp(4) })
         footer.addView(row)
+        // The keyboard needs a window that can take focus; the app's normally can't (so the game keeps the controller).
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+        field.requestFocus()
+        field.post {
+            getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                .showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    /**
+     * A box on this screen for what goes into the game's own fields (the password at the login
+     * screen, a new character's name): typed and fixed here with the keyboard on this screen,
+     * then typed into the game key by key. Its buttons delete in the game's field too.
+     */
+    private fun typeInGame() {
+        composing = "Type" to ""
+        footer.removeAllViews()
+        val field = android.widget.EditText(this).apply {
+            hint = "Type here, then tap Type it"
+            setHintTextColor(DIM)
+            setTextColor(TEXT)
+            textSize = 15f
+            isSingleLine = true
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE or
+                android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+            background = Theme.box(context, SURFACE, 12, ACCENT)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        val target = gameDisplay()
+        fun pressKeys(vararg what: String) {
+            lastKeyAt = SystemClock.uptimeMillis()
+            keys.execute { for (k in what) KeySender.send(this, target, k) }
+        }
+        /** What is in the box into the game, then Enter when [enter]; the box is emptied. */
+        fun typeIt(enter: Boolean) {
+            val text = field.text.toString()
+            field.setText("")
+            lastKeyAt = SystemClock.uptimeMillis()
+            keys.execute {
+                if (text.isNotEmpty()) KeySender.type(this, target, text)
+                if (enter) KeySender.send(this, target, "ENTER")
+            }
+            say(if (enter) "Typed in the game, with Enter" else "Typed in the game")
+        }
+        field.setOnEditorActionListener { _, action, _ ->
+            if (action == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) { typeIt(true); true } else false
+        }
+        var shown = false
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
+        row.addView(field, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
+        // Show or hide the letters (hidden first: it is usually a password).
+        row.addView(chip("👁") {
+            shown = !shown
+            val at = field.selectionEnd
+            field.inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                (if (shown) android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD else android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+            field.setSelection(at.coerceIn(0, field.text.length))
+        }, LinearLayout.LayoutParams(dp(48), -2).apply { marginEnd = dp(6) })
+        row.addView(chip("✕") { closeCompose() }, LinearLayout.LayoutParams(dp(44), -2))
+        footer.addView(row)
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(6), 0, 0) }
+        fun button(label: String, accent: Boolean = false, onTap: () -> Unit) =
+            buttons.addView(chip(label, onTap).apply { if (accent) { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) } },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        button("Type it + Enter", accent = true) { typeIt(true) }
+        button("Type it") { typeIt(false) }
+        // In the game's field: one letter back, or all of it (more Backspaces than any password has).
+        button("⌫ in game") { pressKeys("BACKSPACE") }
+        button("Clear game field") { pressKeys(*Array(40) { "BACKSPACE" }); say("Cleared the game's field") }
+        footer.addView(buttons)
+        val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
+        more.addView(chip("Tab (next field)") { pressKeys("TAB") }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        more.addView(chip("Enter") { pressKeys("ENTER") }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        footer.addView(more)
         // The keyboard needs a window that can take focus; the app's normally can't (so the game keeps the controller).
         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         field.requestFocus()
