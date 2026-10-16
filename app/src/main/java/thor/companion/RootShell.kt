@@ -10,9 +10,6 @@ import android.util.Log
 object RootShell {
     private const val TAG = "ThorCompanion"
 
-    /** Always true: nothing here needs root any more. */
-    fun available(): Boolean = true
-
     /** The command's first line of output (run as the app, not root), or null when it couldn't run. */
     fun exec(cmd: String): String? = try {
         val process = ProcessBuilder("sh", "-c", cmd).redirectErrorStream(true).start()

@@ -22,7 +22,6 @@ import thor.companion.strip.ChatLine
 import thor.companion.strip.Gear
 import thor.companion.strip.GearItem
 import thor.companion.strip.ChatLog
-import thor.companion.strip.ChatFile
 import thor.companion.strip.Cooldowns
 import thor.companion.strip.BagItem
 import thor.companion.strip.Compact
@@ -140,7 +139,6 @@ class CompanionActivity : Activity() {
         tips = TipStore(this)
         bagSort = getPreferences(MODE_PRIVATE).getInt("bagSort", 0)
         tracked = getPreferences(MODE_PRIVATE).getString("tracked", null)
-        screen.displayId = getPreferences(MODE_PRIVATE).getString("display", null)
 
         icons = IconStore(this)
 
@@ -175,8 +173,6 @@ class CompanionActivity : Activity() {
         }
         statusDot = View(this).apply {
             background = Theme.box(context, Theme.WARN, 5)
-            // In case the app reads the wrong screen: long-press the dot to try the next one.
-            setOnLongClickListener { nextDisplay(); true }
         }
         status = TextView(this).apply {
             setTextColor(DIM)
@@ -193,11 +189,6 @@ class CompanionActivity : Activity() {
         }
         statusRow.addView(statusDot, LinearLayout.LayoutParams(dp(10), dp(10)))
         statusRow.addView(status, LinearLayout.LayoutParams(0, -2, 1f))
-        // Shown only when GitHub has a newer build: one tap asks, a second within 3 s updates.
-        updateButton = chip("Update") { updateTapped() }.apply {
-            background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK); visibility = View.GONE
-        }
-        statusRow.addView(updateButton, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
         statusRow.addView(loadButton)
         // Closes the app for good (no task manager needed): a second tap within 3 s confirms.
         statusRow.addView(chip("Exit") {
@@ -219,15 +210,6 @@ class CompanionActivity : Activity() {
         show(Panel.BAGS)
         updateCompass()
         say("Looking for the game…")
-        // Just updated: the addon comes along, but the game only takes it at its next start.
-        val version = Updater.installedVersion(this)
-        val before = getPreferences(MODE_PRIVATE).getString("version", null)
-        getPreferences(MODE_PRIVATE).edit().putString("version", version).apply()
-        if (before != null && before != version) android.app.AlertDialog.Builder(this)
-            .setTitle("Updated to $version")
-            .setMessage("The new addon is in place. Close the game and start it again through the launcher so it loads the addon too.")
-            .setPositiveButton("OK", null)
-            .show()
         // The last crash, once: its first lines, to send along.
         if (crashFile.exists()) {
             val trace = runCatching { crashFile.readText() }.getOrDefault("")
@@ -256,109 +238,6 @@ class CompanionActivity : Activity() {
         android.util.Log.i("ThorCompanion", "onStart")
         CompanionBridge.setShown(true)
         worker = Thread(::readSafely, "strip-reader").apply { isDaemon = true; start() }
-        content.removeCallbacks(updateCheck)
-        content.post(updateCheck)
-    }
-
-    private lateinit var updateButton: TextView
-    @Volatile private var update: Updater.Release? = null
-    private var updateAskedAt = -10_000L
-    @Volatile private var updating = false
-
-    /** Looks for a newer build on GitHub now and every 30 minutes (one small request). */
-    private val updateCheck: Runnable = object : Runnable {
-        override fun run() {
-            Thread {
-                val found = Updater.check(this@CompanionActivity)
-                runOnUiThread {
-                    if (found != null) update = found
-                    update?.let { updateButton.text = "Update ${it.version}"; updateButton.visibility = View.VISIBLE }
-                }
-            }.apply { isDaemon = true; start() }
-            content.postDelayed(this, 30 * 60_000L)
-        }
-    }
-
-    private fun updateTapped() {
-        val release = update ?: return
-        if (updating) return
-        val now = SystemClock.uptimeMillis()
-        if (now - updateAskedAt > 3000) {
-            updateAskedAt = now
-            say("Tap Update again to install ${release.version} (the app restarts by itself)")
-            return
-        }
-        updating = true
-        say("Downloading ${release.version}…")
-        val display = display?.displayId ?: 0
-        Thread {
-            val apk = Updater.download(this, release) { pct -> runOnUiThread { say("Downloading ${release.version}… $pct%", notice = false) } }
-            if (apk == null) {
-                updating = false
-                runOnUiThread { say("The download failed. Check the Thor's internet and tap Update again.") }
-                return@Thread
-            }
-            runOnUiThread { say("Installing ${release.version}; the app closes and opens again…") }
-            if (!Updater.install(this, apk, display)) {
-                updating = false
-                // No root shell: Android's own installer asks instead.
-                runOnUiThread {
-                    say("Couldn't install by itself; opening the download in the browser")
-                    runCatching { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(release.apkUrl))) }
-                }
-            }
-        }.apply { isDaemon = true; start() }
-    }
-
-    /** Where you told the app your Thor-Forever folder is, or null to look for it. */
-    private fun kitPath() = getPreferences(MODE_PRIVATE).getString("kitPath", null)
-
-    /** True when no Thor-Forever folder was found: then a card asks you to choose it. */
-    @Volatile private var kitMissing = false
-
-    /** Puts the bundled addon into the Thor-Forever folder (root, so off the UI thread). */
-    private fun installAddon() {
-        val outcome = AddonInstaller.install(this, kitPath())
-        kitMissing = outcome.missing
-        runOnUiThread {
-            if (outcome.note.isNotEmpty()) say(outcome.note, notice = true)
-            render()
-        }
-    }
-
-    /** Opens Android's folder picker for the Thor-Forever folder. */
-    private fun chooseKit() {
-        val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE)
-        runCatching { startActivityForResult(intent, CHOOSE_KIT) }
-            .onFailure { say("Couldn't open the folder picker: ${it.message}") }
-    }
-
-    @Deprecated("The plain Activity's way; this app has no AndroidX.")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != CHOOSE_KIT || resultCode != RESULT_OK) return
-        val path = data?.data?.let { AddonInstaller.pathOf(it) }
-            // The AddOns folder itself chosen: the Thor-Forever folder is the one around it.
-            ?.let { if (it.endsWith("/AddOns")) it.removeSuffix("/AddOns") else it }
-        if (path == null) {
-            say("That folder isn't on the Thor's storage: choose the Thor-Forever folder there.", notice = true)
-            return
-        }
-        getPreferences(MODE_PRIVATE).edit().putString("kitPath", path).apply()
-        say("Putting the addon into $path…", notice = true)
-        keys.execute { installAddon() }
-    }
-
-    /** The card that asks for the Thor-Forever folder when the app couldn't find it. */
-    private fun kitCard(): View {
-        val box = card().apply { background = Theme.box(context, SURFACE, 14, ACCENT) }
-        box.addView(line("Where is your Thor-Forever folder?", TEXT, 16f, bold = true).apply { setPadding(0, 0, 0, 0) })
-        box.addView(line("The app puts its addon into that folder's AddOns, and Thor Forever copies it into the game " +
-            "when it starts. Choose the folder with Thor-Forever.exe in it; the app remembers it.", DIM, 13f))
-        box.addView(chip("Choose folder") { chooseKit() }.apply {
-            background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK)
-        }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
-        return box
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -370,13 +249,19 @@ class CompanionActivity : Activity() {
         android.util.Log.i("ThorCompanion", "onStop")
         CompanionBridge.setShown(false)
         closeCompose()
-        content.removeCallbacks(updateCheck)
         worker = null
         watcher = null
         runCatching { watchSocket?.close() }
         saveTrail()
         saveLast()
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        // The key thread and the picture copier's thread end with the app.
+        keys.shutdown()
+        screen.close()
+        super.onDestroy()
     }
 
     private fun trailFile() = java.io.File(filesDir, "trail.txt")
@@ -387,7 +272,6 @@ class CompanionActivity : Activity() {
     /** False while the bags shown are the ones kept from before a restart: then a tap could use whatever moved into that slot since. */
     private var bagsFresh = false
     private var bagsDifferSince = 0L
-    private var addonChecked = false
     private var addonWarned = false
     /** How the bags are sorted: 0 as in the game, 1 type, 2 quality, 3 sell value. */
     private var bagSort = 0
@@ -506,18 +390,6 @@ class CompanionActivity : Activity() {
     }
 
     private fun loop() {
-        if (!RootShell.available()) {
-            runOnUiThread {
-                say("Can't capture the top screen: the Thor's root service isn't reachable. " +
-                    "Check that Settings › Thor › Force SELinux is off.")
-            }
-            return
-        }
-        // The addon that came with this app goes into the game (once per start of the app).
-        if (!addonChecked) {
-            addonChecked = true
-            installAddon()
-        }
         if (watcher == null) watcher = Thread(::watchGame, "game-watch").apply { isDaemon = true; start() }
         var misses = 0
         var seenSquare = false
@@ -838,8 +710,6 @@ class CompanionActivity : Activity() {
             }
             "O" -> if (game == Game.IN_WORLD || game == Game.LOADING || game == Game.UNKNOWN) game = Game.OUT
             "X" -> game = Game.CLOSED
-            // Chat log lines: the game writes that file only every few minutes, so the chat comes from the square.
-            "C", "D", "H" -> return
             else -> return
         }
         gameAt = now
@@ -1138,17 +1008,6 @@ class CompanionActivity : Activity() {
         if (changed && (panel == Panel.BAGS || panel == Panel.CHARACTER)) render()
     }
 
-    /** Long-press on the status line: try the next screen, in case the default one is the wrong one. */
-    private fun nextDisplay() {
-        Thread {
-            val ids = listOf<String?>(null) + screen.listDisplays()
-            val next = ids[(ids.indexOf(screen.displayId) + 1) % ids.size]
-            screen.displayId = next
-            getPreferences(MODE_PRIVATE).edit().putString("display", next).apply()
-            runOnUiThread { say("Capturing screen ${next ?: "default"}") }
-        }.start()
-    }
-
     private fun show(p: Panel) {
         if (p != Panel.CHAT) closeCompose()
         panel = p
@@ -1170,7 +1029,6 @@ class CompanionActivity : Activity() {
         updateLoadButton()
         updateBadges()
         val s = state
-        if (kitMissing) content.addView(kitCard(), cardParams())
         if (!ready && renderLoading()) return
         if (s == null) {
             content.addView(empty("Waiting for the game…", "Open WoW Forever with the Forever Companion addon on. If it is already open, tap Load from the game."))
@@ -2392,17 +2250,29 @@ class CompanionActivity : Activity() {
         }
     }
 
-    /** The Thor's recent log (this app, the speech service, the game's input) into Download, through root. */
+    /** The Thor's recent log (this app, the speech service, the game's input) and the game's picture, into Download. */
     private fun saveLog() {
         keys.execute {
             val out = "/sdcard/Download/ForeverCompanion-log.txt"
             val ok = RootShell.exec("logcat -d -t 3000 -v time > $out 2>&1; echo done")?.trim() == "done"
-            // And a picture of the game's screen, to see what the app sees there.
-            val target = screen.displayId?.takeIf { it.all(Char::isDigit) }?.let { "-d $it " } ?: ""
-            val shot = ok && RootShell.exec("screencap $target-p /sdcard/Download/ForeverCompanion-screen.png; echo done")?.trim() == "done"
+            // And the game's picture, as the app sees it.
+            val shot = runCatching {
+                val px = screen.capture(rows = 4000) ?: return@runCatching false
+                val bitmap = android.graphics.Bitmap.createBitmap(px.width, px.height, android.graphics.Bitmap.Config.ARGB_8888)
+                val row = IntArray(px.width)
+                for (y in 0 until px.height) {
+                    for (x in 0 until px.width) row[x] = px.rgb(x, y) or (0xFF shl 24)
+                    bitmap.setPixels(row, 0, px.width, 0, y, px.width, 1)
+                }
+                java.io.File("/sdcard/Download/ForeverCompanion-screen.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+                bitmap.recycle()
+                true
+            }.getOrDefault(false)
             runOnUiThread {
-                say(if (shot) "Log and screenshot saved in Download (ForeverCompanion-log.txt, ForeverCompanion-screen.png)"
-                    else if (ok) "Log saved: Download/ForeverCompanion-log.txt" else "Log not saved (no root shell)")
+                say(if (ok && shot) "Log and screenshot saved in Download (ForeverCompanion-log.txt, ForeverCompanion-screen.png)"
+                    else if (ok) "Log saved: Download/ForeverCompanion-log.txt" else "Log not saved")
             }
         }
     }
@@ -2751,8 +2621,6 @@ class CompanionActivity : Activity() {
         const val LOCK_ROWS = 24
         /** The start-up card's rows before the status says what there is. */
         val PLACEHOLDER = listOf("Character and gear", "Bags", "Item names", "Map", "Quests", "Spells to learn")
-        /** The request code of the folder picker for the Thor-Forever folder. */
-        const val CHOOSE_KIT = 41
         val KEPT = setOf("TS1|", "TB1|", "TM1|", "TP1|", "TQ1|", "TL1|", "TV1|")
         /** The paper doll's slots, left column then right, as Character.lua sends them. */
         val GEAR_SLOTS = listOf(1, 2, 3, 15, 5, 4, 19, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17)
