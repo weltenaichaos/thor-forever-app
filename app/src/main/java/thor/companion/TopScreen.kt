@@ -18,10 +18,13 @@ import java.util.concurrent.TimeUnit
  */
 class TopScreen(@Suppress("UNUSED_PARAMETER") context: Context) {
 
-    /** Kept so the companion's screen switch still compiles; the game's view is always the one read. */
-    @Volatile var displayId: String? = null
+    private val thread = HandlerThread("companion-copy").apply { start() }
+    private val handler = Handler(thread.looper)
 
-    private val handler = Handler(HandlerThread("companion-copy").apply { start() }.looper)
+    /** Ends the copier's thread (the app is closing). */
+    fun close() {
+        thread.quitSafely()
+    }
 
     /** The top [rows] rows of the game's picture, or null when it isn't showing. */
     fun capture(rows: Int = StripDecoder.SCAN_ROWS): Pixels? = captureArea(Rect(0, 0, Int.MAX_VALUE, rows))?.pixels
@@ -74,9 +77,6 @@ class TopScreen(@Suppress("UNUSED_PARAMETER") context: Context) {
         if (holder.surface?.isValid != true) return null
         return Rect(holder.surfaceFrame)
     }
-
-    /** No display list is needed: the game's view is read directly. */
-    fun listDisplays(): List<String> = emptyList()
 
     private class ArgbPixels(override val width: Int, override val height: Int, private val data: IntArray) : Pixels {
         override fun rgb(x: Int, y: Int): Int = data[y * width + x] and 0xFFFFFF
