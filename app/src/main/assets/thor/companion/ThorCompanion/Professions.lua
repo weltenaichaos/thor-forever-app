@@ -384,13 +384,32 @@ end
 -- /thor make <count|all> <itemID or recipe name>: the app's Make buttons (typed into the
 -- chat box by the app, one tap one command, as if you had typed it). Makes the recipe with
 -- the game's own crafting, in the profession window that is open; nothing else.
+-- How many times the materials in your bags make recipe i: the game's own count when it
+-- gives one, else worked out from the materials (nil when that can't be read). In this game
+-- the count GetTradeSkillInfo gives can be 0 with the materials in the bags.
+local function ownCount(reagents, info, link)
+    local n
+    for r = 1, reagents or 0 do
+        local _, _, need, have = info(r)
+        need = number(need) or 1
+        local id = itemID(link and link(r))
+        local carried = id and number(GetItemCount(id)) or number(have)
+        if not carried or need <= 0 then return nil end
+        n = math.min(n or math.huge, math.floor(carried / need))
+    end
+    return n
+end
+
 local function findTradeSkill(want)
     for i = 1, GetNumTradeSkills() or 0 do
         local name, kind, available = GetTradeSkillInfo(i)
         if name and kind ~= "header" and kind ~= "subheader" then
             local id = itemID(GetTradeSkillItemLink and GetTradeSkillItemLink(i))
             if (tonumber(want) and id == tonumber(want)) or clean(name, MAX_NAME):lower() == want then
-                return i, name, number(available) or 0
+                local own = ownCount(GetTradeSkillNumReagents and GetTradeSkillNumReagents(i),
+                    function(r) return GetTradeSkillReagentInfo(i, r) end,
+                    GetTradeSkillReagentItemLink and function(r) return GetTradeSkillReagentItemLink(i, r) end)
+                return i, name, number(available) or 0, own
             end
         end
     end
@@ -402,7 +421,10 @@ local function findCraft(want)
         if name and kind ~= "header" then
             local id = itemID(GetCraftItemLink and GetCraftItemLink(i))
             if (tonumber(want) and id == tonumber(want)) or clean(name, MAX_NAME):lower() == want then
-                return i, name, number(available) or 0
+                local own = ownCount(GetCraftNumReagents and GetCraftNumReagents(i),
+                    function(r) return GetCraftReagentInfo(i, r) end,
+                    GetCraftReagentItemLink and function(r) return GetCraftReagentItemLink(i, r) end)
+                return i, name, number(available) or 0, own
             end
         end
     end
@@ -428,31 +450,37 @@ function ns.Make(args)
     if not want then return "use: /thor make <count|all> <item id or recipe name>" end
     local all = count == "all"
     local n = all and 0 or math.max(1, math.min(tonumber(count) or 1, 999))
-    local function done(name, made, available)
-        if available <= 0 then
-            addResult("Not enough materials for " .. clean(name, MAX_NAME))
-            return "not enough materials for " .. clean(name, MAX_NAME)
+    -- How many to make: the game's count or the bags' (the larger), and when neither can be
+    -- read, what was asked for (the game itself says when the materials are missing).
+    local function plan(name, gameCount, own, most)
+        local available = math.max(gameCount or 0, own or 0)
+        local why = " (game says " .. (gameCount or 0) .. ", bags " .. (own and tostring(own) or "?") .. ")"
+        if available <= 0 and own ~= nil then
+            addResult("Not enough materials for " .. clean(name, MAX_NAME) .. why)
+            return nil, "not enough materials for " .. clean(name, MAX_NAME) .. why
         end
-        made = all and available or math.min(made, available)
-        return "making " .. made .. " " .. clean(name, MAX_NAME)
+        local make = all and available or math.min(n, available)
+        if available <= 0 then make = all and 1 or n end
+        make = math.max(1, math.min(make, most or make))
+        return make, "making " .. make .. " " .. clean(name, MAX_NAME) .. why
     end
     local open = GetTradeSkillLine and select(1, GetTradeSkillLine())
     if GetNumTradeSkills and open and open ~= "UNKNOWN" and (GetNumTradeSkills() or 0) > 0 then
-        local i, name, available = findTradeSkill(want)
+        local i, name, available, own = findTradeSkill(want)
         if i then
-            local said = done(name, n, available)
-            if available > 0 then
-                local ok, err = pcall(DoTradeSkill, i, all and available or math.min(n, available))
+            local make, said = plan(name, available, own)
+            if make then
+                local ok, err = pcall(DoTradeSkill, i, make)
                 if not ok then said = "couldn't make it: " .. tostring(err) end
             end
             return said
         end
     end
     if GetNumCrafts and (GetNumCrafts() or 0) > 0 then
-        local i, name, available = findCraft(want)
+        local i, name, available, own = findCraft(want)
         if i then
-            local said = done(name, 1, available)
-            if available > 0 then
+            local make, said = plan(name, available, own, 1)
+            if make then
                 local ok, err = pcall(DoCraft, i)
                 if not ok then said = "couldn't make it: " .. tostring(err) end
             end
@@ -462,9 +490,9 @@ function ns.Make(args)
     if C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs and C_TradeSkillUI.CraftRecipe then
         local okF, id, name, available = pcall(findModern, want)
         if okF and id then
-            local said = done(name, n, available)
-            if available > 0 then
-                local ok, err = pcall(C_TradeSkillUI.CraftRecipe, id, all and available or math.min(n, available))
+            local make, said = plan(name, available, nil)
+            if make then
+                local ok, err = pcall(C_TradeSkillUI.CraftRecipe, id, make)
                 if not ok then said = "couldn't make it: " .. tostring(err) end
             end
             return said
