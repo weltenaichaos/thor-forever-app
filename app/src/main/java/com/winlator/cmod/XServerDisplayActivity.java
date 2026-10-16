@@ -90,6 +90,7 @@ import com.winlator.cmod.core.BattleNetWindowWatcher;
 import com.winlator.cmod.core.ThorGame;
 import com.winlator.cmod.core.WineUtils;
 import com.winlator.cmod.core.WowConfigDefaults;
+import com.winlator.cmod.core.WowCrashReports;
 import com.winlator.cmod.core.WinlatorLogcatLogger;
 import com.winlator.cmod.core.WowStartupAffinity;
 import com.winlator.cmod.inputcontrols.ControlsProfile;
@@ -1071,6 +1072,15 @@ public class XServerDisplayActivity extends AppCompatActivity {
         editor.apply();
     }
 
+    /** WoW's crash reports to Winlator/logs/wow-errors, where they can be opened on the device. */
+    private void copyWowCrashReports() {
+        if (imageFs == null) return;
+        File driveC = new File(imageFs.getRootDir(), ImageFs.WINEPREFIX + "/drive_c");
+        File target = new File(SettingsFragment.DEFAULT_WINLATOR_PATH, "logs/wow-errors");
+        for (File copy : WowCrashReports.copyNew(driveC, target))
+            Log.i(TAG, "Copied WoW crash report " + copy.getName());
+    }
+
     private void exit() {
         if (!exiting.compareAndSet(false, true)) return;
         if (wowExitWatcher != null) wowExitWatcher.stop();
@@ -1120,6 +1130,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
                     break;
                 }
             }
+            copyWowCrashReports();
             if (shortcut != null && GameSaveManager.shouldAutoBackup(this, shortcut)) {
                 GameSaveManager.BackupResult saveResult = GameSaveManager.backup(shortcut, true);
                 if (saveResult.ok) {
@@ -1234,6 +1245,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
         for (File config : WowConfigDefaults.apply(new File(imageFs.getRootDir(), ImageFs.WINEPREFIX + "/drive_c")))
             Log.d(TAG, "Turned off WoW screen narration in " + config);
+        copyWowCrashReports();
 
         String wincomponents = shortcut != null ? shortcut.getExtra("wincomponents", container.getWinComponents())
                 : container.getWinComponents();
