@@ -2846,6 +2846,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // Which way a keyboard's delete and Enter come in (never the letters: it may be a password).
+        if (event.getAction() == KeyEvent.ACTION_DOWN && (event.getKeyCode() == KeyEvent.KEYCODE_DEL
+                || event.getKeyCode() == KeyEvent.KEYCODE_FORWARD_DEL || event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+            Log.i("SoftKeyboard", "activity key " + event.getKeyCode() + " from device " + event.getDeviceId()
+                    + " (" + (event.getDevice() != null ? event.getDevice().getName() : "none") + ")");
+        }
 
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             if (event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_MODE || event.getKeyCode() == KeyEvent.KEYCODE_HOME
