@@ -29,6 +29,7 @@ import com.winlator.cmod.renderer.ViewTransformation;
 import com.winlator.cmod.winhandler.MouseEventFlags;
 import com.winlator.cmod.winhandler.WinHandler;
 import com.winlator.cmod.xserver.Pointer;
+import com.winlator.cmod.xserver.XKeycode;
 import com.winlator.cmod.xserver.XServer;
 
 public class TouchpadView extends View {
@@ -769,11 +770,112 @@ public class TouchpadView extends View {
         return softKeyboardRequested;
     }
 
+    /** Closes the on-screen keyboard. */
+    public void hideSoftKeyboard() {
+        InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(getWindowToken(), 0);
+    }
+
+    /**
+     * The keyboard as one for a password: no suggestions, no learning, every letter as it is.
+     * What it types goes to the game key by key, any letter (ä, @, €) with its own keysym;
+     * its delete key deletes in the game too (keyboards delete "the text before the cursor",
+     * which a plain connection has none of, so nothing happened), and Enter is Enter.
+     */
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
         if (!softKeyboardRequested) return null;
-        outAttrs.inputType = EditorInfo.TYPE_NULL;
-        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI;
-        return new BaseInputConnection(this, false);
+        outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT | EditorInfo.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                | EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING | EditorInfo.IME_ACTION_DONE;
+        return new GameInput();
+    }
+
+    /** The keyboard's keys go to the game one after another, off the UI thread. */
+    private static final java.util.concurrent.ExecutorService KEYS = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "soft-keyboard-keys");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private class GameInput extends BaseInputConnection {
+        /** What the keyboard has typed but not yet settled on (some keyboards type words this way). */
+        private String composing = "";
+
+        GameInput() {
+            super(TouchpadView.this, false);
+        }
+
+        /** One key, held a moment as on a keyboard (the game can miss a press that is let go at once), in order. */
+        private void press(XKeycode key, int keysym) {
+            KEYS.execute(() -> {
+                xServer.injectKeyPress(key, keysym);
+                android.os.SystemClock.sleep(20);
+                xServer.injectKeyRelease(key);
+                android.os.SystemClock.sleep(20);
+            });
+        }
+
+        private void type(CharSequence text) {
+            String s = text.toString();
+            for (int i = 0; i < s.length(); ) {
+                int cp = s.codePointAt(i);
+                i += Character.charCount(cp);
+                if (cp == '\n') { press(XKeycode.KEY_ENTER, 0); continue; }
+                // X keysyms: Latin-1 as it is, everything else as 0x01000000 + the code point.
+                press(XKeycode.KEY_A, cp >= 0x20 && cp <= 0xFF ? cp : 0x01000000 | cp);
+            }
+        }
+
+        private void erase(int count) {
+            for (int i = 0; i < count; i++) press(XKeycode.KEY_BKSP, 0);
+        }
+
+        @Override
+        public boolean commitText(CharSequence text, int newCursorPosition) {
+            erase(composing.codePointCount(0, composing.length()));
+            composing = "";
+            type(text);
+            return true;
+        }
+
+        @Override
+        public boolean setComposingText(CharSequence text, int newCursorPosition) {
+            String now = text.toString();
+            // Only what changed: the common start stays.
+            int same = 0;
+            while (same < now.length() && same < composing.length() && now.charAt(same) == composing.charAt(same)) same++;
+            erase(composing.codePointCount(same, composing.length()));
+            type(now.substring(same));
+            composing = now;
+            return true;
+        }
+
+        @Override
+        public boolean finishComposingText() {
+            composing = "";
+            return true;
+        }
+
+        @Override
+        public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+            erase(beforeLength);
+            for (int i = 0; i < afterLength; i++) press(XKeycode.KEY_DEL, 0);
+            return true;
+        }
+
+        @Override
+        public boolean deleteSurroundingTextInCodePoints(int beforeLength, int afterLength) {
+            return deleteSurroundingText(beforeLength, afterLength);
+        }
+
+        @Override
+        public boolean performEditorAction(int actionCode) {
+            press(XKeycode.KEY_ENTER, 0);
+            // Done (a password and Enter, most of the time): the keyboard goes away.
+            hideSoftKeyboard();
+            return true;
+        }
     }
 }
