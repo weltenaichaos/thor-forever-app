@@ -1,7 +1,9 @@
 package thor.companion
 
 import android.content.Context
+import android.net.LocalServerSocket
 import android.net.LocalSocket
+import android.net.LocalSocketAddress
 import android.os.SystemClock
 import com.winlator.cmod.xserver.XKeycode
 
@@ -17,6 +19,8 @@ object KeySender {
         "ALT" to XKeycode.KEY_ALT_L,
         "ENTER" to XKeycode.KEY_ENTER,
         "ESCAPE" to XKeycode.KEY_ESC,
+        "BACKSPACE" to XKeycode.KEY_BKSP,
+        "TAB" to XKeycode.KEY_TAB,
         "V" to XKeycode.KEY_V,
     ) + (1..12).associate { "F$it" to XKeycode.valueOf("KEY_F$it") } +
         (0..9).associate { "NUMPAD$it" to XKeycode.valueOf("KEY_KP_$it") }
@@ -59,9 +63,54 @@ object KeySender {
         return null
     }
 
-    /** The standalone app's root helper followed the game's files; built in, there is none (yet). */
-    @Suppress("UNUSED_PARAMETER")
-    fun open(context: Context): LocalSocket? = null
+    private const val WATCH_SOCKET = ".companion.watch"
+    @Volatile private var server: LocalServerSocket? = null
+
+    /**
+     * A connection that reports what the game does, line by line ([GameFiles]), like the
+     * standalone app's root helper after its "W" command. Here [GameFiles] runs in the app
+     * itself: the game's files and processes are this app's own, so no root is needed.
+     */
+    fun open(context: Context): LocalSocket? {
+        val name = context.packageName + WATCH_SOCKET
+        val app = context.applicationContext
+        synchronized(this) {
+            if (server == null) {
+                server = runCatching { LocalServerSocket(name) }.getOrNull()?.also { s ->
+                    Thread({ serve(s, app) }, "game-files").apply { isDaemon = true; start() }
+                }
+            }
+        }
+        if (server == null) return null
+        return runCatching { LocalSocket().apply { connect(LocalSocketAddress(name)) } }.getOrNull()
+    }
+
+    /** Answers each connection's "W [folder]" with the game's events, until it closes. */
+    private fun serve(server: LocalServerSocket, context: Context) {
+        while (true) {
+            val socket = runCatching { server.accept() }.getOrElse { return }
+            Thread {
+                socket.use { s ->
+                    val out = s.outputStream.bufferedWriter()
+                    var files: GameFiles? = null
+                    try {
+                        s.inputStream.bufferedReader().forEachLine { line ->
+                            if (!line.startsWith("W")) return@forEachLine
+                            files?.stop()
+                            // The folder the start screen found the game in first, then the companion's own guess.
+                            val hint = CompanionBridge.gameFolder(context)
+                                ?: line.substringAfter(' ', "").trim().ifEmpty { null }
+                            files = GameFiles(out, hint)
+                        }
+                    } catch (e: java.io.IOException) {
+                        // The companion went away.
+                    } finally {
+                        files?.stop()
+                    }
+                }
+            }.apply { isDaemon = true }.start()
+        }
+    }
 
     /** Nothing to end: no helper runs. */
     fun quit() {}

@@ -270,6 +270,8 @@ class ThorStartActivity : ComponentActivity() {
         g.shortcut.putExtra("lastRunAt", System.currentTimeMillis().toString())
         g.shortcut.saveData()
         val addonsDir = AddonInstaller.addonsDir(g)
+        // The companion follows the game through the files in this folder.
+        thor.companion.CompanionBridge.setGameFolder(this, g.flavorDir?.path)
         if (!companionOn || addonsDir == null) {
             startShortcut(g.shortcut.container.id, g.shortcut.file.path, update = false)
             return

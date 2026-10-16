@@ -22,7 +22,8 @@ end
 
 local lastStats, lastArmor = "?,?,?,?", "?"
 
-function ns.CharacterPayload()
+-- Built again only when something it shows changes (see ns.Remember).
+ns.CharacterPayload = ns.Remember(function()
     local className, classFile = try(UnitClass, "player")
     local race = try(UnitRace, "player")
     local _, equipped = try(GetAverageItemLevel)
@@ -36,11 +37,13 @@ function ns.CharacterPayload()
     return table.concat({ "TP1", plain(className), plain(classFile), plain(race),
         plain(try(UnitXP, "player")), plain(try(UnitXPMax, "player")), plain(try(GetXPExhaustion) or 0),
         equipped and string.format("%.1f", equipped) or "?", plain(guild or ""), lastStats, lastArmor }, "|")
-end
+end, { "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "UPDATE_EXHAUSTION", "PLAYER_UPDATE_RESTING", "PLAYER_GUILD_UPDATE",
+    "PLAYER_EQUIPMENT_CHANGED", "UNIT_STATS", "UNIT_RESISTANCES", "UNIT_INVENTORY_CHANGED", "PLAYER_REGEN_ENABLED" }, 5)
 
 local equippedIDs = {}
 
-function ns.GearPayload()
+-- Built again when you equip something, durability changes, or an item's level arrives.
+ns.GearPayload = ns.Remember(function()
     local out, ids = {}, {}
     for _, slot in ipairs(ns.GearSlots) do
         local id = GetInventoryItemID("player", slot)
@@ -56,7 +59,7 @@ function ns.GearPayload()
     end
     equippedIDs = ids
     return "TQ1|" .. table.concat(out, ",")
-end
+end, { "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED", "UPDATE_INVENTORY_DURABILITY", "GET_ITEM_INFO_RECEIVED" }, 5)
 
 -- Worn items, so their names go out with the bag item names.
 function ns.EquippedIDs()

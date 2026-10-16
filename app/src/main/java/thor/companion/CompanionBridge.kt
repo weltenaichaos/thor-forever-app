@@ -16,6 +16,7 @@ import com.winlator.cmod.xserver.XServer
 object CompanionBridge {
     private const val PREFS = "thor_companion"
     private const val KEY_ENABLED = "enabled"
+    private const val KEY_GAME_FOLDER = "gameFolder"
     /** The shortcut that starts WoW Forever; Battle.net gets no companion. */
     private const val WOW_SHORTCUT_FILE = "World of Warcraft Forever.desktop"
 
@@ -24,9 +25,30 @@ object CompanionBridge {
     @Volatile var xServer: XServer? = null
         private set
 
+    /** True while the companion shows on the other screen; the game then keeps running when it loses focus. */
+    @Volatile private var companionShown = false
+
+    @JvmStatic
+    fun shown(): Boolean = companionShown
+
+    @JvmStatic
+    fun setShown(on: Boolean) {
+        companionShown = on
+    }
+
     @JvmStatic
     fun enabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+
+    /** The game's folder (the one with WTF, Logs and Interface), which the companion follows through its files. */
+    @JvmStatic
+    fun gameFolder(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_GAME_FOLDER, null)
+
+    @JvmStatic
+    fun setGameFolder(context: Context, path: String?) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_GAME_FOLDER, path).apply()
+    }
 
     @JvmStatic
     fun setEnabled(context: Context, enabled: Boolean) {
@@ -57,9 +79,18 @@ object CompanionBridge {
         val dm = activity.getSystemService(DisplayManager::class.java) ?: return
         val other = dm.displays.firstOrNull { it.displayId != here } ?: return
         val options = ActivityOptions.makeBasic().setLaunchDisplayId(other.displayId)
-        activity.startActivity(
-            Intent(activity, CompanionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            options.toBundle()
-        )
+        // Starting the companion pauses the game's screen before the companion's onStart runs:
+        // count it as shown already, or the game freezes on its loading screen until the top
+        // screen is tapped.
+        companionShown = true
+        try {
+            activity.startActivity(
+                Intent(activity, CompanionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                options.toBundle()
+            )
+        } catch (e: RuntimeException) {
+            companionShown = false
+            throw e
+        }
     }
 }

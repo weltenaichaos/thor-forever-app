@@ -29,6 +29,7 @@ import com.winlator.cmod.renderer.ViewTransformation;
 import com.winlator.cmod.winhandler.MouseEventFlags;
 import com.winlator.cmod.winhandler.WinHandler;
 import com.winlator.cmod.xserver.Pointer;
+import com.winlator.cmod.xserver.XKeycode;
 import com.winlator.cmod.xserver.XServer;
 
 public class TouchpadView extends View {
@@ -759,9 +760,9 @@ public class TouchpadView extends View {
         InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
         if (imm == null) return;
         imm.restartInput(this);
-        if (!imm.showSoftInput(this, InputMethodManager.SHOW_FORCED)) {
-            imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0);
-        }
+        boolean shown = imm.showSoftInput(this, InputMethodManager.SHOW_FORCED);
+        Log.i("SoftKeyboard", "show: " + shown + ", focused " + hasFocus() + ", window focus " + hasWindowFocus());
+        if (!shown) imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0);
     }
 
     @Override
@@ -769,11 +770,158 @@ public class TouchpadView extends View {
         return softKeyboardRequested;
     }
 
+    /** Closes the on-screen keyboard. */
+    public void hideSoftKeyboard() {
+        InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(getWindowToken(), 0);
+    }
+
+    /**
+     * The keyboard as one for a password: no suggestions, no learning, every letter as it is.
+     * What it types goes to the game key by key, any letter (ä, @, €) with its own keysym;
+     * its delete key deletes in the game too (keyboards delete "the text before the cursor",
+     * which a plain connection has none of, so nothing happened), and Enter is Enter.
+     */
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
         if (!softKeyboardRequested) return null;
-        outAttrs.inputType = EditorInfo.TYPE_NULL;
-        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI;
-        return new BaseInputConnection(this, false);
+        Log.i("SoftKeyboard", "connection made");
+        outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT | EditorInfo.TYPE_TEXT_VARIATION_PASSWORD
+                | EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING | EditorInfo.IME_ACTION_DONE;
+        return new GameInput();
+    }
+
+    /** The keyboard's keys go to the game one after another, off the UI thread. */
+    private static final java.util.concurrent.ExecutorService KEYS = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "soft-keyboard-keys");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private class GameInput extends BaseInputConnection {
+        /** What the keyboard has typed but not yet settled on (some keyboards type words this way). */
+        private String composing = "";
+        /**
+         * How many letters were typed since the keyboard opened. Many keyboards only delete when
+         * they see text before the cursor, so they are shown that many dots (never the letters:
+         * it may be a password), with room in front for what the game's field held before.
+         */
+        private int typed = 0;
+        private static final int ROOM = 64;
+
+        GameInput() {
+            super(TouchpadView.this, false);
+        }
+
+        /** One key, held a moment as on a keyboard (the game can miss a press that is let go at once), in order. */
+        private void press(XKeycode key, int keysym) {
+            KEYS.execute(() -> {
+                xServer.injectKeyPress(key, keysym);
+                android.os.SystemClock.sleep(20);
+                xServer.injectKeyRelease(key);
+                android.os.SystemClock.sleep(20);
+            });
+        }
+
+        private void type(CharSequence text) {
+            String s = text.toString();
+            for (int i = 0; i < s.length(); ) {
+                int cp = s.codePointAt(i);
+                i += Character.charCount(cp);
+                if (cp == '\n') { press(XKeycode.KEY_ENTER, 0); typed = 0; continue; }
+                typed++;
+                // X keysyms: Latin-1 as it is, everything else as 0x01000000 + the code point.
+                press(XKeycode.KEY_A, cp >= 0x20 && cp <= 0xFF ? cp : 0x01000000 | cp);
+            }
+        }
+
+        private void erase(int count) {
+            for (int i = 0; i < count; i++) {
+                press(XKeycode.KEY_BKSP, 0);
+                if (typed > 0) typed--;
+            }
+        }
+
+        @Override
+        public CharSequence getTextBeforeCursor(int n, int flags) {
+            StringBuilder text = new StringBuilder();
+            for (int i = 0; i < ROOM; i++) text.append(' ');
+            for (int i = 0; i < typed; i++) text.append('\u2022');
+            return text.subSequence(Math.max(0, text.length() - n), text.length());
+        }
+
+        @Override
+        public CharSequence getTextAfterCursor(int n, int flags) {
+            return "";
+        }
+
+        @Override
+        public boolean sendKeyEvent(android.view.KeyEvent event) {
+            int code = event.getKeyCode();
+            Log.i("SoftKeyboard", "key " + code + " action " + event.getAction());
+            // Delete and Enter straight to the game, whatever the activity does with keys.
+            if (code == android.view.KeyEvent.KEYCODE_DEL || code == android.view.KeyEvent.KEYCODE_FORWARD_DEL
+                    || code == android.view.KeyEvent.KEYCODE_ENTER) {
+                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+                    if (code == android.view.KeyEvent.KEYCODE_DEL) erase(1);
+                    else if (code == android.view.KeyEvent.KEYCODE_FORWARD_DEL) press(XKeycode.KEY_DEL, 0);
+                    else { press(XKeycode.KEY_ENTER, 0); typed = 0; }
+                }
+                return true;
+            }
+            return super.sendKeyEvent(event);
+        }
+
+        @Override
+        public boolean commitText(CharSequence text, int newCursorPosition) {
+            Log.i("SoftKeyboard", "commit " + text.length() + " letters");
+            erase(composing.codePointCount(0, composing.length()));
+            composing = "";
+            type(text);
+            return true;
+        }
+
+        @Override
+        public boolean setComposingText(CharSequence text, int newCursorPosition) {
+            String now = text.toString();
+            // Only what changed: the common start stays.
+            int same = 0;
+            while (same < now.length() && same < composing.length() && now.charAt(same) == composing.charAt(same)) same++;
+            erase(composing.codePointCount(same, composing.length()));
+            type(now.substring(same));
+            composing = now;
+            return true;
+        }
+
+        @Override
+        public boolean finishComposingText() {
+            composing = "";
+            return true;
+        }
+
+        @Override
+        public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+            Log.i("SoftKeyboard", "delete " + beforeLength + " before, " + afterLength + " after");
+            erase(beforeLength);
+            for (int i = 0; i < afterLength; i++) press(XKeycode.KEY_DEL, 0);
+            return true;
+        }
+
+        @Override
+        public boolean deleteSurroundingTextInCodePoints(int beforeLength, int afterLength) {
+            return deleteSurroundingText(beforeLength, afterLength);
+        }
+
+        @Override
+        public boolean performEditorAction(int actionCode) {
+            Log.i("SoftKeyboard", "action " + actionCode);
+            press(XKeycode.KEY_ENTER, 0);
+            typed = 0;
+            // Done (a password and Enter, most of the time): the keyboard goes away.
+            hideSoftKeyboard();
+            return true;
+        }
     }
 }

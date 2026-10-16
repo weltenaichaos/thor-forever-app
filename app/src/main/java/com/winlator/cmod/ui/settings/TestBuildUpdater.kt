@@ -38,6 +38,7 @@ import com.winlator.cmod.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -52,18 +53,36 @@ import java.util.zip.ZipInputStream
  * picked and opens Android's installer for it. GitHub only hands out build files to a
  * signed-in user, so this needs a GitHub access token, which is kept in this app's private
  * no-backup folder: it stays on this device, survives app updates and is gone on uninstall.
+ * The Thor Forever app also lists the published releases, which need no token.
  */
 object TestBuildUpdater {
     private const val REPO = "weltenaichaos/thor-forever-app"
-    /** Only builds of the test branch are listed: other branches' builds are CI checks for pull requests. */
+    /** The normal app lists builds of the test branch only: other branches' builds are CI checks for pull requests. */
     const val TEST_BRANCH = "debug/window-log"
     private const val RUNS_URL = "https://api.github.com/repos/$REPO/actions/workflows/build.yml/runs?status=success&per_page=10&branch=$TEST_BRANCH"
+    private const val ARTIFACTS_URL = "https://api.github.com/repos/$REPO/actions/artifacts?per_page=50"
+    private const val RELEASES_URL = "https://api.github.com/repos/$REPO/releases?per_page=10"
     /** The app's FileProvider, under its own package name (the test copy has its own). */
     private const val FILE_PROVIDER_SUFFIX = ".tileprovider"
     private const val TOKEN_FILE = "github-token"
-    private const val APK_ARTIFACT_PREFIX = "Bionic-Build-"
+    private const val NORMAL_APP_ARTIFACT = "Bionic-Build-"
+
+    /**
+     * The CI artifact this kind of app comes as: "Bionic-Build-" (the normal app),
+     * "Thor-Setup-Test-" or "Thor-Forever-". Only those install over it: the others are
+     * separate apps to Android.
+     */
+    val apkArtifactPrefix: String get() = BuildConfig.APK_ARTIFACT_PREFIX
+
+    /** The branch whose builds are listed, or null for any branch (Thor Forever and the setup test copy are built from several). */
+    val buildsBranch: String? get() = if (apkArtifactPrefix == NORMAL_APP_ARTIFACT) TEST_BRANCH else null
+
+    /** The Thor Forever app also lists the published releases. */
+    val listsReleases: Boolean get() = BuildConfig.THOR_RELEASE
 
     data class CiBuild(val runId: Long, val buildNumber: Int, val branch: String, val title: String, val finishedAt: String)
+
+    data class Release(val tag: String, val apkUrl: String, val apkSize: Long, val publishedAt: String, val prerelease: Boolean)
 
     /** This app's CI build number, 0 for a local build. */
     val installedBuild: Int get() = BuildConfig.CI_BUILD_NUMBER
@@ -90,29 +109,93 @@ object TestBuildUpdater {
         }
     }
 
+    /**
+     * The newest builds from the list of all the repository's artifacts: only this kind of
+     * app's APKs, from any branch, newest first.
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun parseArtifacts(json: String, prefix: String = apkArtifactPrefix): List<CiBuild> {
+        val artifacts = JSONObject(json).optJSONArray("artifacts") ?: return emptyList()
+        return (0 until artifacts.length()).mapNotNull { i ->
+            val artifact = artifacts.getJSONObject(i)
+            val name = artifact.optString("name")
+            val number = if (name.startsWith(prefix)) name.removePrefix(prefix).toIntOrNull() else null
+            val run = artifact.optJSONObject("workflow_run")
+            if (number == null || run == null || artifact.optBoolean("expired")) return@mapNotNull null
+            CiBuild(
+                runId = run.getLong("id"),
+                buildNumber = number,
+                branch = run.optString("head_branch"),
+                title = "",
+                finishedAt = artifact.optString("created_at")
+            )
+        }.distinctBy { it.runId }.sortedByDescending { it.buildNumber }.take(10)
+    }
+
+    /** Published releases (drafts aside) that carry a Thor Forever APK, newest first as GitHub lists them. */
+    @JvmStatic
+    fun parseReleases(json: String): List<Release> {
+        val releases = JSONArray(json)
+        return (0 until releases.length()).mapNotNull { i ->
+            val release = releases.getJSONObject(i)
+            if (release.optBoolean("draft")) return@mapNotNull null
+            val assets = release.optJSONArray("assets") ?: return@mapNotNull null
+            val apk = (0 until assets.length()).map { assets.getJSONObject(it) }.firstOrNull {
+                val name = it.optString("name")
+                name.startsWith("Thor-Forever") && name.endsWith(".apk", ignoreCase = true)
+            } ?: return@mapNotNull null
+            Release(
+                tag = release.optString("tag_name"),
+                apkUrl = apk.getString("browser_download_url"),
+                apkSize = apk.optLong("size"),
+                publishedAt = release.optString("published_at"),
+                prerelease = release.optBoolean("prerelease")
+            )
+        }
+    }
+
+    /** A release tag ("v0.1.2") against an installed version ("0.1.0"): 1 newer, 0 the same, -1 older. */
+    @JvmStatic
+    @JvmOverloads
+    fun compareVersion(tag: String, installed: String = BuildConfig.VERSION_NAME): Int {
+        fun parts(version: String) = version.trim().removePrefix("v").split('.', '-').map { it.toIntOrNull() ?: 0 }
+        val a = parts(tag)
+        val b = parts(installed)
+        for (i in 0 until maxOf(a.size, b.size)) {
+            val d = a.getOrElse(i) { 0 }.compareTo(b.getOrElse(i) { 0 })
+            if (d != 0) return d.coerceIn(-1, 1)
+        }
+        return 0
+    }
+
     /** The download address of the run's APK artifact, or null when it has none (or it expired). */
     @JvmStatic
-    fun apkArtifactUrl(json: String): Pair<String, Long>? {
+    @JvmOverloads
+    fun apkArtifactUrl(json: String, prefix: String = apkArtifactPrefix): Pair<String, Long>? {
         val artifacts = JSONObject(json).optJSONArray("artifacts") ?: return null
         for (i in 0 until artifacts.length()) {
             val artifact = artifacts.getJSONObject(i)
-            if (!artifact.optString("name").startsWith(APK_ARTIFACT_PREFIX) || artifact.optBoolean("expired")) continue
+            if (!artifact.optString("name").startsWith(prefix) || artifact.optBoolean("expired")) continue
             return artifact.getString("archive_download_url") to artifact.optLong("size_in_bytes")
         }
         return null
     }
 
-    private fun get(url: String, token: String): String {
+    /** A GitHub API answer; without a token only public things (like releases) can be read. */
+    private fun get(url: String, token: String?): String {
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 15000
             connection.readTimeout = 15000
             connection.setRequestProperty("Accept", "application/vnd.github+json")
-            connection.setRequestProperty("Authorization", "Bearer $token")
+            if (token != null) connection.setRequestProperty("Authorization", "Bearer $token")
             when (val code = connection.responseCode) {
                 200 -> return connection.inputStream.bufferedReader().use { it.readText() }
+                403 -> if (token == null) throw IllegalStateException("GitHub is busy right now (answered 403). Try again in a few minutes.")
+                    else throw IllegalStateException("The token has no access to the builds (GitHub answered 403). It needs read access to Actions on $REPO.")
                 401 -> throw IllegalStateException("GitHub did not accept the token. Check that it is copied completely and not expired.")
-                403, 404 -> throw IllegalStateException("The token has no access to the builds (GitHub answered $code). It needs read access to Actions on $REPO.")
+                404 -> throw IllegalStateException("The token has no access to the builds (GitHub answered $code). It needs read access to Actions on $REPO.")
                 else -> throw IllegalStateException("GitHub answered $code")
             }
         } finally {
@@ -120,7 +203,31 @@ object TestBuildUpdater {
         }
     }
 
-    fun fetchBuilds(token: String): List<CiBuild> = parseRuns(get(RUNS_URL, token))
+    fun fetchBuilds(token: String): List<CiBuild> =
+        if (buildsBranch != null) parseRuns(get(RUNS_URL, token)) else parseArtifacts(get(ARTIFACTS_URL, token))
+
+    fun fetchReleases(): List<Release> = parseReleases(get(RELEASES_URL, null))
+
+    /** Downloads the release's APK (a public file, no token) into our own cache folder, replacing the previous download. */
+    fun downloadRelease(context: Context, release: Release, onProgress: (Float) -> Unit): File {
+        val dir = File(context.cacheDir, "test-build").apply { mkdirs() }
+        val apk = File(dir, "thor-forever-release.apk")
+        // GitHub redirects to its file storage; HttpURLConnection follows https to https.
+        val connection = URL(release.apkUrl).openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 15000
+            connection.readTimeout = 60000
+            if (connection.responseCode != 200) throw IllegalStateException("Download failed (${connection.responseCode})")
+            val total = connection.contentLengthLong.takeIf { it > 0 } ?: release.apkSize
+            val counting = CountingStream(connection.inputStream) { done ->
+                if (total > 0) onProgress((done.toFloat() / total).coerceAtMost(1f))
+            }
+            counting.use { input -> apk.outputStream().use { input.copyTo(it, 64 * 1024) } }
+            return apk
+        } finally {
+            connection.disconnect()
+        }
+    }
 
     /**
      * Downloads the build's zip and unpacks only the APK from it while downloading, into our
@@ -218,9 +325,10 @@ object TestBuildUpdater {
 private sealed interface UpdaterState {
     data object NeedsToken : UpdaterState
     data object Checking : UpdaterState
-    data class Listed(val builds: List<TestBuildUpdater.CiBuild>) : UpdaterState
-    data class Downloading(val build: TestBuildUpdater.CiBuild, val progress: Float) : UpdaterState
-    data class Ready(val build: TestBuildUpdater.CiBuild, val apk: File) : UpdaterState
+    /** [builds] is null without a token. */
+    data class Listed(val releases: List<TestBuildUpdater.Release>, val builds: List<TestBuildUpdater.CiBuild>?) : UpdaterState
+    data class Downloading(val label: String, val progress: Float) : UpdaterState
+    data class Ready(val label: String, val apk: File) : UpdaterState
     data class Failed(val message: String) : UpdaterState
 }
 
@@ -229,15 +337,21 @@ fun TestBuildUpdateDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var token by remember { mutableStateOf(TestBuildUpdater.loadToken(context)) }
-    var state by remember { mutableStateOf<UpdaterState>(if (token.isEmpty()) UpdaterState.NeedsToken else UpdaterState.Checking) }
+    val releases = TestBuildUpdater.listsReleases
+    var state by remember { mutableStateOf<UpdaterState>(if (token.isEmpty() && !releases) UpdaterState.NeedsToken else UpdaterState.Checking) }
     var refresh by remember { mutableIntStateOf(0) }
     val installed = TestBuildUpdater.installedBuild
 
     LaunchedEffect(refresh, token) {
-        if (token.isEmpty()) return@LaunchedEffect
+        if (token.isEmpty() && !releases) return@LaunchedEffect
         state = UpdaterState.Checking
         state = try {
-            UpdaterState.Listed(withContext(Dispatchers.IO) { TestBuildUpdater.fetchBuilds(token) })
+            withContext(Dispatchers.IO) {
+                UpdaterState.Listed(
+                    if (releases) TestBuildUpdater.fetchReleases() else emptyList(),
+                    if (token.isNotEmpty()) TestBuildUpdater.fetchBuilds(token) else null
+                )
+            }
         } catch (e: Exception) {
             UpdaterState.Failed(e.message ?: "Could not reach GitHub.")
         }
@@ -255,16 +369,16 @@ fun TestBuildUpdateDialog(onDismiss: () -> Unit) {
         }
     }
 
-    fun download(build: TestBuildUpdater.CiBuild) {
-        state = UpdaterState.Downloading(build, 0f)
+    fun download(label: String, fetch: (onProgress: (Float) -> Unit) -> File) {
+        state = UpdaterState.Downloading(label, 0f)
         scope.launch {
             state = try {
                 val apk = withContext(Dispatchers.IO) {
-                    TestBuildUpdater.download(context, build, token) { progress ->
-                        scope.launch { if (state is UpdaterState.Downloading) state = UpdaterState.Downloading(build, progress) }
+                    fetch { progress ->
+                        scope.launch { if (state is UpdaterState.Downloading) state = UpdaterState.Downloading(label, progress) }
                     }
                 }
-                UpdaterState.Ready(build, apk)
+                UpdaterState.Ready(label, apk)
             } catch (e: Exception) {
                 UpdaterState.Failed(e.message ?: "Download failed.")
             }
@@ -275,13 +389,16 @@ fun TestBuildUpdateDialog(onDismiss: () -> Unit) {
     var tokenDraft by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = { if (current !is UpdaterState.Downloading) onDismiss() },
-        title = { Text("Test builds") },
+        title = { Text(if (releases) "Updates" else "Test builds") },
         text = {
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(if (installed > 0) "Installed: build $installed (${BuildConfig.CI_BRANCH})" else "Installed: local build")
+                Text(
+                    (if (releases) "Installed: version ${BuildConfig.VERSION_NAME}, " else "Installed: ") +
+                        (if (installed > 0) "build $installed (${BuildConfig.CI_BRANCH})" else "local build")
+                )
                 when (current) {
                     UpdaterState.NeedsToken -> {
                         Text(
@@ -302,20 +419,42 @@ fun TestBuildUpdateDialog(onDismiss: () -> Unit) {
                     }
                     UpdaterState.Checking -> Text("Checking GitHub for builds…")
                     is UpdaterState.Listed -> {
-                        if (current.builds.isEmpty()) Text("No successful builds found.")
-                        else Text("Test builds (${TestBuildUpdater.TEST_BRANCH}). Tap one to download and install it:", style = MaterialTheme.typography.bodySmall)
-                        current.builds.forEachIndexed { index, build ->
+                        if (releases) {
+                            Text("Releases", fontWeight = FontWeight.SemiBold)
+                            if (current.releases.isEmpty()) Text("No release published yet.", style = MaterialTheme.typography.bodySmall)
+                            else Text("Tap one to download and install it:", style = MaterialTheme.typography.bodySmall)
+                            current.releases.forEachIndexed { index, release ->
+                                if (index > 0) HorizontalDivider()
+                                ReleaseRow(release) {
+                                    download(release.tag) { onProgress -> TestBuildUpdater.downloadRelease(context, release, onProgress) }
+                                }
+                            }
+                            Text("Test builds", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
+                        }
+                        val builds = current.builds
+                        when {
+                            builds == null -> Text("Test builds need a GitHub token: tap Add token.", style = MaterialTheme.typography.bodySmall)
+                            builds.isEmpty() -> Text("No successful builds found.")
+                            else -> Text(
+                                TestBuildUpdater.buildsBranch?.let { "Test builds ($it). Tap one to download and install it:" }
+                                    ?: "Tap one to download and install it:",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        builds.orEmpty().forEachIndexed { index, build ->
                             if (index > 0) HorizontalDivider()
-                            BuildRow(build, installed) { download(build) }
+                            BuildRow(build, installed) {
+                                download("build ${build.buildNumber}") { onProgress -> TestBuildUpdater.download(context, build, token, onProgress) }
+                            }
                         }
                     }
                     is UpdaterState.Downloading -> {
-                        Text("Downloading build ${current.build.buildNumber}… ${(current.progress * 100).toInt()}%")
+                        Text("Downloading ${current.label}… ${(current.progress * 100).toInt()}%")
                         LinearProgressIndicator(progress = { current.progress }, modifier = Modifier.fillMaxWidth())
                     }
                     is UpdaterState.Ready -> Text(
-                        if (TestBuildUpdater.canInstall(context)) "Build ${current.build.buildNumber} downloaded. Tap Install, then confirm in Android's installer. Your containers and settings stay."
-                        else "Build ${current.build.buildNumber} downloaded. Android first needs your OK to let this app install apps: tap Allow, switch it on, come back and tap Install."
+                        if (TestBuildUpdater.canInstall(context)) "Downloaded ${current.label}. Tap Install, then confirm in Android's installer. Your containers and settings stay."
+                        else "Downloaded ${current.label}. Android first needs your OK to let this app install apps: tap Allow, switch it on, come back and tap Install."
                     )
                     is UpdaterState.Failed -> Text(current.message, color = MaterialTheme.colorScheme.error)
                 }
@@ -342,13 +481,35 @@ fun TestBuildUpdateDialog(onDismiss: () -> Unit) {
             if (current !is UpdaterState.Downloading) {
                 Column {
                     if (current is UpdaterState.Failed || current is UpdaterState.Listed) {
-                        TextButton(onClick = { tokenDraft = ""; state = UpdaterState.NeedsToken }) { Text("Change token") }
+                        TextButton(onClick = { tokenDraft = ""; state = UpdaterState.NeedsToken }) {
+                            Text(if (token.isEmpty()) "Add token" else "Change token")
+                        }
+                    }
+                    if (current is UpdaterState.NeedsToken && releases) {
+                        TextButton(onClick = { refresh++ }) { Text("Back") }
                     }
                     TextButton(onClick = onDismiss) { Text("Close") }
                 }
             }
         }
     )
+}
+
+@Composable
+private fun ReleaseRow(release: TestBuildUpdater.Release, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp)) {
+        val marker = when (TestBuildUpdater.compareVersion(release.tag)) {
+            0 -> "  (installed)"
+            1 -> "  (newer)"
+            else -> ""
+        }
+        Text("${release.tag}$marker", fontWeight = FontWeight.SemiBold)
+        Text(
+            (if (release.prerelease) "Test release · " else "") + TestBuildUpdater.shortTime(release.publishedAt),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 @Composable

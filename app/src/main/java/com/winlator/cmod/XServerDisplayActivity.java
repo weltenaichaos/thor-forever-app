@@ -611,7 +611,10 @@ public class XServerDisplayActivity extends AppCompatActivity {
                     if (!simulateTouchScreen) {
                         xServerView.setCursorVisible(true);
                     }
-                    preloaderDialog.closeOnUiThread();
+                    // WoW opens its window black and draws the login screen only later: the
+                    // loading screen stays until the game shows something.
+                    if (isWowForeverShortcut()) runOnUiThread(() -> new PreloaderUntilDrawn().run());
+                    else preloaderDialog.closeOnUiThread();
                     winStarted[0] = true;
                 }
 
@@ -644,6 +647,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
             @Override
             public void onDestroyWindow(Window window) {
                 changeFrameRatingVisibility(window, null);
+                // WoW closed its window: the loading screen, saying so, instead of a black
+                // screen while the game and Wine shut down.
+                // (Not while the start-up loading screen is still up: WoW may swap windows then.)
+                if (winStarted[0] && !wowClosingShown && !preloaderDialog.isShowing() && isWowWindow(window)) {
+                    Log.i("XServerDisplayActivity", "WoW window closed: " + window.getClassName());
+                    showWowClosing();
+                }
             }
         });
 
@@ -830,18 +840,28 @@ public class XServerDisplayActivity extends AppCompatActivity {
         }
     }
 
+    /** onPause left the game running because the companion took the focus; onStop pauses it after all. */
+    private boolean pauseDeferred = false;
+
     @Override
     public void onResume() {
         super.onResume();
+        resumedNow = true;
 
-        if (environment != null) {
-            xServerView.onResume();
-            environment.onResume();
+        if (pauseDeferred) {
+            // Never paused: the game kept running while the companion had the focus.
+            pauseDeferred = false;
+        }
+        else {
+            if (environment != null) {
+                xServerView.onResume();
+                environment.onResume();
+            }
+            if (!isInPictureInPictureMode())
+                ProcessHelper.resumeAllWineProcesses();
         }
         startTime = System.currentTimeMillis();
         handler.postDelayed(savePlaytimeRunnable, SAVE_INTERVAL_MS);
-        if (!isInPictureInPictureMode())
-            ProcessHelper.resumeAllWineProcesses();
     }
 
     @Override
@@ -850,16 +870,147 @@ public class XServerDisplayActivity extends AppCompatActivity {
         super.onPause();
 
         if (!isInPictureInPictureMode()) {
-            if (environment != null) {
-                environment.onPause();
-                xServerView.onPause();
+            // Typing in the companion on the other screen takes the focus from the game, and
+            // Android pauses it, though it is still on the top screen. Freezing it then stopped
+            // the game until the top screen was tapped. With the companion shown, the game
+            // keeps running and is only paused when it is really gone (onStop).
+            if (thor.companion.CompanionBridge.shown()) {
+                Log.i("XServerDisplayActivity", "Paused with the companion shown: the game keeps running");
+                pauseDeferred = true;
             }
-
-            ProcessHelper.pauseAllWineProcesses();
+            else
+                pauseGame();
         }
 
         savePlaytimeData();
         handler.removeCallbacks(savePlaytimeRunnable);
+    }
+
+    private void pauseGame() {
+        resumedNow = false;  // frozen: its picture says nothing about closing
+        if (environment != null) {
+            environment.onPause();
+            xServerView.onPause();
+        }
+        ProcessHelper.pauseAllWineProcesses();
+    }
+
+    /** From onResume to onStop: a game in the background (black, or not drawn) says nothing about closing. */
+    private volatile boolean resumedNow = false;
+
+    /** True while the "closing" loading screen is up (see {@link #showWowClosing}). */
+    private volatile boolean wowClosingShown = false;
+
+    /** A window of World of Warcraft's own (Wine names its windows' class after the program). */
+    private boolean isWowWindow(Window window) {
+        return isWowForeverShortcut() && window.isApplicationWindow()
+                && window.getClassName().toLowerCase(java.util.Locale.ROOT).contains("wow");
+    }
+
+    /** The start-up loading screen again, saying World of Warcraft is closing. */
+    private void showWowClosing() {
+        boolean removeLoadingBar = PreferenceManager.getDefaultSharedPreferences(this)
+                .getBoolean("remove_loading_bar_when_booting_games", false);
+        if (removeLoadingBar) return;
+        wowClosingShown = true;
+        preloaderDialog.showOnUiThread(R.string.wow_closing);
+    }
+
+    private boolean isWowForeverShortcut() {
+        return shortcut != null && shortcut.file.getPath().endsWith("/World of Warcraft Forever.desktop");
+    }
+
+    /**
+     * Keeps the loading screen up until the game's picture is no longer black (WoW's login
+     * screen), looking at a small copy of it twice a second; after two minutes it goes anyway.
+     */
+    private class PreloaderUntilDrawn implements Runnable {
+        private static final long LIMIT_MS = 120_000;
+        private final long deadline = android.os.SystemClock.uptimeMillis() + LIMIT_MS;
+        private final android.graphics.Bitmap probe = android.graphics.Bitmap.createBitmap(64, 36, android.graphics.Bitmap.Config.ARGB_8888);
+        private final Handler main = new Handler(Looper.getMainLooper());
+
+        @Override
+        public void run() {
+            if (isFinishing() || xServerView == null || android.os.SystemClock.uptimeMillis() > deadline) {
+                done("limit");
+                return;
+            }
+            try {
+                android.view.PixelCopy.request(xServerView, probe, result -> {
+                    if (result == android.view.PixelCopy.SUCCESS && !isDark(probe)) done("drawn");
+                    else main.postDelayed(this, 500);
+                }, main);
+            } catch (IllegalArgumentException e) {
+                // No surface yet or any more.
+                done("no surface");
+            }
+        }
+
+        private void done(String why) {
+            Log.i("XServerDisplayActivity", "Loading screen closed: " + why);
+            preloaderDialog.close();
+            probe.recycle();
+            if (why.equals("drawn")) {
+                main.postDelayed(new DarkWatch(), DarkWatch.EVERY_MS);
+            }
+        }
+    }
+
+    /**
+     * While WoW runs, looks at a small copy of its picture once a second. Quitting, the game
+     * turns its picture black seconds before its window closes: black twice in a row, the
+     * closing screen comes up then. Something on the picture again (it was only a moment of
+     * black, or WoW swapped a window), it goes away again.
+     */
+    private class DarkWatch implements Runnable {
+        static final long EVERY_MS = 1000;
+        private static final int DARK_READS = 2;
+        private final android.graphics.Bitmap probe = android.graphics.Bitmap.createBitmap(64, 36, android.graphics.Bitmap.Config.ARGB_8888);
+        private final Handler main = new Handler(Looper.getMainLooper());
+        private int dark = 0;
+
+        @Override
+        public void run() {
+            if (isFinishing() || exiting.get() || xServerView == null) {
+                probe.recycle();
+                return;
+            }
+            try {
+                android.view.PixelCopy.request(xServerView, probe, result -> {
+                    if (result == android.view.PixelCopy.SUCCESS) look(isDark(probe));
+                    main.postDelayed(this, EVERY_MS);
+                }, main);
+            } catch (IllegalArgumentException e) {
+                // No surface right now (the app in the background): look again later.
+                main.postDelayed(this, EVERY_MS);
+            }
+        }
+
+        private void look(boolean isDark) {
+            dark = isDark && resumedNow ? dark + 1 : 0;
+            if (exiting.get() || !resumedNow) return;
+            if (dark >= DARK_READS && !wowClosingShown && !preloaderDialog.isShowing()) {
+                Log.i("XServerDisplayActivity", "WoW picture black: closing screen");
+                showWowClosing();
+            } else if (!isDark && wowClosingShown) {
+                wowClosingShown = false;
+                Log.i("XServerDisplayActivity", "WoW picture back: closing screen closed");
+                preloaderDialog.close();
+            }
+        }
+    }
+
+    /** True when (almost) every pixel is close to black. */
+    static boolean isDark(android.graphics.Bitmap bitmap) {
+        int w = bitmap.getWidth(), h = bitmap.getHeight();
+        int[] pixels = new int[w * h];
+        bitmap.getPixels(pixels, 0, w, 0, 0, w, h);
+        int lit = 0;
+        for (int c : pixels) {
+            if (Color.red(c) + Color.green(c) + Color.blue(c) > 90) lit++;
+        }
+        return lit * 50 < pixels.length;
     }
 
     private void enterPipMode() {
@@ -928,7 +1079,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
         NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID);
         boolean removeLoadingBar = PreferenceManager.getDefaultSharedPreferences(this)
                 .getBoolean("remove_loading_bar_when_booting_games", false);
-        if (!removeLoadingBar) preloaderDialog.showOnUiThread(R.string.shutdown);
+        // For WoW the loading screen saying it is closing (already up when its window closed),
+        // not the shutdown notice, which read as if the whole device was shutting down.
+        if (!removeLoadingBar) preloaderDialog.showOnUiThread(isWowForeverShortcut() ? R.string.wow_closing : R.string.shutdown);
 
         if (xServerView != null) {
             xServerView.forceCleanup();
@@ -1002,6 +1155,11 @@ public class XServerDisplayActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
+        resumedNow = false;
+        if (pauseDeferred) {
+            pauseDeferred = false;
+            pauseGame();
+        }
         savePlaytimeData();
         handler.removeCallbacks(savePlaytimeRunnable);
     }
@@ -2685,6 +2843,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // Which way a keyboard's delete and Enter come in (never the letters: it may be a password).
+        if (event.getAction() == KeyEvent.ACTION_DOWN && (event.getKeyCode() == KeyEvent.KEYCODE_DEL
+                || event.getKeyCode() == KeyEvent.KEYCODE_FORWARD_DEL || event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+            Log.i("SoftKeyboard", "activity key " + event.getKeyCode() + " from device " + event.getDeviceId()
+                    + " (" + (event.getDevice() != null ? event.getDevice().getName() : "none") + ")");
+        }
 
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             if (event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_MODE || event.getKeyCode() == KeyEvent.KEYCODE_HOME

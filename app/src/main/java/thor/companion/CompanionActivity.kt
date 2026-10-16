@@ -2,6 +2,7 @@ package thor.companion
 
 import android.app.Activity
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -21,10 +22,11 @@ import thor.companion.strip.ChatLine
 import thor.companion.strip.Gear
 import thor.companion.strip.GearItem
 import thor.companion.strip.ChatLog
-import thor.companion.strip.ChatFile
 import thor.companion.strip.Cooldowns
 import thor.companion.strip.BagItem
+import thor.companion.strip.Compact
 import thor.companion.strip.Compass
+import thor.companion.strip.CornerAreas
 import thor.companion.strip.Errands
 import thor.companion.strip.Readiness
 import thor.companion.strip.Delta
@@ -36,12 +38,14 @@ import thor.companion.strip.ItemNames
 import thor.companion.strip.MapPicture
 import thor.companion.strip.LevelPlan
 import thor.companion.strip.PartAssembler
+import thor.companion.strip.Pixels
 import thor.companion.strip.Quest
 import thor.companion.strip.QuestLog
 import thor.companion.strip.QuestPages
 import thor.companion.strip.SpellPlan
 import thor.companion.strip.SpellToLearn
 import thor.companion.strip.StripDecoder
+import thor.companion.strip.StripFrame
 import thor.companion.strip.Trail
 import thor.companion.strip.ZoneMap
 import thor.companion.Theme.ACCENT
@@ -109,6 +113,9 @@ class CompanionActivity : Activity() {
     @Volatile private var lastKeyAt = 0L
     /** When the square was last read: the dot by the status line is green while that is recent. */
     @Volatile private var frameAt = 0L
+    /** When one of the addon's corner squares was last read, and their cell size (0: none read yet). */
+    @Volatile private var cornersAt = 0L
+    @Volatile private var cornerCell = 0.0
     /** When the last status (with the position) came in: it is only sent when something changed. */
     private var movedAt = 0L
     /** Start time and duration (ms) of each capture in the last minute, for the battery check. */
@@ -132,7 +139,6 @@ class CompanionActivity : Activity() {
         tips = TipStore(this)
         bagSort = getPreferences(MODE_PRIVATE).getInt("bagSort", 0)
         tracked = getPreferences(MODE_PRIVATE).getString("tracked", null)
-        screen.displayId = getPreferences(MODE_PRIVATE).getString("display", null)
 
         icons = IconStore(this)
 
@@ -167,8 +173,6 @@ class CompanionActivity : Activity() {
         }
         statusDot = View(this).apply {
             background = Theme.box(context, Theme.WARN, 5)
-            // In case the app reads the wrong screen: long-press the dot to try the next one.
-            setOnLongClickListener { nextDisplay(); true }
         }
         status = TextView(this).apply {
             setTextColor(DIM)
@@ -185,11 +189,6 @@ class CompanionActivity : Activity() {
         }
         statusRow.addView(statusDot, LinearLayout.LayoutParams(dp(10), dp(10)))
         statusRow.addView(status, LinearLayout.LayoutParams(0, -2, 1f))
-        // Shown only when GitHub has a newer build: one tap asks, a second within 3 s updates.
-        updateButton = chip("Update") { updateTapped() }.apply {
-            background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK); visibility = View.GONE
-        }
-        statusRow.addView(updateButton, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
         statusRow.addView(loadButton)
         // Closes the app for good (no task manager needed): a second tap within 3 s confirms.
         statusRow.addView(chip("Exit") {
@@ -211,15 +210,6 @@ class CompanionActivity : Activity() {
         show(Panel.BAGS)
         updateCompass()
         say("Looking for the game…")
-        // Just updated: the addon comes along, but the game only takes it at its next start.
-        val version = Updater.installedVersion(this)
-        val before = getPreferences(MODE_PRIVATE).getString("version", null)
-        getPreferences(MODE_PRIVATE).edit().putString("version", version).apply()
-        if (before != null && before != version) android.app.AlertDialog.Builder(this)
-            .setTitle("Updated to $version")
-            .setMessage("The new addon is in place. Close the game and start it again through the launcher so it loads the addon too.")
-            .setPositiveButton("OK", null)
-            .show()
         // The last crash, once: its first lines, to send along.
         if (crashFile.exists()) {
             val trace = runCatching { crashFile.readText() }.getOrDefault("")
@@ -246,110 +236,8 @@ class CompanionActivity : Activity() {
     override fun onStart() {
         super.onStart()
         android.util.Log.i("ThorCompanion", "onStart")
-        worker = Thread(::loop, "strip-reader").apply { isDaemon = true; start() }
-        content.removeCallbacks(updateCheck)
-        content.post(updateCheck)
-    }
-
-    private lateinit var updateButton: TextView
-    @Volatile private var update: Updater.Release? = null
-    private var updateAskedAt = -10_000L
-    @Volatile private var updating = false
-
-    /** Looks for a newer build on GitHub now and every 30 minutes (one small request). */
-    private val updateCheck: Runnable = object : Runnable {
-        override fun run() {
-            Thread {
-                val found = Updater.check(this@CompanionActivity)
-                runOnUiThread {
-                    if (found != null) update = found
-                    update?.let { updateButton.text = "Update ${it.version}"; updateButton.visibility = View.VISIBLE }
-                }
-            }.apply { isDaemon = true; start() }
-            content.postDelayed(this, 30 * 60_000L)
-        }
-    }
-
-    private fun updateTapped() {
-        val release = update ?: return
-        if (updating) return
-        val now = SystemClock.uptimeMillis()
-        if (now - updateAskedAt > 3000) {
-            updateAskedAt = now
-            say("Tap Update again to install ${release.version} (the app restarts by itself)")
-            return
-        }
-        updating = true
-        say("Downloading ${release.version}…")
-        val display = display?.displayId ?: 0
-        Thread {
-            val apk = Updater.download(this, release) { pct -> runOnUiThread { say("Downloading ${release.version}… $pct%", notice = false) } }
-            if (apk == null) {
-                updating = false
-                runOnUiThread { say("The download failed. Check the Thor's internet and tap Update again.") }
-                return@Thread
-            }
-            runOnUiThread { say("Installing ${release.version}; the app closes and opens again…") }
-            if (!Updater.install(this, apk, display)) {
-                updating = false
-                // No root shell: Android's own installer asks instead.
-                runOnUiThread {
-                    say("Couldn't install by itself; opening the download in the browser")
-                    runCatching { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(release.apkUrl))) }
-                }
-            }
-        }.apply { isDaemon = true; start() }
-    }
-
-    /** Where you told the app your Thor-Forever folder is, or null to look for it. */
-    private fun kitPath() = getPreferences(MODE_PRIVATE).getString("kitPath", null)
-
-    /** True when no Thor-Forever folder was found: then a card asks you to choose it. */
-    @Volatile private var kitMissing = false
-
-    /** Puts the bundled addon into the Thor-Forever folder (root, so off the UI thread). */
-    private fun installAddon() {
-        val outcome = AddonInstaller.install(this, kitPath())
-        kitMissing = outcome.missing
-        runOnUiThread {
-            if (outcome.note.isNotEmpty()) say(outcome.note, notice = true)
-            render()
-        }
-    }
-
-    /** Opens Android's folder picker for the Thor-Forever folder. */
-    private fun chooseKit() {
-        val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE)
-        runCatching { startActivityForResult(intent, CHOOSE_KIT) }
-            .onFailure { say("Couldn't open the folder picker: ${it.message}") }
-    }
-
-    @Deprecated("The plain Activity's way; this app has no AndroidX.")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != CHOOSE_KIT || resultCode != RESULT_OK) return
-        val path = data?.data?.let { AddonInstaller.pathOf(it) }
-            // The AddOns folder itself chosen: the Thor-Forever folder is the one around it.
-            ?.let { if (it.endsWith("/AddOns")) it.removeSuffix("/AddOns") else it }
-        if (path == null) {
-            say("That folder isn't on the Thor's storage: choose the Thor-Forever folder there.", notice = true)
-            return
-        }
-        getPreferences(MODE_PRIVATE).edit().putString("kitPath", path).apply()
-        say("Putting the addon into $path…", notice = true)
-        keys.execute { installAddon() }
-    }
-
-    /** The card that asks for the Thor-Forever folder when the app couldn't find it. */
-    private fun kitCard(): View {
-        val box = card().apply { background = Theme.box(context, SURFACE, 14, ACCENT) }
-        box.addView(line("Where is your Thor-Forever folder?", TEXT, 16f, bold = true).apply { setPadding(0, 0, 0, 0) })
-        box.addView(line("The app puts its addon into that folder's AddOns, and Thor Forever copies it into the game " +
-            "when it starts. Choose the folder with Thor-Forever.exe in it; the app remembers it.", DIM, 13f))
-        box.addView(chip("Choose folder") { chooseKit() }.apply {
-            background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK)
-        }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
-        return box
+        CompanionBridge.setShown(true)
+        worker = Thread(::readSafely, "strip-reader").apply { isDaemon = true; start() }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -359,14 +247,21 @@ class CompanionActivity : Activity() {
 
     override fun onStop() {
         android.util.Log.i("ThorCompanion", "onStop")
+        CompanionBridge.setShown(false)
         closeCompose()
-        content.removeCallbacks(updateCheck)
         worker = null
         watcher = null
         runCatching { watchSocket?.close() }
         saveTrail()
         saveLast()
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        // The key thread and the picture copier's thread end with the app.
+        keys.shutdown()
+        screen.close()
+        super.onDestroy()
     }
 
     private fun trailFile() = java.io.File(filesDir, "trail.txt")
@@ -377,7 +272,6 @@ class CompanionActivity : Activity() {
     /** False while the bags shown are the ones kept from before a restart: then a tap could use whatever moved into that slot since. */
     private var bagsFresh = false
     private var bagsDifferSince = 0L
-    private var addonChecked = false
     private var addonWarned = false
     /** How the bags are sorted: 0 as in the game, 1 type, 2 quality, 3 sell value. */
     private var bagSort = 0
@@ -478,29 +372,52 @@ class CompanionActivity : Activity() {
         runCatching { trailFile().writeText(trail.save()) }
     }
 
-    private fun loop() {
-        if (!RootShell.available()) {
-            runOnUiThread {
-                say("Can't capture the top screen: the Thor's root service isn't reachable. " +
-                    "Check that Settings › Thor › Force SELinux is off.")
+    /**
+     * The reading loop, started again after a mistake in it instead of ending the app: the
+     * companion runs inside Thor Forever, and an uncaught error here closed the game too.
+     */
+    private fun readSafely() {
+        while (worker === Thread.currentThread()) {
+            try {
+                loop()
+                return
+            } catch (e: RuntimeException) {
+                android.util.Log.e("ThorCompanion", "reading loop failed, starting it again", e)
+                runOnUiThread { say("The app hit a reading error and carried on (logged)") }
+                SystemClock.sleep(1000)
             }
-            return
         }
-        // The addon that came with this app goes into the game (once per start of the app).
-        if (!addonChecked) {
-            addonChecked = true
-            installAddon()
-        }
+    }
+
+    private fun loop() {
         if (watcher == null) watcher = Thread(::watchGame, "game-watch").apply { isDaemon = true; start() }
         var misses = 0
         var seenSquare = false
         var absent = 0
         var messageAt = 0L
         var changedAt = 0L
-        var lastShown = -1
         var near = -1
+        // Where the square or bar was last read, with room around it: only that corner of
+        // the picture is copied (see [lockAround]). Let go when the picture changes size,
+        // or when nothing was read there for a while (the bar moved with /thor pos).
+        var lock: Rect? = null
+        var lockSize: Rect? = null
+        var lockAt = 0L
         var whyAt = 0L
         val assembler = PartAssembler()
+        // The addon's corner squares (its default, see Corners.lua): your position top left,
+        // the chat bottom left, the status bottom right, everything else top right. Each has
+        // its own message numbers, so each its own assembler. Only those four small parts of
+        // the picture are copied; the whole picture only while no corner square was read
+        // lately (an older addon, or another /thor shape).
+        val cornerParts = HashMap<Int, PartAssembler>()
+        fun assemblerOf(version: Int) =
+            if (version == StripDecoder.POSITION_VERSION || version == StripDecoder.CHAT_VERSION || version == StripDecoder.STATUS_VERSION)
+                cornerParts.getOrPut(version) { PartAssembler() } else assembler
+        val cornerNear = IntArray(4) { -1 }
+        var cornerAreasFor: Rect? = null
+        var cornerAreas: List<IntArray> = emptyList()
+        val shownLast = HashMap<Int, Int>()
         while (worker === Thread.currentThread()) {
             val t0 = SystemClock.uptimeMillis()
             // The game's files say there is nothing to see (closed, starting, the character
@@ -510,11 +427,57 @@ class CompanionActivity : Activity() {
                 SystemClock.sleep(500)
                 continue
             }
-            val px = screen.capture()
-            val result = if (px == null) null else StripDecoder.decode(px, near)
-            val frame = (result as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
+            val size = screen.size()
+            // The four corners first. (Their places follow the picture's size and the cell size read last.)
+            val frames = ArrayList<StripFrame>()
+            var result: StripDecoder.Result? = null
+            var px: Pixels? = null
+            if (size != null) {
+                if (size != cornerAreasFor) {
+                    cornerAreasFor = size
+                    cornerAreas = CornerAreas.areas(size.width(), size.height(), cornerCell)
+                    cornerNear.fill(-1)
+                }
+                for ((i, a) in cornerAreas.withIndex()) {
+                    val shot = screen.captureArea(Rect(a[0], a[1], a[2], a[3])) ?: continue
+                    px = shot.pixels
+                    val r = safeDecode(shot.pixels, cornerNear[i])
+                    val f = (r as? StripDecoder.Result.Ok)?.frame
+                    cornerNear[i] = f?.row ?: -1
+                    if (f != null) synchronized(cornerReads) { cornerReads.add(i, f) }
+                    if (f != null && f.crcOk) frames += CornerAreas.moved(f, shot.left, shot.top)
+                    if (result !is StripDecoder.Result.Ok) result = r
+                }
+            }
+            val corners = frames.any { it.version in StripDecoder.POSITION_VERSION..StripDecoder.DATA_VERSION }
+            if (corners) {
+                cornersAt = t0
+                val cell = frames.first { it.version in StripDecoder.POSITION_VERSION..StripDecoder.DATA_VERSION }.cellPx
+                // Cells much bigger than guessed (/thor cell): bigger areas, so the squares fit.
+                if (cornerCell == 0.0 || kotlin.math.abs(cell - cornerCell) > 0.5) {
+                    cornerCell = cell
+                    cornerAreasFor = null
+                }
+            }
+            // No corner square lately: the whole picture (or where the bar or square was last read).
+            if (frames.isEmpty() && t0 - cornersAt > LOCK_MS) {
+                if (lock != null && (size != lockSize || t0 - lockAt > LOCK_MS)) lock = null
+                val shot = lock?.let { screen.captureArea(it) } ?: screen.capture()?.let { TopScreen.Shot(0, 0, it) }
+                px = shot?.pixels
+                val r = if (shot == null) null else safeDecode(shot.pixels, if (near >= 0) near - shot.top else -1)
+                if (r != null && result !is StripDecoder.Result.Ok) result = r
+                val f = (r as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
+                if (f != null) {
+                    near = f.row + shot!!.top
+                    lock = lockAround(f, shot.left, shot.top)
+                    lockSize = size
+                    lockAt = t0
+                    frames += CornerAreas.moved(f, shot.left, shot.top)
+                }
+            }
+            val read = frames.isNotEmpty()
             // Why a read failed, now and then, for the log (long-press the status line).
-            if (frame == null && t0 - whyAt > 5000) {
+            if (!read && t0 - whyAt > 5000) {
                 whyAt = t0
                 val why = when (result) {
                     null -> "capture failed"
@@ -527,21 +490,30 @@ class CompanionActivity : Activity() {
                 captures.addLast(longArrayOf(t0, SystemClock.uptimeMillis() - t0))
                 while (captures.first()[0] < t0 - 60_000) captures.removeFirst()
             }
-            if (frame != null) {
+            if (read) {
                 misses = 0
                 frameAt = SystemClock.uptimeMillis()
-                near = frame.row
-                // Something new on the square (a part or a message): more is likely to follow.
+            }
+            for (frame in frames) {
+                // Something new on the data square (a part or a message): more is likely to follow.
+                // (The position changes all the time while walking: that says nothing.)
                 val shown = frame.seq * 16 + frame.part
-                if (shown != lastShown) { lastShown = shown; changedAt = SystemClock.uptimeMillis() }
-                val message = assembler.add(frame)
-                if (message != null) {
+                if (shownLast[frame.version] != shown) {
+                    shownLast[frame.version] = shown
+                    if (frame.version != StripDecoder.POSITION_VERSION) changedAt = SystemClock.uptimeMillis()
+                }
+                val parts = assemblerOf(frame.version)
+                // The short and packed forms (P..., S..., B..., Z..., several in a Y...) written out again.
+                for (message in parts.add(frame)?.let { Compact.expandAll(it) } ?: emptyList()) {
                     if (seenAt == 0L) seenAt = SystemClock.uptimeMillis()
                     messageAt = SystemClock.uptimeMillis()
                     if (game != Game.UNKNOWN && game != Game.IN_WORLD) game = Game.IN_WORLD
                     if (away) { away = false; runOnUiThread { render() } }
-                    if (message.startsWith("TS1|") || !awaitStatus) {
-                        handle(message, assembler.lastSeq)
+                    if (message.startsWith("TP2|")) {
+                        // Only your position (the top-left corner): into the last status.
+                        if (!awaitStatus) moved(message)
+                    } else if (message.startsWith("TS1|") || !awaitStatus) {
+                        handle(message, parts.lastSeq)
                         // Who is playing is known now: what came before the status is theirs.
                         if (message.startsWith("TS1|") && awaitStatus) {
                             awaitStatus = false
@@ -557,7 +529,8 @@ class CompanionActivity : Activity() {
                     // While the start-up card shows, each message may tick something off.
                     if (!ready) runOnUiThread { if (!ready) render() }
                 }
-            } else if (++misses == 4 && !barMode && listening == null && SystemClock.uptimeMillis() >= quietUntil) {
+            }
+            if (!read && ++misses == 4 && !barMode && listening == null && SystemClock.uptimeMillis() >= quietUntil) {
                 near = -1
                 val why = when {
                     px == null -> "the capture failed"
@@ -573,7 +546,7 @@ class CompanionActivity : Activity() {
             // while the game isn't showing the square at all.
             // The addon shows each part once (its fast speed) as long as the square keeps
             // changing, so keep reading fast for a moment after anything new.
-            val fast = assembler.waiting || SystemClock.uptimeMillis() - lastKeyAt < 3000 ||
+            val fast = assembler.waiting || cornerParts.values.any { it.waiting } || SystemClock.uptimeMillis() - lastKeyAt < 3000 ||
                 SystemClock.uptimeMillis() - changedAt < BUSY_MS
             // While you walk the position changes all the time: look more often, so the
             // arrow on the map keeps up, and slow down again once you stand still.
@@ -586,7 +559,7 @@ class CompanionActivity : Activity() {
             // while it was taken) is read again at the usual pace.
             if (result is StripDecoder.Result.Ok) {
                 absent = 0; seenSquare = true
-                barMode = result.frame.version == StripDecoder.BAR_VERSION
+                barMode = result.frame.version == StripDecoder.BAR_VERSION || t0 - cornersAt < LOCK_MS
             } else absent++
             // Gone for a few seconds: logged out, the character screen or a loading screen.
             // The card stands in for the tabs until the game says again who is playing,
@@ -608,11 +581,18 @@ class CompanionActivity : Activity() {
             }
             val period = when {
                 game == Game.LOADING && result !is StripDecoder.Result.Ok -> 1000L
-                // Closed or on the character screen: only a look now and then, in case an event was missed.
-                game == Game.CLOSED && result !is StripDecoder.Result.Ok -> 30_000L
-                game == Game.STARTING && result !is StripDecoder.Result.Ok -> 10_000L
-                absent > 0 && !seenSquare -> 10_000L
-                // The bar comes and goes: look once a second for the next message.
+                // Closed or on the character screen: fewer looks, but often enough not to miss the
+                // addon's first messages after a login when the file events say nothing (or come late).
+                game == Game.CLOSED && result !is StripDecoder.Result.Ok -> 5000L
+                game == Game.STARTING && result !is StripDecoder.Result.Ok -> 1000L
+                absent > 0 && !seenSquare -> 1000L
+                // The bar comes and goes: look a few times a second for the next message
+                // (only its corner is copied, so this is cheap; the addon shows a message
+                // that comes after a quiet spell for at least 0.6 s).
+                // The corner squares too come and go; only four small parts are copied, so looking
+                // often is cheap (the position stays 0.4 s, the rest at least 0.6 s).
+                t0 - cornersAt < LOCK_MS -> CORNERS_MS
+                barMode && absent > 0 && lock != null -> 400L
                 barMode && absent > 0 -> 1000L
                 absent in 1..4 -> 1000L
                 absent == 5 -> 10_000L
@@ -627,6 +607,25 @@ class CompanionActivity : Activity() {
             }
             SystemClock.sleep((period - (SystemClock.uptimeMillis() - t0)).coerceIn(30, period))
         }
+    }
+
+    /**
+     * The corner of the picture to copy next: the [frame] just read (found in a copy that
+     * started at [left], [top]) with room around it, for the bar (80 x 3 cells), or for the
+     * dark square or line (20 x 20 or 400 x 1 cells) the older shapes use.
+     */
+    private fun lockAround(frame: StripFrame, left: Int, top: Int): Rect {
+        val cell = frame.cellPx
+        val bar = frame.version == StripDecoder.BAR_VERSION
+        val wide = if (bar) 80 else StripDecoder.COLS * StripDecoder.COLS
+        val tall = if (bar) 3 else StripDecoder.COLS
+        val x = left + frame.x
+        val y = top + frame.row
+        val margin = (4 * cell).toInt() + 8
+        return Rect(
+            (x - margin).toInt(), (y - cell - LOCK_ROWS).toInt(),
+            (x + wide * cell + margin).toInt(), (y + tall * cell + LOCK_ROWS).toInt(),
+        )
     }
 
     /**
@@ -649,10 +648,12 @@ class CompanionActivity : Activity() {
     private fun blind(): Boolean {
         val now = SystemClock.uptimeMillis()
         return when (game) {
-            // Loading into the world: no screenshot until the addons have loaded (the crash
-            // came from screenshots while the game set up the world); if that is never
-            // seen, look now and then after a minute.
-            Game.LOADING -> if (addonsAt != 0L) now - addonsAt < 3000 else now - gameAt < 60_000
+            // Loading into the world: a moment's rest right after the addons loaded (the addon
+            // itself waits 3 s then). The long wait the standalone app had (its root screenshots
+            // could crash the game while it set up the world) is not needed here: the picture is
+            // read from Thor Forever's own view, which the game never sees. Waiting made the app
+            // miss everything the addon sends right after a login when the file events came late.
+            Game.LOADING -> addonsAt != 0L && now - addonsAt < 3000
             else -> false
         }
     }
@@ -680,6 +681,7 @@ class CompanionActivity : Activity() {
     }
 
     private fun onGameEvent(line: String) {
+        if (!line.startsWith("C ")) android.util.Log.i("ThorCompanion", "game: $line")
         val what = line.take(1)
         val arg = line.drop(2).trim()
         val now = SystemClock.uptimeMillis()
@@ -708,8 +710,6 @@ class CompanionActivity : Activity() {
             }
             "O" -> if (game == Game.IN_WORLD || game == Game.LOADING || game == Game.UNKNOWN) game = Game.OUT
             "X" -> game = Game.CLOSED
-            // Chat log lines: the game writes that file only every few minutes, so the chat comes from the square.
-            "C", "D", "H" -> return
             else -> return
         }
         gameAt = now
@@ -722,6 +722,34 @@ class CompanionActivity : Activity() {
             runOnUiThread { startLoading() }
         } else runOnUiThread { if (!ready) render() }
     }
+
+    /**
+     * Your position from the top-left corner square (TP2|mapID|x|y|facing): the same
+     * fields as in the status, so the last status with these in it is taken as a new one.
+     */
+    private fun moved(message: String) {
+        val p = message.split('|')
+        val status = lastMessages["TS1|"]?.split('|')?.toMutableList() ?: return
+        if (p.size < 4 || status.size < 8) return
+        status[4] = p[1]; status[5] = p[2]; status[6] = p[3]; status[7] = p.getOrElse(4) { "" }
+        handle(status.joinToString("|"), -1)
+    }
+
+    /**
+     * The decoder, never throwing: the companion runs inside Thor Forever, so a crash
+     * here took the game down with it. A mistake in it is logged and counts as no read.
+     */
+    private fun safeDecode(px: Pixels, near: Int): StripDecoder.Result = try {
+        StripDecoder.decode(px, near)
+    } catch (e: RuntimeException) {
+        android.util.Log.w("ThorCompanion", "decoder failed", e)
+        StripDecoder.Result.Failed("decoder error: $e")
+    }
+
+    /** The addon's data square in a whole picture: in the top-right corner while it uses the corners. */
+    private fun dataFrame(px: Pixels): StripFrame? =
+        if (SystemClock.uptimeMillis() - cornersAt < LOCK_MS) runCatching { CornerAreas.dataFrame(px, cornerCell) }.getOrNull()
+        else (safeDecode(px, -1) as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
 
     /** Messages that came while the app waits for the status (see [awaitStatus]), oldest first. */
     private val held = ArrayDeque<String>()
@@ -844,10 +872,8 @@ class CompanionActivity : Activity() {
             if (panel == Panel.MAP) updateMap()
         }
         val px = screen.capture(rows = 4000) ?: return fail("the screenshot failed")
-        val found = StripDecoder.decode(px)
-        val frame = (found as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
-            ?: return fail("the data square was not readable in the screenshot (${(found as? StripDecoder.Result.Failed)?.reason ?: "damaged"})")
-        if (String(frame.payload) != message) return fail("the map was closed or changed before the screenshot")
+        val frame = dataFrame(px) ?: return fail("the data square was not readable in the screenshot")
+        if (Compact.expand(String(frame.payload)) != message) return fail("the map was closed or changed before the screenshot")
         val r = pic.onScreen(frame)
         val l = r[0].coerceIn(0, px.width); val t = r[1].coerceIn(0, px.height)
         val w = r[2].coerceIn(0, px.width) - l; val h = r[3].coerceIn(0, px.height) - t
@@ -875,7 +901,7 @@ class CompanionActivity : Activity() {
             if (panel == Panel.BAGS || panel == Panel.CHARACTER) render()
         }
         val px = screen.capture(rows = 4000) ?: return done("Item icons not taken: the screenshot failed")
-        val frame = (StripDecoder.decode(px) as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
+        val frame = dataFrame(px)
         if (frame == null || frame.seq != seq) return done("Item icons not taken: they went away before the screenshot")
         // The icons sit on black: if the gaps around them aren't black, the grid had gone
         // (the square can still show its message) and these would be bits of the world.
@@ -982,17 +1008,6 @@ class CompanionActivity : Activity() {
         if (changed && (panel == Panel.BAGS || panel == Panel.CHARACTER)) render()
     }
 
-    /** Long-press on the status line: try the next screen, in case the default one is the wrong one. */
-    private fun nextDisplay() {
-        Thread {
-            val ids = listOf<String?>(null) + screen.listDisplays()
-            val next = ids[(ids.indexOf(screen.displayId) + 1) % ids.size]
-            screen.displayId = next
-            getPreferences(MODE_PRIVATE).edit().putString("display", next).apply()
-            runOnUiThread { say("Capturing screen ${next ?: "default"}") }
-        }.start()
-    }
-
     private fun show(p: Panel) {
         if (p != Panel.CHAT) closeCompose()
         panel = p
@@ -1014,7 +1029,6 @@ class CompanionActivity : Activity() {
         updateLoadButton()
         updateBadges()
         val s = state
-        if (kitMissing) content.addView(kitCard(), cardParams())
         if (!ready && renderLoading()) return
         if (s == null) {
             content.addView(empty("Waiting for the game…", "Open WoW Forever with the Forever Companion addon on. If it is already open, tap Load from the game."))
@@ -1121,6 +1135,13 @@ class CompanionActivity : Activity() {
             }
         }
         if (sub.isNotEmpty()) box.addView(line(sub, DIM, 13f).apply { setPadding(0, dp(4), 0, dp(10)) })
+        // The login screen (and the character screen): type there from this screen, with the
+        // keyboard down here, and fix typos before they go in.
+        if ((g == Game.STARTING || g == Game.OUT) && composing == null) {
+            box.addView(chip("⌨  Type in the game (password, names)") { typeInGame() }.apply {
+                background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK)
+            }, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(10) })
+        }
         val rows = parts ?: if (seen && !away || g == Game.LOADING) PLACEHOLDER.map { Readiness.Part(it, Readiness.Status.MISSING, "waiting") } else emptyList()
         for (part in rows) {
             val r = LinearLayout(this).apply {
@@ -1947,12 +1968,98 @@ class CompanionActivity : Activity() {
         footer.addView(quick)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
         row.addView(field, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
+        // What else the speech recognizer heard: a tap puts that in instead.
+        val alts = Flow(this, dp(6)).apply { setPadding(0, dp(4), 0, 0); visibility = View.GONE }
+        footer.addView(alts)
         val mic = chip("🎤") {}
-        mic.setOnClickListener { if (listening != null) stopListening() else listen(field, mic) }
+        mic.setOnClickListener { if (listening != null) stopListening() else listen(field, mic, alts) }
+        // A long press picks the language it listens for (English with an accent: try another English).
+        mic.setOnLongClickListener {
+            val now = speechChoice()
+            val next = SPEECH_CHOICES[(SPEECH_CHOICES.indexOfFirst { it.first == now } + 1) % SPEECH_CHOICES.size]
+            getPreferences(MODE_PRIVATE).edit().putString("speechLang", next.first).apply()
+            say("Speech to text: ${next.second} (hold 🎤 again for another)")
+            true
+        }
         row.addView(mic, LinearLayout.LayoutParams(dp(48), -2).apply { marginEnd = dp(6) })
         row.addView(chip("Send") { send() }.apply { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) })
         row.addView(chip("✕") { closeCompose() }, LinearLayout.LayoutParams(dp(44), -2).apply { marginStart = dp(4) })
         footer.addView(row)
+        // The keyboard needs a window that can take focus; the app's normally can't (so the game keeps the controller).
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+        field.requestFocus()
+        field.post {
+            getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                .showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    /**
+     * A box on this screen for what goes into the game's own fields (the password at the login
+     * screen, a new character's name): typed and fixed here with the keyboard on this screen,
+     * then typed into the game key by key. Its buttons delete in the game's field too.
+     */
+    private fun typeInGame() {
+        composing = "Type" to ""
+        footer.removeAllViews()
+        val field = android.widget.EditText(this).apply {
+            hint = "Type here, then tap Type it"
+            setHintTextColor(DIM)
+            setTextColor(TEXT)
+            textSize = 15f
+            isSingleLine = true
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE or
+                android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+            background = Theme.box(context, SURFACE, 12, ACCENT)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        val target = gameDisplay()
+        fun pressKeys(vararg what: String) {
+            lastKeyAt = SystemClock.uptimeMillis()
+            keys.execute { for (k in what) KeySender.send(this, target, k) }
+        }
+        /** What is in the box into the game, then Enter when [enter]; the box is emptied. */
+        fun typeIt(enter: Boolean) {
+            val text = field.text.toString()
+            field.setText("")
+            lastKeyAt = SystemClock.uptimeMillis()
+            keys.execute {
+                if (text.isNotEmpty()) KeySender.type(this, target, text)
+                if (enter) KeySender.send(this, target, "ENTER")
+            }
+            say(if (enter) "Typed in the game, with Enter" else "Typed in the game")
+        }
+        field.setOnEditorActionListener { _, action, _ ->
+            if (action == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) { typeIt(true); true } else false
+        }
+        var shown = false
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
+        row.addView(field, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
+        // Show or hide the letters (hidden first: it is usually a password).
+        row.addView(chip("👁") {
+            shown = !shown
+            val at = field.selectionEnd
+            field.inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                (if (shown) android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD else android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+            field.setSelection(at.coerceIn(0, field.text.length))
+        }, LinearLayout.LayoutParams(dp(48), -2).apply { marginEnd = dp(6) })
+        row.addView(chip("✕") { closeCompose() }, LinearLayout.LayoutParams(dp(44), -2))
+        footer.addView(row)
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(6), 0, 0) }
+        fun button(label: String, accent: Boolean = false, onTap: () -> Unit) =
+            buttons.addView(chip(label, onTap).apply { if (accent) { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) } },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        button("Type it + Enter", accent = true) { typeIt(true) }
+        button("Type it") { typeIt(false) }
+        // In the game's field: one letter back, or all of it (more Backspaces than any password has).
+        button("⌫ in game") { pressKeys("BACKSPACE") }
+        button("Clear game field") { pressKeys(*Array(40) { "BACKSPACE" }); say("Cleared the game's field") }
+        footer.addView(buttons)
+        val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
+        more.addView(chip("Tab (next field)") { pressKeys("TAB") }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        more.addView(chip("Enter") { pressKeys("ENTER") }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        footer.addView(more)
         // The keyboard needs a window that can take focus; the app's normally can't (so the game keeps the controller).
         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         field.requestFocus()
@@ -1979,15 +2086,17 @@ class CompanionActivity : Activity() {
     /** Until then a game that stands still is not taken for gone (see the reader loop). */
     @Volatile private var quietUntil = 0L
     private var micFor: Pair<android.widget.EditText, TextView>? = null
+    private var micAlts: Flow? = null
 
     /**
      * Listens once through the Thor's microphone and puts what you said into [field],
      * after what is already there. Nothing is sent: you read it, fix it if need be, and
      * tap Send. The microphone is only on until you stop talking (or tap 🎤 again).
      */
-    private fun listen(field: android.widget.EditText, mic: TextView) {
+    private fun listen(field: android.widget.EditText, mic: TextView, alts: Flow) {
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             micFor = field to mic
+            micAlts = alts
             requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), MIC_PERMISSION)
             return
         }
@@ -2001,23 +2110,40 @@ class CompanionActivity : Activity() {
             field.setText(text.take(255))
             field.setSelection(field.text.length)
         }
+        alts.removeAllViews(); alts.visibility = View.GONE
         val speechIntent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            // A few guesses, not just the best one: with an accent the right one is often second.
+            putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            // The game's words it would not know: names, the zone, quests (Android 13+, where the speech app uses them).
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                putStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(gameWords()))
+            }
         }
         val recognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(this)
         listening = recognizer
         micFor = field to mic
+        micAlts = alts
         mic.background = Theme.box(this, Theme.BAD, 18)
         say("Listening… speak your message")
-        fun words(b: android.os.Bundle?) =
-            b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+        fun guesses(b: android.os.Bundle?) =
+            b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().filter { it.isNotBlank() }
+        fun words(b: android.os.Bundle?) = guesses(b).firstOrNull().orEmpty()
         recognizer.setRecognitionListener(object : android.speech.RecognitionListener {
             override fun onPartialResults(b: android.os.Bundle?) { words(b).takeIf { it.isNotBlank() }?.let(::show) }
             override fun onResults(b: android.os.Bundle?) {
                 busyRetried = false
-                val w = words(b)
+                val all = guesses(b)
+                val w = all.firstOrNull().orEmpty()
                 if (w.isNotBlank()) { show(w); say("Check the text, then tap Send") } else say("Didn't catch that: tap 🎤 to try again")
+                // The other guesses, to tap instead.
+                val others = all.drop(1).map { it.trim() }.distinct().filter { !it.equals(w.trim(), true) }.take(3)
+                alts.removeAllViews()
+                for (o in others) alts.addView(chip(o) { show(o); alts.removeAllViews(); alts.visibility = View.GONE }.apply {
+                    background = Theme.box(context, Color.TRANSPARENT, 18, DIM)
+                })
+                alts.visibility = if (others.isEmpty()) View.GONE else View.VISIBLE
                 stopListening()
             }
             override fun onError(error: Int) {
@@ -2026,7 +2152,7 @@ class CompanionActivity : Activity() {
                 // Busy: the last listener was still closing. Once more, a moment later.
                 if (error == android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY && !busyRetried) {
                     busyRetried = true
-                    footer.postDelayed({ if (composing != null) listen(field, mic) }, 700)
+                    footer.postDelayed({ if (composing != null) listen(field, mic, alts) }, 700)
                     return
                 }
                 busyRetried = false
@@ -2048,11 +2174,15 @@ class CompanionActivity : Activity() {
         fun start(language: String?) {
             if (listening !== recognizer) return
             language?.let { speechIntent.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, it) }
+            // Which language it listens for, so you can tell when it picked the wrong one.
+            say("Listening (${language ?: "the speech app's own language"})… speak your message")
             runCatching { recognizer.startListening(speechIntent) }.onFailure { stopListening(); say("Speech recognition didn't start: ${it.message}") }
         }
         // Android 13+: ask once which languages it has (with a recognizer of its own: one
         // that is still answering that is "busy"), and pick the system's or the nearest one.
-        if (android.os.Build.VERSION.SDK_INT >= 33 && !speechChecked) {
+        val chosen = speechChoice().takeIf { it != "auto" }
+        if (chosen != null) start(chosen)
+        else if (android.os.Build.VERSION.SDK_INT >= 33 && !speechChecked) {
             val checker = android.speech.SpeechRecognizer.createSpeechRecognizer(this)
             var answered = false
             fun go(language: String?) {
@@ -2076,6 +2206,19 @@ class CompanionActivity : Activity() {
             // No answer at all: listen without choosing.
             footer.postDelayed({ go(null) }, 3000)
         } else start(speechLang)
+    }
+
+    /** The speech language you picked by holding 🎤 ("auto": the Thor's own, see [speechLanguage]). */
+    private fun speechChoice(): String = getPreferences(MODE_PRIVATE).getString("speechLang", null) ?: "auto"
+
+    /** Words of the game the speech recognizer is told to expect: names, the zone, quest titles. */
+    private fun gameWords(): List<String> {
+        val words = LinkedHashSet<String>()
+        state?.name?.takeIf { it != "?" }?.let { words += it }
+        zoneMap?.let { words += it.zone; if (it.parent.isNotBlank()) words += it.parent }
+        for (l in chat.lines.takeLast(100)) if (l.name.isNotBlank()) words += l.name
+        questFirst?.quests?.forEach { words += it.title }
+        return words.filter { it.isNotBlank() }.take(100)
     }
 
     /** The language picked for speech (null: the speech app's own), asked once per app start. */
@@ -2107,7 +2250,7 @@ class CompanionActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, results)
         if (requestCode != MIC_PERMISSION) return
         val (field, mic) = micFor ?: return
-        if (results.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED && composing != null) listen(field, mic)
+        if (results.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED && composing != null) micAlts?.let { listen(field, mic, it) }
         else say("Without the microphone, speech to text can't work")
     }
 
@@ -2129,9 +2272,6 @@ class CompanionActivity : Activity() {
     data class ChatBox(val n: Int, val open: Boolean, val group: String, val length: Int?)
 
     @Volatile private var chatBox: ChatBox? = null
-
-    /** False once a paste didn't reach the game: from then on messages are typed. */
-    @Volatile private var pasteWorks = true
 
     private fun sendChat(label: String, command: String, text: String) {
         val target = gameDisplay()
@@ -2157,33 +2297,10 @@ class CompanionActivity : Activity() {
                 command == GROUP -> box.group.ifEmpty { "/p " }
                 else -> command
             }
-            // The whole line goes in with one paste (CTRL-V) when the game takes pastes:
-            // the box opens empty, so any text the addon then reports came from the paste.
-            // If none shows up, the line is typed key by key after all, from then on too.
-            val line = prefix + text
-            var pasted = false
-            val tried = pasteWorks && box.length == 0
-            if (tried) {
-                runOnUiThread {
-                    getSystemService(android.content.ClipboardManager::class.java)
-                        .setPrimaryClip(android.content.ClipData.newPlainText("chat", line))
-                }
-                SystemClock.sleep(150)
-                KeySender.send(this, target, "CTRL-V")
-                // The game may turn "/w Name " into the box's whisper mode: then only your text is left.
-                val bytes = text.toByteArray(Charsets.UTF_8).size
-                val wait = SystemClock.uptimeMillis() + 2500
-                while (SystemClock.uptimeMillis() < wait) {
-                    val now = chatBox
-                    if (now != null && now.n == box.n && (now.length ?: 0) >= bytes) { pasted = true; break }
-                    lastKeyAt = SystemClock.uptimeMillis()
-                    SystemClock.sleep(50)
-                }
-            }
-            if (!pasted) {
-                val typed = KeySender.type(this, target, line)
-                if (typed != null && !typed.startsWith("(focus")) return@execute runOnUiThread { say("$label not sent: $typed") }
-            }
+            // Typed key by key. (A paste through Android's clipboard was quicker, but Android
+            // then shows its "copied" pop-up over the game, right where the chat's corner square is.)
+            val typed = KeySender.type(this, target, prefix + text)
+            if (typed != null && !typed.startsWith("(focus")) return@execute runOnUiThread { say("$label not sent: $typed") }
             // Enter, and make sure it took: the addon says when the box closes. Still open
             // with the text after a while: that Enter got lost (the game had just come back
             // to the front), so once more. Open and empty: closed with Escape (only on the
@@ -2211,35 +2328,74 @@ class CompanionActivity : Activity() {
                 }
                 android.util.Log.i("ThorCompanion", "chat box still holds the text after Enter: once more")
             }
-            runOnUiThread { say(when {
-                pasted -> "$label: sent (pasted)"
-                tried -> "$label: sent (typed: the game didn't take the paste)"
-                else -> "$label: sent"
-            }) }
+            runOnUiThread { say("$label: sent") }
         }
     }
 
-    /** The Thor's recent log (this app, the speech service, the game's input) into Download, through root. */
+    /** The Thor's recent log (this app, the speech service, the game's input) and the game's picture, into Download. */
     private fun saveLog() {
         keys.execute {
             val out = "/sdcard/Download/ForeverCompanion-log.txt"
             val ok = RootShell.exec("logcat -d -t 3000 -v time > $out 2>&1; echo done")?.trim() == "done"
-            // And a picture of the game's screen, to see what the app sees there.
-            val target = screen.displayId?.takeIf { it.all(Char::isDigit) }?.let { "-d $it " } ?: ""
-            val shot = ok && RootShell.exec("screencap $target-p /sdcard/Download/ForeverCompanion-screen.png; echo done")?.trim() == "done"
+            // And the game's picture, as the app sees it.
+            val shot = runCatching {
+                val px = screen.capture(rows = 4000) ?: return@runCatching false
+                val bitmap = android.graphics.Bitmap.createBitmap(px.width, px.height, android.graphics.Bitmap.Config.ARGB_8888)
+                val row = IntArray(px.width)
+                for (y in 0 until px.height) {
+                    for (x in 0 until px.width) row[x] = px.rgb(x, y) or (0xFF shl 24)
+                    bitmap.setPixels(row, 0, px.width, 0, y, px.width, 1)
+                }
+                java.io.File("/sdcard/Download/ForeverCompanion-screen.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+                bitmap.recycle()
+                true
+            }.getOrDefault(false)
             runOnUiThread {
-                say(if (shot) "Log and screenshot saved in Download (ForeverCompanion-log.txt, ForeverCompanion-screen.png)"
-                    else if (ok) "Log saved: Download/ForeverCompanion-log.txt" else "Log not saved (no root shell)")
+                say(if (ok && shot) "Log and screenshot saved in Download (ForeverCompanion-log.txt, ForeverCompanion-screen.png)"
+                    else if (ok) "Log saved: Download/ForeverCompanion-log.txt" else "Log not saved")
             }
         }
     }
 
+    /**
+     * How well each corner square reads (for trying /thor dense on, or another cell size):
+     * squares read whole and damaged, their size in cells, and how far apart the closest
+     * two colour levels came out (in screen steps of 0 to 255: the smaller, the closer to misreads).
+     */
+    private class CornerReads {
+        private val ok = IntArray(4); private val bad = IntArray(4)
+        private val spread = DoubleArray(4) { Double.MAX_VALUE }
+        private val dense = BooleanArray(4); private val cell = DoubleArray(4)
+        var since = SystemClock.uptimeMillis()
+        fun add(i: Int, f: StripFrame) {
+            if (f.crcOk) ok[i]++ else bad[i]++
+            spread[i] = minOf(spread[i], f.shadeMinDistance)
+            dense[i] = f.version != StripDecoder.cornerKind(f.version)
+            cell[i] = f.cellPx
+        }
+        fun report(): String? {
+            if (ok.sum() + bad.sum() == 0) return null
+            val names = listOf("position", "data", "chat", "status")
+            val s = (SystemClock.uptimeMillis() - since) / 1000
+            val lines = names.indices.filter { ok[it] + bad[it] > 0 }.joinToString("; ") { i ->
+                "${names[i]} ${ok[i]} read, ${bad[i]} damaged, ${if (dense[i]) "8" else "4"} levels, " +
+                    "closest levels %.0f apart, cell %.1f px".format(spread[i], cell[i])
+            }
+            ok.fill(0); bad.fill(0); spread.fill(Double.MAX_VALUE); since = SystemClock.uptimeMillis()
+            return "Corners in the last $s s: $lines."
+        }
+    }
+    private val cornerReads = CornerReads()
+
     /** Battery check: how often and how long the app read the game's screen in the last minute. */
     private fun captureStats(): String {
         val (count, total) = synchronized(captures) { captures.size to captures.sumOf { it[1] } }
-        if (count == 0) return "Battery check: the game's screen hasn't been read in the last minute."
+        val corners = synchronized(cornerReads) { cornerReads.report() }?.let { "\n$it" } ?: ""
+        if (count == 0) return "Battery check: the game's screen hasn't been read in the last minute.$corners"
         return "Battery check: read the game's screen $count times in the last minute, " +
-            "${total / count} ms each (busy ${total * 100 / 60_000}% of the time)."
+            "${total / count} ms each (busy ${total * 100 / 60_000}% of the time).$corners"
     }
 
     /** Sends one key to the game's screen; the callbacks run on the UI thread. */
@@ -2534,10 +2690,19 @@ class CompanionActivity : Activity() {
         const val SLOW_MS = 15_000L
         /** No new message for this long: the game is gone (it sends its status at least every 10 s). */
         const val STALE_MS = 30_000L
+        /** Nothing read in the remembered corner for this long: look at the whole top again. */
+        const val LOCK_MS = 25_000L
+        /** How often the four corners are read while the addon uses them. */
+        const val CORNERS_MS = 150L
+        /** The languages holding 🎤 goes through, in turn. */
+        val SPEECH_CHOICES = listOf(
+            "auto" to "the Thor's language", "en-US" to "English (US)", "en-GB" to "English (UK)",
+            "en-AU" to "English (Australia)", "en-IN" to "English (India)", "de-DE" to "German",
+        )
+        /** Rows above and below the remembered place that are copied too (the decoder looks 16 either way). */
+        const val LOCK_ROWS = 24
         /** The start-up card's rows before the status says what there is. */
         val PLACEHOLDER = listOf("Character and gear", "Bags", "Item names", "Map", "Quests", "Spells to learn")
-        /** The request code of the folder picker for the Thor-Forever folder. */
-        const val CHOOSE_KIT = 41
         val KEPT = setOf("TS1|", "TB1|", "TM1|", "TP1|", "TQ1|", "TL1|", "TV1|")
         /** The paper doll's slots, left column then right, as Character.lua sends them. */
         val GEAR_SLOTS = listOf(1, 2, 3, 15, 5, 4, 19, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17)

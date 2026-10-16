@@ -117,12 +117,25 @@ local autoAt = -100
 function ns.IconsAuto()
     if ThorCompanionDB.auto == false or InCombatLockdown() or GetTime() - autoAt < AUTO_GAP then return false end
     if GetTime() <= shownUntil then return false end
+    -- Asked ten times a second: no lists are made unless an item has no icon shown yet.
     local seen = ThorCompanionDB.icons or {}
-    local new = {}
-    for _, id in ipairs(ready(allIDs())) do
-        if not seen[id] and #new < PAGE then new[#new + 1] = id end
+    local new
+    local function look(list)
+        for _, id in ipairs(list) do
+            if not seen[id] and (not new or (#new < PAGE and not new[id])) then
+                if C_Item.GetItemIconByID(id) then
+                    new = new or {}
+                    new[#new + 1], new[id] = id, true
+                else
+                    C_Item.RequestLoadItemDataByID(id)
+                end
+            end
+        end
     end
-    if #new == 0 then return false end
+    look(ns.BagIDs())
+    look(ns.EquippedIDs())
+    if not new then return false end
+    for i = 1, #new do new[new[i]] = nil end
     autoAt = GetTime()
     if not show(new) then return false end
     note = string.format("showed %d new icons by itself at %s", #new, date("%H:%M:%S"))

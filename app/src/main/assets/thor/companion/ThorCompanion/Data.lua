@@ -104,12 +104,13 @@ local function status()
         GetMoney() or 0, mapID or 0, x or 0, y or 0, facing, session, bagHash, addonVersion, table.concat(list, ","))
 end
 
-local function bags()
+-- Built again only when the bags change (or their tap keys, after combat).
+local bags = ns.Remember(function()
     local free, total, list = bagSummary(ns.StripCapacity() - 16)
     local p = "TB1|" .. free .. "/" .. total .. "|" .. list
     bagHash = checksum(p)
     return p
-end
+end, { "BAG_UPDATE_DELAYED", "PLAYER_REGEN_ENABLED" }, 5)
 
 -- Name and details of an item, or nil until the game has loaded it (it arrives a moment later).
 local function itemEntry(id)
@@ -186,6 +187,9 @@ local function map()
     local force = mapForce
     mapForce = false
     if id and tostring(id) == mapID and GetTime() - mapAt < MAP_SECONDS and not force then return nil end
+    -- Counted from when it was built, not from when it last went out: a map that stayed the
+    -- same was otherwise built again every half second (most of the addon's memory use).
+    mapAt, mapID = GetTime(), id and tostring(id) or mapID
     return ns.MapPayload()
 end
 
@@ -194,7 +198,9 @@ end
 -- the game may keep cooldowns secret, then the last list stays.
 local cooldownKey, cooldownPayload = nil, nil
 local lastSent = {}
-local function cooldowns()
+-- The walk over the bags, again only when a cooldown starts or the bags change, and every
+-- 2 s (a cooldown that ran out leaves the list without an event). nil: kept secret now.
+local cooldownList = ns.Remember(function()
     local out, seen = {}, {}
     local now = GetTime()
     for bag = 0, 4 do
@@ -202,7 +208,7 @@ local function cooldowns()
             local id = C_Container.GetContainerItemID(bag, slot)
             if id and not seen[id] then
                 local start, duration = C_Container.GetContainerItemCooldown(bag, slot)
-                if issecretvalue and (issecretvalue(start) or issecretvalue(duration)) then return cooldownPayload end
+                if issecretvalue and (issecretvalue(start) or issecretvalue(duration)) then return nil end
                 if start and duration and start > 0 and duration > 1.5 and start + duration > now + 1 then
                     seen[id] = true
                     out[#out + 1] = id .. ":" .. math.floor(start + duration + 0.5)
@@ -210,7 +216,13 @@ local function cooldowns()
             end
         end
     end
-    local key = table.concat(out, ",")
+    return table.concat(out, ",")
+end, { "BAG_UPDATE_COOLDOWN", "BAG_UPDATE_DELAYED" }, 2)
+
+local function cooldowns()
+    local now = GetTime()
+    local key = cooldownList()
+    if key == nil then return cooldownPayload end
     -- A message sent again (a refresh, an app that just started) gets this moment's
     -- time: with the old one, the app would count the whole cooldown from now again.
     if key ~= cooldownKey or lastSent[9] == nil then
@@ -220,6 +232,7 @@ local function cooldowns()
     return cooldownPayload
 end
 
+local KIND_NAMES = { "status", "bags", "item names", "chat", "map", "character", "gear", "quests", "cooldowns", "spells", "quest pages" }
 local kinds = { status, bags, namesPayload, chat, map, ns.CharacterPayload, ns.GearPayload, ns.QuestsPayload, cooldowns, ns.SpellsPayload, ns.QuestPagesPayload }
 -- Small changes to a long message (a looted item, a quest objective) go out as
 --   TD1|<kind>|<checksum before>|<checksum after>|<at>|<cut>|<new bytes>
@@ -260,10 +273,15 @@ local function encode(t, p)
     return p
 end
 
--- A message cut short by a tap's answer: the app may not have it.
+-- The kinds that went out together in the last message (see nextMessage), first one first.
+local bundled = {}
+
+-- A message cut short by a tap's answer: the app may not have it (nor the kinds that came with it).
 local function interrupted(t)
-    lastSent[t] = nil
-    known[t] = knownBefore[t]
+    for _, b in ipairs(bundled[1] == t and bundled or { t }) do
+        lastSent[b] = nil
+        known[b] = knownBefore[b]
+    end
 end
 local turn = 0
 local statusAt = 0
@@ -321,21 +339,23 @@ local copyAgain = {}
 
 local function nextMessage()
     local id = C_Map.GetBestMapForUnit("player")
-    if statusUrgent then
+    -- With the corners the status and the chat have their own (see corners below).
+    local corners = ns.CornersOn()
+    if statusUrgent and not corners then
         turn = 0  -- the status (1) is next, sent even when it is the same as before
         statusAt = -STATUS_AGAIN - 1
         statusUrgent = false
         statusHold = 1.5  -- long enough for an app that looks once a second
         bagsUrgent = true -- and the bags right after it
         namesWait = true
-    elseif GetTime() - loadedAt < 30 and GetTime() - statusAt > 8 then
+    elseif not corners and GetTime() - loadedAt < 30 and GetTime() - statusAt > 8 then
         -- The status again soon after loading (see loadedAt), in between: the turns go on where they were.
         local ok, p = pcall(kinds[1])
         if ok and p then
             statusAt, lastSent[1], showingTurn = GetTime(), p, 1
             return encode(1, p)
         end
-    elseif chatUrgent and chatNow() then
+    elseif chatUrgent and chatNow() and not corners then
         turn = 3  -- the chat (4) is next
         chatUrgent = false
     elseif bagsUrgent then
@@ -346,15 +366,23 @@ local function nextMessage()
         mapForce = mapUrgent
     elseif lastSent[8] and ns.QuestPagesPending() then
         turn = 10  -- the rest of the quest log (11) right after its first page
-    elseif showingTurn ~= 4 and chatNow() and ns.ChatPending() then
+    elseif not corners and showingTurn ~= 4 and chatNow() and ns.ChatPending() then
         turn = 3  -- lines waiting in a busy chat: every other message is the chat
     end
     mapUrgent = false
+    -- With the corners, small messages go out together in one ("Y" and the messages, each
+    -- in its short form, between them byte 30), as long as they fit one part of the square:
+    -- after a login the map, character, gear, cooldowns and spells are there at once,
+    -- instead of one after another, each up for its own time.
+    local picked, pickedTurns, first = {}, {}, nil
+    local room = ns.StripPartBytes()
     for _ = 1, #kinds do
         turn = turn % #kinds + 1
         local ok, p = true, nil
         if turn == 10 then namesWait = false end  -- the spells: the last the card waits for
-        if (turn ~= 4 or chatNow()) and (turn ~= 3 or not namesWait) then ok, p = pcall(kinds[turn]) end
+        if corners and (turn == 1 or turn == 4) then
+            -- in their own corners
+        elseif (turn ~= 4 or chatNow()) and (turn ~= 3 or not namesWait) then ok, p = ns.Measured(KIND_NAMES[turn], kinds[turn]) end
         if not ok then p = "TS1|error|" .. tostring(p) end
         -- Every change redraws the square, so a moving position is sent only now and then.
         if turn == 1 and p and lastSent[1] and withoutPosition(p) == withoutPosition(lastSent[1])
@@ -364,14 +392,31 @@ local function nextMessage()
         -- The chat and the quest pages say themselves when they have something to send
         -- (each goes out twice, and the second time can look just like the first).
         if p and (p ~= lastSent[turn] or turn == 4 or turn == 11 or (turn == 1 and GetTime() - statusAt > STATUS_AGAIN)) then
+            local e = encode(turn, p)
+            if #picked > 0 then
+                local together = "Y" .. table.concat(picked, "\30") .. "\30" .. ns.Short(e)
+                if #ns.Pack(together) > room then
+                    -- Next time, on its own or with the ones after it.
+                    known[turn] = knownBefore[turn]
+                    turn = turn - 1
+                    break
+                end
+            end
             if turn == 1 then statusAt = GetTime() end
             if COPY_AGAIN[turn] and ns.StripFast() then copyAgain[turn] = true end
             if turn == 5 then mapAt, mapID = GetTime(), p:match("^TM1|(%d+)") end
             lastSent[turn] = p
             if SUMMED[turn] then sums[turn] = checksum(p) end
-            showingTurn = turn
-            return encode(turn, p)
+            picked[#picked + 1], pickedTurns[#pickedTurns + 1] = ns.Short(e), turn
+            first = first or e
+            -- On its own: the status (it has a hold of its own), without the corners, or one that fills a part already.
+            if not corners or turn == 1 or #ns.Pack(picked[1]) > room then break end
         end
+    end
+    if #picked > 0 then
+        showingTurn, bundled = pickedTurns[1], pickedTurns
+        if #picked == 1 then return first end
+        return "Y" .. table.concat(picked, "\30")
     end
     -- With the square going round once (/thor speed fast), what went out once goes out
     -- a second time when nothing else is waiting, for an app that missed a part.
@@ -390,7 +435,7 @@ local function nextMessage()
         caughtUp, chatUrgent, picturesAfter = true, true, GetTime() + 1
     end
     -- Nothing changed: time for the item tooltips the app hasn't got yet.
-    local ok, tips = pcall(ns.TooltipsPayload)
+    local ok, tips = ns.Measured("item tooltips", ns.TooltipsPayload)
     if ok and tips then
         showingTurn = nil
         return tips
@@ -449,6 +494,142 @@ loadEvents:SetScript("OnEvent", function(_, event)
         loadedAt = GetTime()
     end
 end)
+-- With the corners (the default, see Corners.lua) your position, the status and the
+-- chat each have a corner of their own: they go out at once, without waiting for the
+-- data square, and the data square no longer changes every time you take a step.
+--   TP2|mapID|x|y|facing   (the position: the same fields as in TS1, in the top-left corner)
+local function position()
+    local mapID = C_Map.GetBestMapForUnit("player")
+    local x, y = 0, 0
+    if mapID then
+        local pos = C_Map.GetPlayerMapPosition(mapID, "player")
+        if pos then x, y = pos:GetXY() end
+    end
+    local facing = GetPlayerFacing and plain(GetPlayerFacing())
+    facing = type(facing) == "number" and string.format("%.1f", facing) or ""
+    return string.format("TP2|%d|%.4f|%.4f|%s", mapID or 0, x or 0, y or 0, facing)
+end
+
+-- Short forms for the corners, which go out the most: numbers as fixed-width digits of 64
+-- (0-9 A-Z a-z + /), the app writes them out again (Compact.kt). Fewer bytes, smaller squares.
+--   P<map 3><x 3><y 3><facing 1>     instead of TP2|map|x|y|facing (x, y in 262144ths, facing in 64ths of a turn)
+--   S<name>|<level>|<copper>|<map,x,y,facing as in P>|<session>|<bagHash 3>|<version>|<sums, 3 each>
+--                                    instead of TS1|... (sums in the order of SUM_KINDS)
+local DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+/"
+local function b64(n, width)
+    n = math.max(0, math.floor(tonumber(n) or 0))
+    local out = {}
+    repeat
+        local d = n % 64
+        table.insert(out, 1, DIGITS:sub(d + 1, d + 1))
+        n = math.floor(n / 64)
+    until n == 0 and (not width or #out >= width)
+    return table.concat(out)
+end
+local FULL = 262143
+local function place(mapID, x, y, facing)
+    local f = tonumber(facing)
+    return b64(mapID, 3) .. b64(math.floor((tonumber(x) or 0) * FULL + 0.5), 3) .. b64(math.floor((tonumber(y) or 0) * FULL + 0.5), 3)
+        .. (f and b64(math.floor(f / (2 * math.pi) * 64 + 0.5) % 64, 1) or "")
+end
+--   B<free 2><total 2><item>...      instead of TB1|free/total|itemID:count[:key],... Each item is
+--                                    one digit saying how wide the rest is (id 3 or 4, count 0 to 2 (0: 1),
+--                                    key 0 to 2 (0: none)), then the id, count and key
+local function width(n, max)
+    local w = 0
+    while n >= 64 ^ w do w = w + 1 end
+    return w <= max and w or nil
+end
+local function bagsShort(p)
+    local free, total, list = p:match("^TB1|(%d+)/(%d+)|(.*)$")
+    if not free or tonumber(free) >= 4096 or tonumber(total) >= 4096 then return nil end
+    local out = { "B", b64(free, 2), b64(total, 2) }
+    for e in list:gmatch("[^,]+") do
+        local id, count, key = e:match("^(%d+):(%d+):?(%d*)$")
+        if not id then return nil end
+        id, count, key = tonumber(id), tonumber(count), tonumber(key)
+        -- No leading zeros, so the app writes the same text again.
+        if e ~= id .. ":" .. count .. (key and (":" .. key) or "") then return nil end
+        local iw = id < 262144 and 3 or (id < 16777216 and 4 or nil)
+        local cw = count == 1 and 0 or (count > 0 and width(count, 2))
+        local kw = key and (key > 0 and width(key, 2)) or 0
+        if not iw or not cw or not kw then return nil end
+        out[#out + 1] = b64((iw - 3) + 2 * cw + 6 * kw, 1) .. b64(id, iw)
+            .. (cw > 0 and b64(count, cw) or "") .. (kw > 0 and b64(key, kw) or "")
+    end
+    return table.concat(out)
+end
+
+-- TP2|... as P..., TS1|... as S..., TB1|... as B...; anything else as it is.
+function ns.Short(p)
+    if p:sub(1, 4) == "TP2|" then
+        local m, x, y, f = p:match("^TP2|(%d+)|([%d.]+)|([%d.]+)|(.*)$")
+        if m then return "P" .. place(m, x, y, f) end
+    elseif p:sub(1, 4) == "TB1|" then
+        return bagsShort(p) or p
+    elseif p:sub(1, 4) == "TS1|" then
+        local f = { strsplit("|", p) }
+        if #f >= 12 and f[2] ~= "error" then
+            local sums = {}
+            for kind, h in (f[12] .. ","):gmatch("(%d+):(%d+),") do sums[#sums + 1] = b64(h, 3) end
+            return string.format("S%s|%s|%s|%s|%s|%s|%s|%s", f[2], b64(f[3]), b64(f[4]), place(f[5], f[6], f[7], f[8]),
+                b64(f[9]), b64(f[10], 3), f[11], table.concat(sums))
+        end
+    end
+    return p
+end
+
+local POSITION_CHECK, STATUS_CHECK, CHAT_CHECK = 0.25, 0.5, 2
+local positionSent, positionAt, positionCheckedAt = nil, -100, -100
+local statusCheckedAt, chatCheckedAt = -100, -100
+local function corners()
+    local now = GetTime()
+    -- The chat box and what came of a tap go first, then new chat lines; each waits until
+    -- the last one in the corner has been up its time. (Written over at once, your own line,
+    -- which comes just as the chat box closes, was gone before the app could read it.)
+    local okOpen, opened, okUse, use = false, nil, false, nil
+    if not ns.CornerBusy("chat") then
+        okOpen, opened = ns.Measured("chat box", ns.ChatOpenPayload)
+        if not (okOpen and opened) then okUse, use = ns.Measured("tap result", ns.UsePayload) end
+    end
+    if okOpen and opened then
+        ns.CornerWrite("chat", opened)
+    elseif okUse and use then
+        ns.CornerWrite("chat", use)
+    elseif not ns.CornerBusy("chat") and chatNow() and (chatAgain or ns.ChatPending() or now - chatCheckedAt > CHAT_CHECK) then
+        chatCheckedAt = now
+        local ok, p = ns.Measured("chat", chat)
+        if ok and p then ns.CornerWrite("chat", p) end
+    end
+    chatUrgent = false
+    -- The status: after a loading screen at once (and every few seconds for a while), else
+    -- when something besides the position changed, and every STATUS_AGAIN seconds.
+    if statusUrgent or (not ns.CornerBusy("status") and now - statusCheckedAt >= STATUS_CHECK) then
+        statusCheckedAt = now
+        local ok, p = ns.Measured("status", status)
+        if not ok then p = "TS1|error|" .. tostring(p) end
+        local hold
+        if statusUrgent then
+            statusUrgent, bagsUrgent, namesWait, hold = false, true, true, 1.5
+            turn = 1  -- the bags (2) next on the data square
+        end
+        if hold or now - statusAt > STATUS_AGAIN or (now - loadedAt < 30 and now - statusAt > 8)
+            or withoutPosition(p) ~= withoutPosition(lastSent[1]) then
+            statusAt, lastSent[1] = now, p
+            ns.CornerWrite("status", ns.Short(p), hold)
+        end
+    end
+    -- The position, when it changed (at most every MOVE_SECONDS).
+    if not ns.CornerBusy("position") and now - positionCheckedAt >= POSITION_CHECK and now - positionAt >= MOVE_SECONDS then
+        positionCheckedAt = now
+        local ok, p = pcall(position)
+        if ok and p ~= positionSent then
+            positionSent, positionAt = p, now
+            ns.CornerWrite("position", ns.Short(p), 0.4)  -- the app looks at the corners about every 0.15 s
+        end
+    end
+end
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
 f:SetScript("OnEvent", function()
@@ -459,7 +640,9 @@ f:SetScript("OnEvent", function()
     -- (most calls only find the square still busy); the refreshes count half seconds.
     local sub, idleUntil = 0, 0
     local overlayUp = false
-    ticker = C_Timer.NewTicker(0.1, function()
+    local tick
+    ticker = C_Timer.NewTicker(0.1, function() ns.Measured("all of the 0.1 s round", tick) end)
+    tick = function()
         -- Nothing while a loading screen is up, and for a moment after: the game is
         -- busy setting up the zone then, and asking it things is better left alone.
         if loading or GetTime() < quietUntil then return end
@@ -469,21 +652,24 @@ f:SetScript("OnEvent", function()
             if ticks % REFRESH_TICKS == 0 then lastSent, chatAgain, known = {}, true, {} ns.QuestPagesAgain() end
             if ticks % MAP_REFRESH_TICKS == 0 then lastSent[5], known[5] = nil, nil end
         end
+        if ns.CornersOn() then ns.Measured("corners: what to send", corners) end
         -- What came of a tap goes out at once; whatever it cut short is sent again.
-        local okOpen, opened = pcall(ns.ChatOpenPayload)
+        local okOpen, opened = false, nil
+        if not ns.CornersOn() then okOpen, opened = ns.Measured("chat box", ns.ChatOpenPayload) end
         if okOpen and opened then
             if showingTurn and ns.StripBusy() then interrupted(showingTurn) end showingTurn = nil
             ns.StripWrite(opened)
             return
         end
-        local okUse, use = pcall(ns.UsePayload)
+        local okUse, use = false, nil
+        if not ns.CornersOn() then okUse, use = ns.Measured("tap result", ns.UsePayload) end
         if okUse and use then
             if showingTurn and ns.StripBusy() then interrupted(showingTurn) end showingTurn = nil
             ns.StripWrite(use)
             return
         end
         -- The zone picture is up: say where, so the app can take it.
-        local okPicture, picture = pcall(ns.MapPicturePayload)
+        local okPicture, picture = ns.Measured("zone picture", ns.MapPicturePayload)
         if not okPicture then picture = nil end
         if picture then
             if showingTurn and ns.StripBusy() then interrupted(showingTurn) end showingTurn = nil
@@ -491,7 +677,7 @@ f:SetScript("OnEvent", function()
             overlayUp = true
             return
         end
-        local okIcons, icons = pcall(ns.IconsPayload)
+        local okIcons, icons = ns.Measured("item icons", ns.IconsPayload)
         if okIcons and icons then
             if showingTurn and ns.StripBusy() then interrupted(showingTurn) end showingTurn = nil
             ns.StripWrite(icons)
@@ -512,18 +698,20 @@ f:SetScript("OnEvent", function()
         if ns.StripBusy() then return end
         -- What the app has no picture of yet comes up by itself, one at a time (not while
         -- chat lines wait: each picture holds the square for seconds).
-        if (caughtUp and GetTime() > picturesAfter or GetTime() > caughtUpBy + 5) and not ns.ChatPending() then
-            local okAuto, shown = pcall(ns.MapPictureAuto)
+        if (caughtUp and GetTime() > picturesAfter or GetTime() > caughtUpBy + 5) and (ns.CornersOn() or not ns.ChatPending()) then
+            local okAuto, shown = ns.Measured("zone picture", ns.MapPictureAuto)
             if okAuto and shown then return end
-            okAuto, shown = pcall(ns.IconsAuto)
+            okAuto, shown = ns.Measured("item icons", ns.IconsAuto)
             if okAuto and shown then return end
         end
-        -- Building every kind to find nothing changed costs: when nothing was, wait half a second.
-        if GetTime() < idleUntil then return end
+        -- Building every kind to find nothing changed costs: when nothing was, wait half a
+        -- second. Not when the game just said something changed (bags, a quest or zone, a
+        -- chat line, a loading screen): that goes out at once.
+        if GetTime() < idleUntil and not (bagsUrgent or mapUrgent or statusUrgent or (chatUrgent and chatNow())) then return end
         statusHold = nil
         local p = nextMessage()
         if p then ns.StripWrite(p, statusHold) else idleUntil = GetTime() + 0.45 end
-    end)
+    end
 end)
 
 local function setting(key, value, low, high, what)
@@ -534,6 +722,7 @@ local function setting(key, value, low, high, what)
     end
     ThorCompanionDB[key] = value
     ns.StripRefresh()
+    ns.CornersRefresh()
 end
 
 SLASH_THORCOMPANION1 = "/thor"
@@ -543,19 +732,26 @@ SlashCmdList.THORCOMPANION = function(msg)
     local cell = msg:match("^cell%s+(%d+)$")
     local shadeStep = msg:match("^shade%s+(%d+)$")
     if right then
-        local bar = ThorCompanionDB.shape == nil or ThorCompanionDB.shape == "bar"
-        setting(bar and "barRight" or "right", right, 0, 2000, "the distance from the right edge")
-        setting(bar and "barTop" or "top", top, 0, 1200, "the distance from the top edge")
-    elseif msg == "shape line" or msg == "shape square" or msg == "shape bar" then
+        local prefix = ns.CornersOn() and "data" or ThorCompanionDB.shape == "bar" and "bar" or nil
+        setting(prefix and prefix .. "Right" or "right", right, 0, 2000, "the distance from the right edge")
+        setting(prefix and prefix .. "Top" or "top", top, 0, 1200, "the distance from the top edge")
+    elseif msg == "shape line" or msg == "shape square" or msg == "shape bar" or msg == "shape corners" then
         ThorCompanionDB.shape = msg:sub(7)
         ThorCompanionDB.top = nil  -- each shape has its own default place
         ns.StripRefresh()
+        ns.CornersRefresh()
         print("|cff66ccffForever Companion|r data shown as " .. (msg == "shape bar" and "a thin colour bar while something is sent"
+            or msg == "shape corners" and "four small colour squares in the corners while something is sent"
             or msg == "shape square" and "the dark square" or "a dark line") .. " (the app follows by itself)")
     elseif cell then
         setting("cell", cell, 2, 8, "the cell size")
     elseif shadeStep then
         setting("shade", shadeStep, 4, 80, "the shade step")
+    elseif msg == "dense on" or msg == "dense off" then
+        -- A test: eight colour levels instead of four, so the squares get a third smaller.
+        -- Long-press the status line in the app to see how well it reads them.
+        ThorCompanionDB.dense = (msg == "dense on")
+        print("|cff66ccffForever Companion|r colour squares with " .. (ThorCompanionDB.dense and "8 levels (smaller, a test)" or "4 levels (the usual)"))
     elseif msg == "speed fast" or msg == "speed safe" then
         ThorCompanionDB.speed = msg:sub(7)
         print("|cff66ccffForever Companion|r square: " .. (msg == "speed fast" and "fast (every part once)" or "safe (every part twice, slower)"))
@@ -575,8 +771,11 @@ SlashCmdList.THORCOMPANION = function(msg)
         print("|cff66ccffForever Companion|r " .. ns.IconsInfo())
     elseif msg == "map" then
         print("|cff66ccffForever Companion|r " .. ns.MapInfo())
+    elseif msg == "mem" then
+        print("|cff66ccffForever Companion|r memory made (type /thor mem again after a minute):\n" .. ns.MemReport())
     elseif msg == "info" then
         print("|cff66ccffForever Companion|r " .. ns.StripInfo())
+        if ns.CornersOn() then print("|cff66ccffForever Companion|r corners: " .. ns.CornersInfo()) end
     elseif msg == "taps" then
         print("|cff66ccffForever Companion|r " .. ns.TapsInfo())
     elseif msg == "taps on" or msg == "taps off" then
@@ -586,6 +785,7 @@ SlashCmdList.THORCOMPANION = function(msg)
     elseif msg == "hide" or msg == "show" then
         ThorCompanionDB.hidden = (msg == "hide")
         ns.StripShow(msg == "show")
+        ns.CornersRefresh()
     else
         print("|cff66ccffForever Companion|r " .. ns.StripInfo())
         for _, kind in ipairs({ status, bags, ns.MapPayload }) do

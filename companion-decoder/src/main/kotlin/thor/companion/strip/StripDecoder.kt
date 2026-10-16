@@ -68,6 +68,13 @@ object StripDecoder {
         // The colour bar (the addon's default) first, then the dark line and square.
         val bar = decodeBar(px, x0, y0, cell)
         if (bar is Result.Ok && bar.frame.crcOk) return bar
+        // The corner squares (same colours, COLS wide, only as tall as the part they show:
+        // read as the tallest, the length in the header says how much counts).
+        val corner = decodeBar(px, x0, y0, cell, COLS, CORNER_ROWS.values.max(), ANY_CORNER)
+        if (corner is Result.Ok && corner.frame.crcOk) return corner
+        // The same in eight levels per colour (/thor dense on, a test).
+        val dense = decodeBar(px, x0, y0, cell, COLS, CORNER_ROWS.values.max(), ANY_CORNER, dense = true)
+        if (dense is Result.Ok && dense.frame.crcOk) return dense
         // The line's cells go on along the sync row; the square's wrap after COLS.
         val line = decodeAt(px, x0, y0, cell, COLS * COLS)
         if (line is Result.Ok && line.frame.crcOk) return line
@@ -132,15 +139,46 @@ object StripDecoder {
     const val BAR_ROWS = 3
 
     /**
+     * The four corner squares (/thor shape corners, the default): the bar's colours, COLS
+     * cells wide, each as tall as what it carries. Version: rows.
+     *   6 top left: the position (TP2)       7 bottom left: the chat, chat box and tap answers
+     *   8 bottom right: the status (TS1)     9 top right: everything else (bags, quests, map...)
+     */
+    const val POSITION_VERSION = 6
+    const val CHAT_VERSION = 7
+    const val STATUS_VERSION = 8
+    const val DATA_VERSION = 9
+    val CORNER_ROWS = mapOf(POSITION_VERSION to 5, CHAT_VERSION to 10, STATUS_VERSION to 12, DATA_VERSION to 16)
+
+    /** The longest part a corner square of [rows] rows carries: its cells less sync and calibration, as bytes, less header and checksum. */
+    fun cornerPayload(rows: Int, dense: Boolean = false) =
+        if (dense) (COLS * rows - COLS - CALIB - 4) * 9 / 8 - 4 - 2 else (COLS * rows - COLS - CALIB) / 4 * 3 - 4 - 2
+
+    /** For decodeBar: any of the corner squares. */
+    private const val ANY_CORNER = -1
+
+    /** The corner squares in eight levels per colour: their version is the usual one + DENSE (10 to 13). */
+    const val DENSE = 4
+
+    /** The base kind of a corner square's version (6 to 9), dense or not; other versions as they are. */
+    fun cornerKind(version: Int) = if (version in POSITION_VERSION + DENSE..DATA_VERSION + DENSE) version - DENSE else version
+
+    /**
      * The colour bar: BAR_COLS x BAR_ROWS cells, the same sync cells, then calibration
      * (grey 0..3, red, green, blue at level 3, black) and 6 bits per cell, 2 per colour.
      * The screen mixes the colours (red shows in green and so on), so the calibration's
      * pure colours give the mix, and each cell is unmixed before it is read.
      */
-    private fun decodeBar(px: Pixels, x0: Double, y0: Int, cell: Double): Result {
+    private fun decodeBar(
+        px: Pixels, x0: Double, y0: Int, cell: Double,
+        cols: Int = BAR_COLS, rows: Int = BAR_ROWS, version: Int = BAR_VERSION,
+        dense: Boolean = false,
+    ): Result {
+        // dense: 8 levels per colour (grey 0..7 to calibrate, then the pure colours and black), 9 bits a cell.
+        val levels = if (dense) 8 else 4
         fun colour(i: Int): Int {
-            val x = (x0 + (i % BAR_COLS + 0.5) * cell).toInt().coerceIn(0, px.width - 1)
-            val y = (y0 + (i / BAR_COLS) * cell).roundToInt().coerceIn(0, px.height - 1)
+            val x = (x0 + (i % cols + 0.5) * cell).toInt().coerceIn(0, px.width - 1)
+            val y = (y0 + (i / cols) * cell).roundToInt().coerceIn(0, px.height - 1)
             return px.rgb(x, y)
         }
         // The Thor mixes the colours in linear light (its colour correction), so unmix there:
@@ -148,9 +186,9 @@ object StripDecoder {
         fun lin(v: Int): Double { val f = v / 255.0; return if (f <= 0.04045) f / 12.92 else ((f + 0.055) / 1.055).pow(2.4) }
         fun rgb(c: Int) = doubleArrayOf(lin(c shr 16 and 0xFF), lin(c shr 8 and 0xFF), lin(c and 0xFF))
         val k = COLS
-        val black = rgb(average(colour(k), colour(k + 7)))
+        val black = rgb(average(colour(k), colour(k + levels + 3)))
         // Columns of the mix: what full red, green and blue each add to black.
-        val m = Array(3) { row -> DoubleArray(3) { col -> rgb(colour(k + 4 + col))[row] - black[row] } }
+        val m = Array(3) { row -> DoubleArray(3) { col -> rgb(colour(k + levels + col))[row] - black[row] } }
         val inv = invert(m) ?: return Result.Failed("bar colours not told apart")
         fun unmix(c: Int): DoubleArray {
             val v = rgb(c)
@@ -159,28 +197,47 @@ object StripDecoder {
             return DoubleArray(3) { r -> 255 * maxOf(0.0, inv[r][0] * d[0] + inv[r][1] * d[1] + inv[r][2] * d[2]).pow(1 / 2.4) }
         }
         // Where each grey level lands per channel once unmixed (the screen isn't linear).
-        val greys = Array(4) { unmix(colour(k + it)) }
+        val greys = Array(levels) { unmix(colour(k + it)) }
+        val bits = if (dense) 3 else 2
         fun sym(i: Int): Int {
             val u = unmix(colour(i))
             var out = 0
             for (ch in 0 until 3) {
                 var best = 0
-                for (lv in 1 until 4) if (abs(u[ch] - greys[lv][ch]) < abs(u[ch] - greys[best][ch])) best = lv
-                out = (out shl 2) or best
+                for (lv in 1 until levels) if (abs(u[ch] - greys[lv][ch]) < abs(u[ch] - greys[best][ch])) best = lv
+                out = (out shl bits) or best
             }
             return out
         }
-        val first = COLS + CALIB
-        val groups = (BAR_COLS * BAR_ROWS - first) / 4
-        val bytes = ByteArray(groups * 3)
-        for (g in 0 until groups) {
-            val i = first + g * 4
-            val v = (sym(i) shl 18) or (sym(i + 1) shl 12) or (sym(i + 2) shl 6) or sym(i + 3)
-            bytes[g * 3] = (v shr 16).toByte(); bytes[g * 3 + 1] = (v shr 8).toByte(); bytes[g * 3 + 2] = v.toByte()
+        val first = COLS + levels + 4
+        val bytes: ByteArray
+        if (dense) {
+            // One stream of bits, 9 to a cell.
+            val count = cols * rows - first
+            bytes = ByteArray(count * 9 / 8)
+            var acc = 0; var n = 0; var b = 0
+            for (c in 0 until count) {
+                acc = (acc shl 9) or sym(first + c); n += 9
+                while (n >= 8 && b < bytes.size) { n -= 8; bytes[b++] = (acc shr n).toByte(); acc = acc and ((1 shl n) - 1) }
+            }
+        } else {
+            val groups = (cols * rows - first) / 4
+            bytes = ByteArray(groups * 3)
+            for (g in 0 until groups) {
+                val i = first + g * 4
+                val v = (sym(i) shl 18) or (sym(i + 1) shl 12) or (sym(i + 2) shl 6) or sym(i + 3)
+                bytes[g * 3] = (v shr 16).toByte(); bytes[g * 3 + 1] = (v shr 8).toByte(); bytes[g * 3 + 2] = v.toByte()
+            }
         }
         val head = bytes.copyOfRange(0, 4)
-        if ((head[0].toInt() and 0xFF) != BAR_VERSION) {
-            return Result.Failed("not the bar (header %d, cell %.1f at %.0f,%d, black %s)".format(
+        val got = head[0].toInt() and 0xFF
+        val wanted = when {
+            version != ANY_CORNER -> got == version
+            dense -> got in POSITION_VERSION + DENSE..DATA_VERSION + DENSE
+            else -> got in POSITION_VERSION..DATA_VERSION
+        }
+        if (!wanted) {
+            return Result.Failed("not the ${if (version == BAR_VERSION) "bar" else "square"} (header %d, cell %.1f at %.0f,%d, black %s)".format(
                 head[0].toInt() and 0xFF, cell, x0, y0, black.joinToString("/") { it.toInt().toString() }))
         }
         val length = head[3].toInt() and 0xFF
@@ -189,10 +246,10 @@ object StripDecoder {
         val crc = ((bytes[4 + length].toInt() and 0xFF) shl 8) or (bytes[5 + length].toInt() and 0xFF)
         val partByte = head[2].toInt() and 0xFF
         var spread = Double.MAX_VALUE
-        for (p in 0 until 4) for (q in p + 1 until 4) for (ch in 0 until 3) spread = minOf(spread, abs(greys[p][ch] - greys[q][ch]))
+        for (p in 0 until levels) for (q in p + 1 until levels) for (ch in 0 until 3) spread = minOf(spread, abs(greys[p][ch] - greys[q][ch]))
         return Result.Ok(
             StripFrame(
-                version = BAR_VERSION,
+                version = got,
                 seq = head[1].toInt() and 0xFF,
                 part = partByte shr 4,
                 parts = (partByte and 15) + 1,
@@ -246,13 +303,15 @@ object StripDecoder {
 
     private fun lum(c: Int) = ((c shr 16 and 0xFF) + (c shr 8 and 0xFF) + (c and 0xFF)) / 3.0
 
-    /** (x of the first cell, cell width) if the sync row crosses row [y]. */
-    private fun syncAt(px: Pixels, y: Int): Pair<Double, Double>? {
+    /**
+     * (x of the first cell, cell width) if the sync row crosses row [y]. [l] and [d]: room
+     * for a row (px.width each), used again for every row, so a search makes no garbage per row.
+     */
+    private fun syncAt(px: Pixels, y: Int, l: DoubleArray = DoubleArray(px.width), d: DoubleArray = DoubleArray(px.width)): Pair<Double, Double>? {
         val w = px.width
-        val l = DoubleArray(w) { lum(px.rgb(it, y)) }
+        for (x in 0 until w) l[x] = lum(px.rgb(x, y))
         // Edges: where brightness steps up or down. A step blended over two pixels
         // still gives one peak of the difference across three pixels.
-        val d = DoubleArray(w)
         for (x in 1 until w - 1) d[x] = l[x + 1] - l[x - 1]
         val edgeX = ArrayList<Int>()
         val edgeUp = ArrayList<Boolean>()
@@ -273,6 +332,8 @@ object StripDecoder {
             if ((0 until need).any { abs(edgeX[i + it] - edgeX[i] - it * pitch) > slack }) continue
             val x0 = edgeX[i] + 0.5 - pitch
             if (x0 < 0) continue
+            // A square cut off by the picture's edge (only part of a corner copied): not this one.
+            if ((x0 + (COLS - 0.5) * pitch).toInt() >= w) continue
             // Light cells alike, dark cells alike, and clearly apart.
             val light = (0 until COLS step 2).map { l[(x0 + (it + 0.5) * pitch).toInt()] }
             val dark = (1 until COLS step 2).map { l[(x0 + (it + 0.5) * pitch).toInt()] }
@@ -287,14 +348,16 @@ object StripDecoder {
     private fun findSquare(px: Pixels, from: Int, to: Int): Triple<Double, Int, Double>? {
         var first = -1
         var firstSync: Pair<Double, Double>? = null
+        val l = DoubleArray(px.width)
+        val d = DoubleArray(px.width)
         for (y in maxOf(0, from) until minOf(px.height, to)) {
-            val found = syncAt(px, y)
+            val found = syncAt(px, y, l, d)
             if (found != null && first < 0) {
                 first = y
                 firstSync = found
             } else if (first >= 0 && (found == null || abs(found.first - firstSync!!.first) > 1.5)) {
                 val mid = (first + y - 1) / 2 // edge rows are blended; use the middle
-                val (x0, cell) = syncAt(px, mid) ?: firstSync!!
+                val (x0, cell) = syncAt(px, mid, l, d) ?: firstSync!!
                 return Triple(x0, mid, cell)
             }
         }

@@ -38,6 +38,7 @@ local WHISPER_SLOTS = 10
 
 local lines = {}         -- { id, kind, sender, channel, text }
 local sends = {}         -- id -> how often it went out
+local mine = {}          -- id -> true for your own lines in a public channel (sent twice, like the others)
 local nextId = 1
 local session = tostring(time())
 
@@ -62,8 +63,15 @@ local whisperClock = 0
 local chatOwner = CreateFrame("Frame")
 local chatPending = false
 
+local function isMe(name)
+    local me = UnitName("player")
+    local realm = GetNormalizedRealmName and GetNormalizedRealmName()
+    return name == me or (realm ~= nil and name == me .. "-" .. realm)
+end
+
 local function remember(name)
-    if name == "" or name == "?" or name == UnitName("player") then return end
+    -- Not you: your own lines come with your Name-Realm.
+    if name == "" or name == "?" or isMe(name) then return end
     local slot
     for n = 1, WHISPER_SLOTS do
         if whisperName[n] == name then slot = n break end
@@ -177,6 +185,7 @@ local function add(kind, sender, channel, text)
     channel = (not secret(channel) and channel) and plain(tostring(channel)):gsub("^%d+%.%s*", ""):gsub("%s+%-%s+.*$", "") or ""
     if kind ~= "system" and kind ~= "bnwhisper" then remember(sender) end
     lines[#lines + 1] = { nextId, kind, sender, channel, text }
+    if kind == "channel" and isMe(sender) then mine[nextId] = true end
     nextId = nextId + 1
     -- Busy public channels make room among themselves, never by pushing out your
     -- group's, guild's or whisper lines.
@@ -188,10 +197,10 @@ local function add(kind, sender, channel, text)
         end
     end
     if channelLines > KEEP_CHANNEL or (#lines > KEEP and oldestChannel) then
-        sends[lines[oldestChannel][1]] = nil
+        sends[lines[oldestChannel][1]], mine[lines[oldestChannel][1]] = nil, nil
         table.remove(lines, oldestChannel)
     elseif #lines > KEEP then
-        sends[lines[1][1]] = nil
+        sends[lines[1][1]], mine[lines[1][1]] = nil, nil
         table.remove(lines, 1)
     end
     if kind ~= "channel" and kind ~= "system" and ns.ChatUrgent then ns.ChatUrgent() end
@@ -206,7 +215,7 @@ f:SetScript("OnEvent", function(_, event, text, sender, _, channelName)
         kind = kind == "whisper" and "bnwhisper" or "bnwhisper_to"
         sender = ""
     end
-    add(kind, sender, kind == "channel" and channelName or "", text)
+    ns.Measured("chat lines", add, kind, sender, kind == "channel" and channelName or "", text)
 end)
 
 -- The public channels you are in: "1 General,2 Trade,...".
@@ -233,7 +242,7 @@ function ns.ChatPayload(again, peek)
     local names = {}
     for n = 1, WHISPER_SLOTS do names[n] = whisperName[n] or "" end
     local head = "TH1|" .. session .. "\t" .. table.concat(names, ",") .. "\t" .. chans
-    local room = ns.StripCapacity() - #head - 1
+    local room = (ns.CornersOn() and ns.CornerCapacity("chat") or ns.StripCapacity()) - #head - 1
     local picked, used = {}, 0
     local function take(l)
         local entry = table.concat(l, "\t")
@@ -256,7 +265,7 @@ function ns.ChatPayload(again, peek)
             if l[2] ~= "channel" and (sends[l[1]] or 0) < SENDS and not take(l) then break end
         end
         for _, l in ipairs(lines) do
-            if l[2] == "channel" and (sends[l[1]] or 0) < 1 and not take(l) then break end
+            if l[2] == "channel" and (sends[l[1]] or 0) < (mine[l[1]] and SENDS or 1) and not take(l) then break end
         end
     end
     if #picked == 0 and chans == sentChannels and not again then return nil end
@@ -273,7 +282,7 @@ end
 -- Whether there are lines the app hasn't been sent yet.
 function ns.ChatPending()
     for _, l in ipairs(lines) do
-        if (sends[l[1]] or 0) < (l[2] == "channel" and 1 or SENDS) then return true end
+        if (sends[l[1]] or 0) < ((l[2] ~= "channel" or mine[l[1]]) and SENDS or 1) then return true end
     end
     return false
 end

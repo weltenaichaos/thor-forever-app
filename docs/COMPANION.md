@@ -16,9 +16,10 @@ Copied from thor-companion's `app/voice` branch, commit `27aa50f` (0.24.2):
 | Here | There |
 | --- | --- |
 | `companion-decoder/src` | `decoder/src` (unchanged, tests included) |
-| `app/src/main/assets/thor/companion/ThorCompanion` | `addon/ThorCompanion` (unchanged) |
+| `app/src/main/assets/thor/companion/ThorCompanion` | `addon/ThorCompanion` (changes below) |
 | `app/src/main/java/thor/companion/CompanionActivity.kt` | `app/.../MainActivity.kt` (only renamed) |
 | `MapView.kt`, `NameStore.kt`, `TipStore.kt`, `IconStore.kt`, `Ui.kt` | unchanged |
+| `GameFiles.kt` | `app/.../GameFiles.kt` (one change, below) |
 
 These are written for Thor Forever instead:
 
@@ -26,16 +27,39 @@ These are written for Thor Forever instead:
   (Android's PixelCopy), not with a root `screencap`.
 - `KeySender.kt` sends a tap's key straight into Thor Forever's X server, which hands it to
   WoW. One tap is one key press, as before; chat sends your text and Enter.
+- `KeySender.open` follows the game through its files with `GameFiles`, like the standalone
+  app's root helper, but inside the app: the game's files are the app's own. The start screen
+  tells it the game folder. `GameFiles.process` also takes that folder, because inside Thor
+  Forever the game's command line has its Windows path (`C:\...`), not an Android one.
 - `RootShell.kt` runs as the app itself: no root is needed. `Updater.kt` and
   `AddonInstaller.kt` do nothing: the companion updates with the app, and the start screen
   installs the addon (`core/CompanionAddon.java`).
 - `CompanionBridge.kt` connects the companion to the game screen and opens it on the other
   screen.
+- The addon (0.25.0 here) splits what it sends over four small colour squares in the corners
+  of the screen (`Corners.lua`, the default `/thor shape corners`), each only there while it
+  sends: your position (`TP2`) top left, the chat, chat box and tap answers bottom left, the
+  status bottom right, everything else top right (the data square, 20 x 16 cells). The app
+  copies only those four corners (`CornerAreas` in the decoder) about every 0.15 s, keeps each
+  corner's message numbers apart, and puts a `TP2` into the last status. Only when no corner
+  square was read for 25 s does it look at the whole picture (an older addon, or `/thor shape bar`).
+  Each square is only as tall as the part it shows, and the position and status go in short
+  forms (`P...`, `S...`, written out again by `Compact.kt`), the bags as `B...`. Every message
+  is then packed (`Pack.lua`, `Z...`): numbers and map places as digits of 64, and repeats of
+  earlier bytes as a short reference. After a login the small messages (map, character, gear,
+  cooldowns, spells) go out together in one (`Y...`), so the start-up card fills sooner. `/thor dense on` (a test) uses eight
+  colour levels instead of four, so the squares get a third smaller; a long press on the
+  app's status line says how well each corner reads.
+- It builds the bags, gear, character, quests and cooldowns again
+  only when the game says they changed, or every few seconds (`ns.Remember` in `Strip.lua`);
+  it skips its idle wait for urgent changes; and it shows the first part of a message after a
+  quiet spell for 0.6 s, since the reading loop here looks every 0.4 s where the bar was.
+  `/thor mem` says which parts of the addon make the most memory (per second since the last `/thor mem`).
 
 To take a newer companion over, copy the files in the first table again and keep the
 replacements above.
 
 ## Not yet
 
-- The game isn't followed through its files yet (the standalone app's root helper did that);
-  the companion follows the game by its picture alone.
+- The companion's log button saves Thor Forever's own log, but no screenshot: taking one
+  needs root.

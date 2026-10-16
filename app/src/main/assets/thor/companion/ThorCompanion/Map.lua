@@ -422,7 +422,7 @@ end
 
 C_Timer.NewTicker(1, function()
     if not InCombatLockdown() and ThorCompanionDB then
-        local ok, err = pcall(measureZone)
+        local ok, err = ns.Measured("map: zone size", measureZone)
         if not ok then sizeNote = "measuring failed: " .. tostring(err) end
     end
 end)

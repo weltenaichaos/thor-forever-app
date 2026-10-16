@@ -92,6 +92,7 @@ Thor Forever is its own app (`com.thorforever.app`). It installs next to any Win
   - Install an add-on from a `.zip` you downloaded in your browser.
   - Uninstall an add-on with one tap.
 - **Companion:** turn the Forever Companion on or off.
+- **Updates:** Settings > **Check for updates** lists the published releases and installs the one you tap.
 - **More:** opens the normal Winlator screens, for all other settings.
 - The app closes the game session by itself when WoW quits.
 
