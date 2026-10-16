@@ -785,7 +785,7 @@ public class TouchpadView extends View {
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
         if (!softKeyboardRequested) return null;
-        outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT | EditorInfo.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT | EditorInfo.TYPE_TEXT_VARIATION_PASSWORD
                 | EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
                 | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING | EditorInfo.IME_ACTION_DONE;
@@ -803,11 +803,11 @@ public class TouchpadView extends View {
         /** What the keyboard has typed but not yet settled on (some keyboards type words this way). */
         private String composing = "";
         /**
-         * What was typed since the keyboard opened, as the keyboard asks for it: many keyboards
-         * only delete when they see text before the cursor. Room in front of it (spaces) lets
-         * them delete what was in the game's field before, too.
+         * How many letters were typed since the keyboard opened. Many keyboards only delete when
+         * they see text before the cursor, so they are shown that many dots (never the letters:
+         * it may be a password), with room in front for what the game's field held before.
          */
-        private final StringBuilder typed = new StringBuilder();
+        private int typed = 0;
         private static final int ROOM = 64;
 
         GameInput() {
@@ -829,8 +829,8 @@ public class TouchpadView extends View {
             for (int i = 0; i < s.length(); ) {
                 int cp = s.codePointAt(i);
                 i += Character.charCount(cp);
-                if (cp == '\n') { press(XKeycode.KEY_ENTER, 0); typed.setLength(0); continue; }
-                typed.appendCodePoint(cp);
+                if (cp == '\n') { press(XKeycode.KEY_ENTER, 0); typed = 0; continue; }
+                typed++;
                 // X keysyms: Latin-1 as it is, everything else as 0x01000000 + the code point.
                 press(XKeycode.KEY_A, cp >= 0x20 && cp <= 0xFF ? cp : 0x01000000 | cp);
             }
@@ -839,7 +839,7 @@ public class TouchpadView extends View {
         private void erase(int count) {
             for (int i = 0; i < count; i++) {
                 press(XKeycode.KEY_BKSP, 0);
-                if (typed.length() > 0) typed.setLength(typed.offsetByCodePoints(typed.length(), -1));
+                if (typed > 0) typed--;
             }
         }
 
@@ -847,7 +847,7 @@ public class TouchpadView extends View {
         public CharSequence getTextBeforeCursor(int n, int flags) {
             StringBuilder text = new StringBuilder();
             for (int i = 0; i < ROOM; i++) text.append(' ');
-            text.append(typed);
+            for (int i = 0; i < typed; i++) text.append('\u2022');
             return text.subSequence(Math.max(0, text.length() - n), text.length());
         }
 
@@ -866,7 +866,7 @@ public class TouchpadView extends View {
                 if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
                     if (code == android.view.KeyEvent.KEYCODE_DEL) erase(1);
                     else if (code == android.view.KeyEvent.KEYCODE_FORWARD_DEL) press(XKeycode.KEY_DEL, 0);
-                    else { press(XKeycode.KEY_ENTER, 0); typed.setLength(0); }
+                    else { press(XKeycode.KEY_ENTER, 0); typed = 0; }
                 }
                 return true;
             }
@@ -917,7 +917,7 @@ public class TouchpadView extends View {
         public boolean performEditorAction(int actionCode) {
             Log.i("SoftKeyboard", "action " + actionCode);
             press(XKeycode.KEY_ENTER, 0);
-            typed.setLength(0);
+            typed = 0;
             // Done (a password and Enter, most of the time): the keyboard goes away.
             hideSoftKeyboard();
             return true;
