@@ -12,11 +12,10 @@
 
 local _, ns = ...
 
-local COLS, CALIB = 20, 8
+local COLS = 20
 local IDLE = 1.5          -- seconds after the last part before a square goes away
 local STEP = 0.45         -- each further part of a longer message
 local HOLD = 0.6          -- a message (or its first part) stays at least this long
-local LEVEL = { [0] = 0, 0.2, 0.4, 0.6 }
 
 -- Where each corner goes: its version, rows and anchor (x, y: the direction in from the corner).
 local KINDS = {
@@ -25,13 +24,13 @@ local KINDS = {
     status = { version = 8, rows = 12, point = "BOTTOMRIGHT", dx = -1, dy = 1 },
 }
 
-local function partBytes(rows) return math.floor((COLS * rows - COLS - CALIB) / 4) * 3 - 4 - 2 end
+local function partBytes(rows) return ns.ColourPartBytes(rows, ns.Dense()) end
 
 local squares = {}
 
 local function cellSize()
     local cell = ThorCompanionDB and ThorCompanionDB.cell or 3
-    return cell < 3 and 3 or cell
+    return cell < 3 and 3 or cell   -- the colours blur into each other below 3 (as for the bar)
 end
 
 local function place(sq)
@@ -49,6 +48,7 @@ local function place(sq)
         t:ClearAllPoints()
         t:SetPoint("TOPLEFT", sq.frame, "TOPLEFT", (i % COLS) * cell, -math.floor(i / COLS) * cell)
     end
+    sq.rows = nil
 end
 
 local function square(name)
@@ -74,32 +74,16 @@ local function square(name)
     return sq
 end
 
-local function grey(sq, i, level)
-    local v = LEVEL[level]
-    sq.cells[i]:SetColorTexture(v, v, v)
-end
-
-local function colour(sq, i, v)
-    sq.cells[i]:SetColorTexture(LEVEL[bit.band(bit.rshift(v, 4), 3)], LEVEL[bit.band(bit.rshift(v, 2), 3)], LEVEL[bit.band(v, 3)])
-end
-
 local function draw(sq)
-    local body = sq.parts[sq.part]
-    local head = string.char(sq.kind.version, sq.seq, (sq.part - 1) * 16 + (#sq.parts - 1), #body)
-    local bytes = head .. body
-    local crc = ns.Crc16(bytes)
-    bytes = bytes .. string.char(bit.rshift(crc, 8), bit.band(crc, 255))
-    for c = 0, COLS - 1 do grey(sq, c, c % 2 == 0 and 3 or 0) end
-    local i = COLS
-    for c = 0, 3 do grey(sq, i, c) i = i + 1 end
-    colour(sq, i, 48) colour(sq, i + 1, 12) colour(sq, i + 2, 3) grey(sq, i + 3, 0)
-    i = i + 4
-    for p = 1, #bytes, 3 do
-        local a, b, c = bytes:byte(p), bytes:byte(p + 1) or 0, bytes:byte(p + 2) or 0
-        local v = a * 65536 + b * 256 + c
-        for s = 3, 0, -1 do colour(sq, i, bit.band(bit.rshift(v, s * 6), 63)) i = i + 1 end
+    local cells = sq.cells
+    local rows = ns.ColourCells(sq.kind.version, sq.seq, (sq.part - 1) * 16 + (#sq.parts - 1), sq.parts[sq.part], ns.Dense(),
+        function(i, r, g, b) cells[i]:SetColorTexture(r, g, b) end)
+    -- Only the rows this part needs: a short message, a small square.
+    if rows ~= sq.rows then
+        sq.rows = rows
+        sq.frame:SetHeight(rows * cellSize())
+        for i = 0, COLS * sq.kind.rows - 1 do cells[i]:SetShown(i < rows * COLS) end
     end
-    for j = i, COLS * sq.kind.rows - 1 do colour(sq, j, 0) end
     sq.drawnAt = GetTime()
     sq.frame:SetAlpha(1)
 end

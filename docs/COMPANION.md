@@ -36,13 +36,17 @@ These are written for Thor Forever instead:
   installs the addon (`core/CompanionAddon.java`).
 - `CompanionBridge.kt` connects the companion to the game screen and opens it on the other
   screen.
-- The addon (0.24.6 here) splits what it sends over four small colour squares in the corners
+- The addon (0.24.7 here) splits what it sends over four small colour squares in the corners
   of the screen (`Corners.lua`, the default `/thor shape corners`), each only there while it
   sends: your position (`TP2`) top left, the chat, chat box and tap answers bottom left, the
   status bottom right, everything else top right (the data square, 20 x 16 cells). The app
   copies only those four corners (`CornerAreas` in the decoder) about every 0.15 s, keeps each
   corner's message numbers apart, and puts a `TP2` into the last status. Only when no corner
   square was read for 25 s does it look at the whole picture (an older addon, or `/thor shape bar`).
+  Each square is only as tall as the part it shows, and the position and status go in short
+  forms (`P...`, `S...`, written out again by `Compact.kt`). `/thor dense on` (a test) uses eight
+  colour levels instead of four, so the squares get a third smaller; a long press on the
+  app's status line says how well each corner reads.
 - It builds the bags, gear, character, quests and cooldowns again
   only when the game says they changed, or every few seconds (`ns.Remember` in `Strip.lua`);
   it skips its idle wait for urgent changes; and it shows the first part of a message after a

@@ -482,6 +482,45 @@ local function position()
     return string.format("TP2|%d|%.4f|%.4f|%s", mapID or 0, x or 0, y or 0, facing)
 end
 
+-- Short forms for the corners, which go out the most: numbers as fixed-width digits of 64
+-- (0-9 A-Z a-z + /), the app writes them out again (Compact.kt). Fewer bytes, smaller squares.
+--   P<map 3><x 3><y 3><facing 1>     instead of TP2|map|x|y|facing (x, y in 262144ths, facing in 64ths of a turn)
+--   S<name>|<level>|<copper>|<map,x,y,facing as in P>|<session>|<bagHash 3>|<version>|<sums, 3 each>
+--                                    instead of TS1|... (sums in the order of SUM_KINDS)
+local DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+/"
+local function b64(n, width)
+    n = math.max(0, math.floor(tonumber(n) or 0))
+    local out = {}
+    repeat
+        local d = n % 64
+        table.insert(out, 1, DIGITS:sub(d + 1, d + 1))
+        n = math.floor(n / 64)
+    until n == 0 and (not width or #out >= width)
+    return table.concat(out)
+end
+local FULL = 262143
+local function place(mapID, x, y, facing)
+    local f = tonumber(facing)
+    return b64(mapID, 3) .. b64(math.floor((tonumber(x) or 0) * FULL + 0.5), 3) .. b64(math.floor((tonumber(y) or 0) * FULL + 0.5), 3)
+        .. (f and b64(math.floor(f / (2 * math.pi) * 64 + 0.5) % 64, 1) or "")
+end
+-- TP2|... as P..., TS1|... as S...; anything else as it is.
+function ns.Short(p)
+    if p:sub(1, 4) == "TP2|" then
+        local m, x, y, f = p:match("^TP2|(%d+)|([%d.]+)|([%d.]+)|(.*)$")
+        if m then return "P" .. place(m, x, y, f) end
+    elseif p:sub(1, 4) == "TS1|" then
+        local f = { strsplit("|", p) }
+        if #f >= 12 and f[2] ~= "error" then
+            local sums = {}
+            for kind, h in (f[12] .. ","):gmatch("(%d+):(%d+),") do sums[#sums + 1] = b64(h, 3) end
+            return string.format("S%s|%s|%s|%s|%s|%s|%s|%s", f[2], b64(f[3]), b64(f[4]), place(f[5], f[6], f[7], f[8]),
+                b64(f[9]), b64(f[10], 3), f[11], table.concat(sums))
+        end
+    end
+    return p
+end
+
 local POSITION_CHECK, STATUS_CHECK, CHAT_CHECK = 0.25, 0.5, 2
 local positionSent, positionAt, positionCheckedAt = nil, -100, -100
 local statusCheckedAt, chatCheckedAt = -100, -100
@@ -515,7 +554,7 @@ local function corners()
         if hold or now - statusAt > STATUS_AGAIN or (now - loadedAt < 30 and now - statusAt > 8)
             or withoutPosition(p) ~= withoutPosition(lastSent[1]) then
             statusAt, lastSent[1] = now, p
-            ns.CornerWrite("status", p, hold)
+            ns.CornerWrite("status", ns.Short(p), hold)
         end
     end
     -- The position, when it changed (at most every MOVE_SECONDS).
@@ -524,7 +563,7 @@ local function corners()
         local ok, p = pcall(position)
         if ok and p ~= positionSent then
             positionSent, positionAt = p, now
-            ns.CornerWrite("position", p, 0.4)  -- the app looks at the corners about every 0.15 s
+            ns.CornerWrite("position", ns.Short(p), 0.4)  -- the app looks at the corners about every 0.15 s
         end
     end
 end
@@ -646,6 +685,11 @@ SlashCmdList.THORCOMPANION = function(msg)
         setting("cell", cell, 2, 8, "the cell size")
     elseif shadeStep then
         setting("shade", shadeStep, 4, 80, "the shade step")
+    elseif msg == "dense on" or msg == "dense off" then
+        -- A test: eight colour levels instead of four, so the squares get a third smaller.
+        -- Long-press the status line in the app to see how well it reads them.
+        ThorCompanionDB.dense = (msg == "dense on")
+        print("|cff66ccffForever Companion|r colour squares with " .. (ThorCompanionDB.dense and "8 levels (smaller, a test)" or "4 levels (the usual)"))
     elseif msg == "speed fast" or msg == "speed safe" then
         ThorCompanionDB.speed = msg:sub(7)
         print("|cff66ccffForever Companion|r square: " .. (msg == "speed fast" and "fast (every part once)" or "safe (every part twice, slower)"))

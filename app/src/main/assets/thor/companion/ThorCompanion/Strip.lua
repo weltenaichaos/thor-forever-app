@@ -96,7 +96,6 @@ local BAR_PART_BYTES = math.floor((BAR_COLS * BAR_ROWS - COLS - CALIB) * 6 / 8) 
 -- which have their own small squares in the other corners (Corners.lua).
 local DATA_ROWS = 16
 local DATA_VERSION = 9
-local DATA_PART_BYTES = math.floor((COLS * DATA_ROWS - COLS - CALIB) / 4) * 3 - 4 - 2   -- 213
 local BAR_IDLE = 1.5   -- seconds after the last part before the bar goes away
 -- Two ways to go round (/thor speed fast|safe):
 --  safe: every part 0.35 s, all parts twice; every message stays at least 1.5 s.
@@ -142,7 +141,7 @@ local function barSize()
 end
 
 local function partBytes()
-    if cornersShape() then return DATA_PART_BYTES end
+    if cornersShape() then return ns.ColourPartBytes(DATA_ROWS, ns.Dense()) end  -- 213, dense 315
     return barShape() and BAR_PART_BYTES or PART_BYTES
 end
 
@@ -176,6 +175,74 @@ local function setGrey(i, level)
     local t = cells[i]
     if t then local v = LEVEL[level] t:SetColorTexture(v, v, v) t:SetAlpha(1) end
 end
+local function setRGB(i, r, g, b)
+    local t = cells[i]
+    if t then t:SetColorTexture(r, g, b) t:SetAlpha(1) end
+end
+
+-- How a part goes into colour cells, for the data square here and the corner squares
+-- (Corners.lua): COLS sync cells, calibration, then the header, the part and its CRC.
+--   normal: calibration grey 0..3, red, green, blue at level 3, black; 4 levels per
+--     colour, so 6 bits a cell (3 bytes in 4 cells).
+--   dense (/thor dense on, a test): calibration grey 0..7, red, green, blue at level 7,
+--     black; 8 levels per colour (the same 0 to 0.6), 9 bits a cell, version + 4.
+-- Only the rows it needs are drawn, so a short message makes a small square.
+local LEVEL8 = { [0] = 0 }
+for l = 1, 7 do LEVEL8[l] = 0.6 * l / 7 end
+function ns.Dense() return ThorCompanionDB ~= nil and ThorCompanionDB.dense == true end
+function ns.ColourPartBytes(rows, dense)
+    local free = COLS * rows - COLS - (dense and 12 or 8)
+    if dense then return math.floor(free * 9 / 8) - 4 - 2 end
+    return math.floor(free / 4) * 3 - 4 - 2
+end
+-- Sets each cell through set(i, r, g, b); returns the rows used.
+function ns.ColourCells(version, seq, partByte, body, dense, set)
+    local head = string.char(version + (dense and 4 or 0), seq, partByte, #body)
+    local bytes = head .. body
+    local crc = ns.Crc16(bytes)
+    bytes = bytes .. string.char(bit.rshift(crc, 8), bit.band(crc, 255))
+    local L = dense and LEVEL8 or LEVEL
+    local top = dense and 7 or 3
+    for c = 0, COLS - 1 do local v = c % 2 == 0 and LEVEL[3] or 0 set(c, v, v, v) end
+    local i = COLS
+    for c = 0, top do set(i, L[c], L[c], L[c]) i = i + 1 end
+    set(i, L[top], 0, 0) set(i + 1, 0, L[top], 0) set(i + 2, 0, 0, L[top]) set(i + 3, 0, 0, 0)
+    i = i + 4
+    if dense then
+        -- The bytes as one stream of bits, 9 to a cell (3 per colour), the last padded with zeros.
+        local acc, n = 0, 0
+        for p = 1, #bytes do
+            acc, n = acc * 256 + bytes:byte(p), n + 8
+            while n >= 9 do
+                n = n - 9
+                local d = 2 ^ n
+                local v = math.floor(acc / d)
+                acc = acc % d
+                set(i, L[math.floor(v / 64)], L[math.floor(v / 8) % 8], L[v % 8])
+                i = i + 1
+            end
+        end
+        if n > 0 then
+            local v = acc * 2 ^ (9 - n)
+            set(i, L[math.floor(v / 64)], L[math.floor(v / 8) % 8], L[v % 8])
+            i = i + 1
+        end
+    else
+        for p = 1, #bytes, 3 do
+            local a, b, c = bytes:byte(p), bytes:byte(p + 1) or 0, bytes:byte(p + 2) or 0
+            local v = a * 65536 + b * 256 + c
+            for sh = 18, 0, -6 do
+                local x = bit.band(bit.rshift(v, sh), 63)
+                set(i, L[bit.rshift(x, 4)], L[bit.band(bit.rshift(x, 2), 3)], L[bit.band(x, 3)])
+                i = i + 1
+            end
+        end
+    end
+    local rows = math.ceil(i / COLS)
+    for j = i, rows * COLS - 1 do set(j, 0, 0, 0) end
+    return rows
+end
+
 local function setColour(i, v)
     local t = cells[i]
     if t then
@@ -217,6 +284,7 @@ local function place()
         t:SetPoint("TOPLEFT", frame, "TOPLEFT", (i % perRow) * cell, -math.floor(i / perRow) * cell)
         t:SetShown(i < count)
     end
+    shownRows = nil
 end
 
 -- The bar's part: sync and calibration in grey, then 6 bits per cell.
@@ -244,7 +312,22 @@ local function drawBar(index)
 end
 
 -- Draws one part: the sync row, calibration, header, payload and checksum.
+-- The data square (corners): only as many rows as this part needs.
+local shownRows
+local function drawData(index)
+    local rows = ns.ColourCells(DATA_VERSION, msgSeq, (index - 1) * 16 + (#parts - 1), parts[index], ns.Dense(), setRGB)
+    if rows ~= shownRows then
+        shownRows = rows
+        frame:SetHeight(rows * (settings()))
+        for i = 0, COLS * DATA_ROWS - 1 do cells[i]:SetShown(i < rows * COLS) end
+    end
+end
 local function draw(index)
+    if cornersShape() then
+        drawData(index)
+        if frame then frame:SetAlpha(1) end
+        return
+    end
     if barShape() then
         drawBar(index)
         if frame then frame:SetAlpha(1) end

@@ -25,6 +25,7 @@ import thor.companion.strip.ChatLog
 import thor.companion.strip.ChatFile
 import thor.companion.strip.Cooldowns
 import thor.companion.strip.BagItem
+import thor.companion.strip.Compact
 import thor.companion.strip.Compass
 import thor.companion.strip.CornerAreas
 import thor.companion.strip.Errands
@@ -554,6 +555,7 @@ class CompanionActivity : Activity() {
                     val r = StripDecoder.decode(shot.pixels, cornerNear[i])
                     val f = (r as? StripDecoder.Result.Ok)?.frame
                     cornerNear[i] = f?.row ?: -1
+                    if (f != null) synchronized(cornerReads) { cornerReads.add(i, f) }
                     if (f != null && f.crcOk) frames += CornerAreas.moved(f, shot.left, shot.top)
                     if (result !is StripDecoder.Result.Ok) result = r
                 }
@@ -612,7 +614,8 @@ class CompanionActivity : Activity() {
                     if (frame.version != StripDecoder.POSITION_VERSION) changedAt = SystemClock.uptimeMillis()
                 }
                 val parts = assemblerOf(frame.version)
-                val message = parts.add(frame)
+                // The corners' short forms (P..., S...) written out again as TP2 and TS1.
+                val message = parts.add(frame)?.let { Compact.expand(it) }
                 if (message != null) {
                     if (seenAt == 0L) seenAt = SystemClock.uptimeMillis()
                     messageAt = SystemClock.uptimeMillis()
@@ -2360,12 +2363,43 @@ class CompanionActivity : Activity() {
         }
     }
 
+    /**
+     * How well each corner square reads (for trying /thor dense on, or another cell size):
+     * squares read whole and damaged, their size in cells, and how far apart the closest
+     * two colour levels came out (in screen steps of 0 to 255: the smaller, the closer to misreads).
+     */
+    private class CornerReads {
+        private val ok = IntArray(4); private val bad = IntArray(4)
+        private val spread = DoubleArray(4) { Double.MAX_VALUE }
+        private val dense = BooleanArray(4); private val cell = DoubleArray(4)
+        var since = SystemClock.uptimeMillis()
+        fun add(i: Int, f: StripFrame) {
+            if (f.crcOk) ok[i]++ else bad[i]++
+            spread[i] = minOf(spread[i], f.shadeMinDistance)
+            dense[i] = f.version != StripDecoder.cornerKind(f.version)
+            cell[i] = f.cellPx
+        }
+        fun report(): String? {
+            if (ok.sum() + bad.sum() == 0) return null
+            val names = listOf("position", "data", "chat", "status")
+            val s = (SystemClock.uptimeMillis() - since) / 1000
+            val lines = names.indices.filter { ok[it] + bad[it] > 0 }.joinToString("; ") { i ->
+                "${names[i]} ${ok[i]} read, ${bad[i]} damaged, ${if (dense[i]) "8" else "4"} levels, " +
+                    "closest levels %.0f apart, cell %.1f px".format(spread[i], cell[i])
+            }
+            ok.fill(0); bad.fill(0); spread.fill(Double.MAX_VALUE); since = SystemClock.uptimeMillis()
+            return "Corners in the last $s s: $lines."
+        }
+    }
+    private val cornerReads = CornerReads()
+
     /** Battery check: how often and how long the app read the game's screen in the last minute. */
     private fun captureStats(): String {
         val (count, total) = synchronized(captures) { captures.size to captures.sumOf { it[1] } }
-        if (count == 0) return "Battery check: the game's screen hasn't been read in the last minute."
+        val corners = synchronized(cornerReads) { cornerReads.report() }?.let { "\n$it" } ?: ""
+        if (count == 0) return "Battery check: the game's screen hasn't been read in the last minute.$corners"
         return "Battery check: read the game's screen $count times in the last minute, " +
-            "${total / count} ms each (busy ${total * 100 / 60_000}% of the time)."
+            "${total / count} ms each (busy ${total * 100 / 60_000}% of the time).$corners"
     }
 
     /** Sends one key to the game's screen; the callbacks run on the UI thread. */

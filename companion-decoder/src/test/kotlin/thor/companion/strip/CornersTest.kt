@@ -1,5 +1,6 @@
 package thor.companion.strip
 
+import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -73,8 +74,47 @@ class CornersTest {
         assertTrue(data.x > px.width - 200, "the data square is in the top-right corner (x ${data.x})")
     }
 
+    /**
+     * The cells Strip.lua's ns.ColourCells drew for four messages, normal and dense (8 levels),
+     * each only as many rows as it needs (corner-cells.txt, written by the addon's code):
+     * all read back from their corners through the Thor-like display.
+     */
+    @Test
+    fun readsTheAddonsOwnCellsNormalAndDense() {
+        val lines = javaClass.getResource("/corner-cells.txt")!!.readText().lines()
+        var i = 0
+        val blocks = ArrayList<Triple<Int, Boolean, List<Int>>>()
+        while (i < lines.size && lines[i].isNotBlank()) {
+            val (v, rows, dense) = lines[i].split(' ')
+            val n = rows.toInt() * StripDecoder.COLS
+            val cells = lines.subList(i + 1, i + 1 + n).map { l ->
+                l.split(',').map { (it.toDouble() * 255).roundToInt() }.let { (r, g, b) -> (r shl 16) or (g shl 8) or b }
+            }
+            blocks += Triple(v.toInt(), dense == "true", cells)
+            i += 1 + n
+        }
+        val expected = mapOf(6 to "TP2|", 9 to "TB1|", 7 to "TE1|", 8 to "TS1|")
+        for (dense in listOf(false, true)) {
+            val px = render(spot = null, bar = null, seq = 3, raw = blocks.filter { it.second == dense }.map { it.first to it.third })
+            val read = CornerAreas.areas(px.width, px.height, 0.0).map { a ->
+                val part = object : Pixels {
+                    override val width = a[2] - a[0]
+                    override val height = a[3] - a[1]
+                    override fun rgb(x: Int, y: Int) = px.rgb(a[0] + x, a[1] + y)
+                }
+                assertIs<StripDecoder.Result.Ok>(StripDecoder.decode(part), "dense $dense").frame.also { assertTrue(it.crcOk, "dense $dense") }
+            }
+            for (f in read) {
+                val kind = StripDecoder.cornerKind(f.version)
+                assertEquals(if (dense) kind + StripDecoder.DENSE else kind, f.version)
+                assertTrue(String(f.payload).startsWith(expected.getValue(kind)))
+            }
+        }
+    }
+
     /** Draws the spot and the bar the way Strip.lua does, then through the Thor-like display (1.5x, colour mix). */
-    private fun render(spot: ByteArray?, bar: ByteArray?, seq: Int, cell: Int = 3, corners: Map<Int, String> = emptyMap()): Pixels {
+    private fun render(spot: ByteArray?, bar: ByteArray?, seq: Int, cell: Int = 3, corners: Map<Int, String> = emptyMap(),
+        raw: List<Pair<Int, List<Int>>> = emptyList()): Pixels {
         val gw = 1280; val gh = 720
         val rnd = Random(seq)
         val game = IntArray(gw * gh) {
@@ -114,7 +154,20 @@ class CornersTest {
             draw(text.toByteArray(), version, StripDecoder.COLS, rows,
                 if (right) gw - 2 - StripDecoder.COLS * cell else 2, if (bottom) gh - 2 - rows * cell else 2)
         }
-        val sw = 1920; val sh = if (corners.isEmpty()) 400 else 1080
+        // Cells as the addon drew them, in their corners.
+        for ((version, cells) in raw) {
+            val rows = cells.size / StripDecoder.COLS
+            val right = version == StripDecoder.DATA_VERSION || version == StripDecoder.STATUS_VERSION
+            val bottom = version == StripDecoder.CHAT_VERSION || version == StripDecoder.STATUS_VERSION
+            val left = if (right) gw - 2 - StripDecoder.COLS * cell else 2
+            val top = if (bottom) gh - 2 - rows * cell else 2
+            for (c in cells.indices) {
+                val x0 = left + (c % StripDecoder.COLS) * cell
+                val y0 = top + (c / StripDecoder.COLS) * cell
+                for (dy in 0 until cell) for (dx in 0 until cell) game[(y0 + dy) * gw + x0 + dx] = cells[c]
+            }
+        }
+        val sw = 1920; val sh = if (corners.isEmpty() && raw.isEmpty()) 400 else 1080
         return ArrayPixels(sw, sh, IntArray(sw * sh) { idx -> thorColour(bilinear(game, gw, gh, (idx % sw) / 1.5, (idx / sw) / 1.5)) })
     }
 
