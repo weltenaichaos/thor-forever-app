@@ -859,7 +859,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
     public void onPause() {
         if (taskManagerSidebar != null) taskManagerSidebar.stop();
         super.onPause();
-        resumedNow = false;
 
         if (!isInPictureInPictureMode()) {
             if (environment != null) {
@@ -874,7 +873,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         handler.removeCallbacks(savePlaytimeRunnable);
     }
 
-    /** Between onResume and onPause: the game paused (in the background) says nothing about closing. */
+    /** From onResume to onStop: a game in the background (black, or not drawn) says nothing about closing. */
     private volatile boolean resumedNow = false;
 
     /** True while the "closing" loading screen is up (see {@link #showWowClosing}). */
@@ -1132,6 +1131,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
+        resumedNow = false;
         savePlaytimeData();
         handler.removeCallbacks(savePlaytimeRunnable);
     }
