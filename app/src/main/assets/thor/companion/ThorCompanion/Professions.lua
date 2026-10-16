@@ -3,6 +3,7 @@
 --   TF1|<now>                          (now: time(), the clock the times below are in)
 --   p<tab><profession><tab><level><tab><max>           one row per profession
 --   e<tab><time><tab><text>                            what you made and skill points, newest last
+--   w<tab><profession>                                 the profession window open now (no row: none)
 --   TR1|<profession>|<level>|<max>|<page>|<pages>|<read at>
 --   <kind><tab><itemID><tab><made min><tab><made max><tab><ready at><tab><materials><tab><name>
 --                                                      the recipes, in the profession window's order
@@ -254,15 +255,25 @@ for _, e in ipairs({ "TRADE_SKILL_SHOW", "TRADE_SKILL_UPDATE", "TRADE_SKILL_LIST
 end
 local bankOpen = false
 events:RegisterEvent("BANKFRAME_CLOSED")
+-- Which profession window is open (for the app's Make: it opens the window first when not).
+local openWindow = nil
+for _, e in ipairs({ "TRADE_SKILL_CLOSE", "CRAFT_CLOSE" }) do pcall(events.RegisterEvent, events, e) end
 events:SetScript("OnEvent", function(_, event, text)
     if event == "TRADE_SKILL_SHOW" or event == "TRADE_SKILL_UPDATE" or event == "TRADE_SKILL_LIST_UPDATE" then
         readSoon(function()
             local r = { readTradeSkills() }
-            if r[1] then return unpack(r) end
-            return readModern()
+            if not r[1] then r = { readModern() } end
+            if r[1] and r[1] ~= openWindow then openWindow, changed = r[1], true end
+            return unpack(r)
         end)
     elseif event == "CRAFT_SHOW" or event == "CRAFT_UPDATE" then
-        readSoon(readCrafts)
+        readSoon(function()
+            local r = { readCrafts() }
+            if r[1] and r[1] ~= openWindow then openWindow, changed = r[1], true end
+            return unpack(r)
+        end)
+    elseif event == "TRADE_SKILL_CLOSE" or event == "CRAFT_CLOSE" then
+        if openWindow then openWindow, changed = nil, true end
     elseif event == "BANKFRAME_OPENED" then
         bankOpen = true
         pcall(readBank)
@@ -300,6 +311,7 @@ local function build()
     local out = { "TF1|" .. now }
     for _, l in ipairs(list) do out[#out + 1] = table.concat({ "p", l.name, l.rank, l.max }, "\t") end
     for _, r in ipairs(m.results) do out[#out + 1] = table.concat({ "e", r.at, r.text }, "\t") end
+    if openWindow then out[#out + 1] = "w\t" .. openWindow end
     head = table.concat(out, "\n")
     -- The recipes, a profession at a time, cut into pages that fit the square.
     pages = {}

@@ -112,7 +112,7 @@ class CompanionActivity : Activity() {
     /** Class spells to learn soon (TV1), for the level card. */
     private var spells: SpellPlan? = null
     /** Your professions and what you made (TF1), their recipes a page at a time (TR1, kept as "TR1|<profession>|<page>"), the bank's materials (TK1). */
-    private var professions: Professions? = null
+    @Volatile private var professions: Professions? = null
     private val recipePages = java.util.concurrent.ConcurrentHashMap<String, RecipePage>()
     private var bank: BankCounts? = null
     /** The Craft tab's open profession and recipe, and whether it shows only what you can make now. */
@@ -1752,15 +1752,38 @@ class CompanionActivity : Activity() {
                 when {
                     waiting -> say("${r.name} isn't ready yet: its cooldown is still running")
                     n <= 0 -> say("Not enough materials for ${r.name} in your bags")
-                    else -> sendChat("Make ${r.name}", "", "/thor make $count $what")
+                    else -> make(r.name, profession, count, what)
                 }
             }.apply {
                 if (n <= 0 || waiting || (count == "5" && n < 5)) setTextColor(DIM)
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
         }
         box.addView(buttons)
-        box.addView(line("Make works while the $profession window is open in the game. Tap the item for its details.", DIM, 12f).apply { setPadding(0, dp(6), 0, 0) })
+        box.addView(line("Make opens the $profession window in the game first when it is closed. Tap the item for its details.", DIM, 12f).apply { setPadding(0, dp(6), 0, 0) })
         content.addView(box, cardParams())
+    }
+
+    /**
+     * Make: the game crafts only in the open profession window, so when the addon says it
+     * isn't open, the app first types /cast with the profession's spell (as you would), waits
+     * for the addon to say the window is open, and then types /thor make.
+     */
+    private fun make(name: String, profession: String, count: String, what: String) {
+        if (professions?.open == profession) { sendChat("Make $name", "", "/thor make $count $what"); return }
+        val spell = Professions.windowSpell(profession)
+        sendChat("Open $profession", "", "/cast $spell")
+        keys.execute {
+            // The /cast was typed just before this, on the same queue: now the window.
+            val until = SystemClock.uptimeMillis() + 8000
+            while (SystemClock.uptimeMillis() < until && professions?.open != profession) {
+                lastKeyAt = SystemClock.uptimeMillis()
+                SystemClock.sleep(100)
+            }
+            runOnUiThread {
+                if (professions?.open == profession) sendChat("Make $name", "", "/thor make $count $what")
+                else say("The $profession window didn't open in the game, so nothing was made")
+            }
+        }
     }
 
     /** The quest log: quests in this zone first, ready ones marked; tap one to see it on the map. */
