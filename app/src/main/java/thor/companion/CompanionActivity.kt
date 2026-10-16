@@ -2076,8 +2076,19 @@ class CompanionActivity : Activity() {
         footer.addView(quick)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
         row.addView(field, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
+        // What else the speech recognizer heard: a tap puts that in instead.
+        val alts = Flow(this, dp(6)).apply { setPadding(0, dp(4), 0, 0); visibility = View.GONE }
+        footer.addView(alts)
         val mic = chip("🎤") {}
-        mic.setOnClickListener { if (listening != null) stopListening() else listen(field, mic) }
+        mic.setOnClickListener { if (listening != null) stopListening() else listen(field, mic, alts) }
+        // A long press picks the language it listens for (English with an accent: try another English).
+        mic.setOnLongClickListener {
+            val now = speechChoice()
+            val next = SPEECH_CHOICES[(SPEECH_CHOICES.indexOfFirst { it.first == now } + 1) % SPEECH_CHOICES.size]
+            getPreferences(MODE_PRIVATE).edit().putString("speechLang", next.first).apply()
+            say("Speech to text: ${next.second} (hold 🎤 again for another)")
+            true
+        }
         row.addView(mic, LinearLayout.LayoutParams(dp(48), -2).apply { marginEnd = dp(6) })
         row.addView(chip("Send") { send() }.apply { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) })
         row.addView(chip("✕") { closeCompose() }, LinearLayout.LayoutParams(dp(44), -2).apply { marginStart = dp(4) })
@@ -2108,15 +2119,17 @@ class CompanionActivity : Activity() {
     /** Until then a game that stands still is not taken for gone (see the reader loop). */
     @Volatile private var quietUntil = 0L
     private var micFor: Pair<android.widget.EditText, TextView>? = null
+    private var micAlts: Flow? = null
 
     /**
      * Listens once through the Thor's microphone and puts what you said into [field],
      * after what is already there. Nothing is sent: you read it, fix it if need be, and
      * tap Send. The microphone is only on until you stop talking (or tap 🎤 again).
      */
-    private fun listen(field: android.widget.EditText, mic: TextView) {
+    private fun listen(field: android.widget.EditText, mic: TextView, alts: Flow) {
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             micFor = field to mic
+            micAlts = alts
             requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), MIC_PERMISSION)
             return
         }
@@ -2130,23 +2143,40 @@ class CompanionActivity : Activity() {
             field.setText(text.take(255))
             field.setSelection(field.text.length)
         }
+        alts.removeAllViews(); alts.visibility = View.GONE
         val speechIntent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            // A few guesses, not just the best one: with an accent the right one is often second.
+            putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            // The game's words it would not know: names, the zone, quests (Android 13+, where the speech app uses them).
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                putStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(gameWords()))
+            }
         }
         val recognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(this)
         listening = recognizer
         micFor = field to mic
+        micAlts = alts
         mic.background = Theme.box(this, Theme.BAD, 18)
         say("Listening… speak your message")
-        fun words(b: android.os.Bundle?) =
-            b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+        fun guesses(b: android.os.Bundle?) =
+            b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().filter { it.isNotBlank() }
+        fun words(b: android.os.Bundle?) = guesses(b).firstOrNull().orEmpty()
         recognizer.setRecognitionListener(object : android.speech.RecognitionListener {
             override fun onPartialResults(b: android.os.Bundle?) { words(b).takeIf { it.isNotBlank() }?.let(::show) }
             override fun onResults(b: android.os.Bundle?) {
                 busyRetried = false
-                val w = words(b)
+                val all = guesses(b)
+                val w = all.firstOrNull().orEmpty()
                 if (w.isNotBlank()) { show(w); say("Check the text, then tap Send") } else say("Didn't catch that: tap 🎤 to try again")
+                // The other guesses, to tap instead.
+                val others = all.drop(1).map { it.trim() }.distinct().filter { !it.equals(w.trim(), true) }.take(3)
+                alts.removeAllViews()
+                for (o in others) alts.addView(chip(o) { show(o); alts.removeAllViews(); alts.visibility = View.GONE }.apply {
+                    background = Theme.box(context, Color.TRANSPARENT, 18, DIM)
+                })
+                alts.visibility = if (others.isEmpty()) View.GONE else View.VISIBLE
                 stopListening()
             }
             override fun onError(error: Int) {
@@ -2155,7 +2185,7 @@ class CompanionActivity : Activity() {
                 // Busy: the last listener was still closing. Once more, a moment later.
                 if (error == android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY && !busyRetried) {
                     busyRetried = true
-                    footer.postDelayed({ if (composing != null) listen(field, mic) }, 700)
+                    footer.postDelayed({ if (composing != null) listen(field, mic, alts) }, 700)
                     return
                 }
                 busyRetried = false
@@ -2183,7 +2213,9 @@ class CompanionActivity : Activity() {
         }
         // Android 13+: ask once which languages it has (with a recognizer of its own: one
         // that is still answering that is "busy"), and pick the system's or the nearest one.
-        if (android.os.Build.VERSION.SDK_INT >= 33 && !speechChecked) {
+        val chosen = speechChoice().takeIf { it != "auto" }
+        if (chosen != null) start(chosen)
+        else if (android.os.Build.VERSION.SDK_INT >= 33 && !speechChecked) {
             val checker = android.speech.SpeechRecognizer.createSpeechRecognizer(this)
             var answered = false
             fun go(language: String?) {
@@ -2207,6 +2239,19 @@ class CompanionActivity : Activity() {
             // No answer at all: listen without choosing.
             footer.postDelayed({ go(null) }, 3000)
         } else start(speechLang)
+    }
+
+    /** The speech language you picked by holding 🎤 ("auto": the Thor's own, see [speechLanguage]). */
+    private fun speechChoice(): String = getPreferences(MODE_PRIVATE).getString("speechLang", null) ?: "auto"
+
+    /** Words of the game the speech recognizer is told to expect: names, the zone, quest titles. */
+    private fun gameWords(): List<String> {
+        val words = LinkedHashSet<String>()
+        state?.name?.takeIf { it != "?" }?.let { words += it }
+        zoneMap?.let { words += it.zone; if (it.parent.isNotBlank()) words += it.parent }
+        for (l in chat.lines.takeLast(100)) if (l.name.isNotBlank()) words += l.name
+        questFirst?.quests?.forEach { words += it.title }
+        return words.filter { it.isNotBlank() }.take(100)
     }
 
     /** The language picked for speech (null: the speech app's own), asked once per app start. */
@@ -2238,7 +2283,7 @@ class CompanionActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, results)
         if (requestCode != MIC_PERMISSION) return
         val (field, mic) = micFor ?: return
-        if (results.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED && composing != null) listen(field, mic)
+        if (results.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED && composing != null) micAlts?.let { listen(field, mic, it) }
         else say("Without the microphone, speech to text can't work")
     }
 
@@ -2670,6 +2715,11 @@ class CompanionActivity : Activity() {
         const val LOCK_MS = 25_000L
         /** How often the four corners are read while the addon uses them. */
         const val CORNERS_MS = 150L
+        /** The languages holding 🎤 goes through, in turn. */
+        val SPEECH_CHOICES = listOf(
+            "auto" to "the Thor's language", "en-US" to "English (US)", "en-GB" to "English (UK)",
+            "en-AU" to "English (Australia)", "en-IN" to "English (India)", "de-DE" to "German",
+        )
         /** Rows above and below the remembered place that are copied too (the decoder looks 16 either way). */
         const val LOCK_ROWS = 24
         /** The start-up card's rows before the status says what there is. */
