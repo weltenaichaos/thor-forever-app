@@ -624,10 +624,11 @@ class CompanionActivity : Activity() {
             }
             val period = when {
                 game == Game.LOADING && result !is StripDecoder.Result.Ok -> 1000L
-                // Closed or on the character screen: only a look now and then, in case an event was missed.
-                game == Game.CLOSED && result !is StripDecoder.Result.Ok -> 30_000L
-                game == Game.STARTING && result !is StripDecoder.Result.Ok -> 10_000L
-                absent > 0 && !seenSquare -> 10_000L
+                // Closed or on the character screen: fewer looks, but often enough not to miss the
+                // addon's first messages after a login when the file events say nothing (or come late).
+                game == Game.CLOSED && result !is StripDecoder.Result.Ok -> 5000L
+                game == Game.STARTING && result !is StripDecoder.Result.Ok -> 1000L
+                absent > 0 && !seenSquare -> 1000L
                 // The bar comes and goes: look a few times a second for the next message
                 // (only its corner is copied, so this is cheap; the addon shows a message
                 // that comes after a quiet spell for at least 0.6 s).
@@ -687,10 +688,12 @@ class CompanionActivity : Activity() {
     private fun blind(): Boolean {
         val now = SystemClock.uptimeMillis()
         return when (game) {
-            // Loading into the world: no screenshot until the addons have loaded (the crash
-            // came from screenshots while the game set up the world); if that is never
-            // seen, look now and then after a minute.
-            Game.LOADING -> if (addonsAt != 0L) now - addonsAt < 3000 else now - gameAt < 60_000
+            // Loading into the world: a moment's rest right after the addons loaded (the addon
+            // itself waits 3 s then). The long wait the standalone app had (its root screenshots
+            // could crash the game while it set up the world) is not needed here: the picture is
+            // read from Thor Forever's own view, which the game never sees. Waiting made the app
+            // miss everything the addon sends right after a login when the file events came late.
+            Game.LOADING -> addonsAt != 0L && now - addonsAt < 3000
             else -> false
         }
     }
@@ -718,6 +721,7 @@ class CompanionActivity : Activity() {
     }
 
     private fun onGameEvent(line: String) {
+        if (!line.startsWith("C ")) android.util.Log.i("ThorCompanion", "game: $line")
         val what = line.take(1)
         val arg = line.drop(2).trim()
         val now = SystemClock.uptimeMillis()
