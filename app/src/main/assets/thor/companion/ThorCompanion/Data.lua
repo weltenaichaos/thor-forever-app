@@ -334,21 +334,23 @@ local copyAgain = {}
 
 local function nextMessage()
     local id = C_Map.GetBestMapForUnit("player")
-    if statusUrgent then
+    -- With the corners the status and the chat have their own (see corners below).
+    local corners = ns.CornersOn()
+    if statusUrgent and not corners then
         turn = 0  -- the status (1) is next, sent even when it is the same as before
         statusAt = -STATUS_AGAIN - 1
         statusUrgent = false
         statusHold = 1.5  -- long enough for an app that looks once a second
         bagsUrgent = true -- and the bags right after it
         namesWait = true
-    elseif GetTime() - loadedAt < 30 and GetTime() - statusAt > 8 then
+    elseif not corners and GetTime() - loadedAt < 30 and GetTime() - statusAt > 8 then
         -- The status again soon after loading (see loadedAt), in between: the turns go on where they were.
         local ok, p = pcall(kinds[1])
         if ok and p then
             statusAt, lastSent[1], showingTurn = GetTime(), p, 1
             return encode(1, p)
         end
-    elseif chatUrgent and chatNow() then
+    elseif chatUrgent and chatNow() and not corners then
         turn = 3  -- the chat (4) is next
         chatUrgent = false
     elseif bagsUrgent then
@@ -359,7 +361,7 @@ local function nextMessage()
         mapForce = mapUrgent
     elseif lastSent[8] and ns.QuestPagesPending() then
         turn = 10  -- the rest of the quest log (11) right after its first page
-    elseif showingTurn ~= 4 and chatNow() and ns.ChatPending() then
+    elseif not corners and showingTurn ~= 4 and chatNow() and ns.ChatPending() then
         turn = 3  -- lines waiting in a busy chat: every other message is the chat
     end
     mapUrgent = false
@@ -367,7 +369,9 @@ local function nextMessage()
         turn = turn % #kinds + 1
         local ok, p = true, nil
         if turn == 10 then namesWait = false end  -- the spells: the last the card waits for
-        if (turn ~= 4 or chatNow()) and (turn ~= 3 or not namesWait) then ok, p = ns.Measured(KIND_NAMES[turn], kinds[turn]) end
+        if corners and (turn == 1 or turn == 4) then
+            -- in their own corners
+        elseif (turn ~= 4 or chatNow()) and (turn ~= 3 or not namesWait) then ok, p = ns.Measured(KIND_NAMES[turn], kinds[turn]) end
         if not ok then p = "TS1|error|" .. tostring(p) end
         -- Every change redraws the square, so a moving position is sent only now and then.
         if turn == 1 and p and lastSent[1] and withoutPosition(p) == withoutPosition(lastSent[1])
@@ -462,6 +466,69 @@ loadEvents:SetScript("OnEvent", function(_, event)
         loadedAt = GetTime()
     end
 end)
+-- With the corners (the default, see Corners.lua) your position, the status and the
+-- chat each have a corner of their own: they go out at once, without waiting for the
+-- data square, and the data square no longer changes every time you take a step.
+--   TP2|mapID|x|y|facing   (the position: the same fields as in TS1, in the top-left corner)
+local function position()
+    local mapID = C_Map.GetBestMapForUnit("player")
+    local x, y = 0, 0
+    if mapID then
+        local pos = C_Map.GetPlayerMapPosition(mapID, "player")
+        if pos then x, y = pos:GetXY() end
+    end
+    local facing = GetPlayerFacing and plain(GetPlayerFacing())
+    facing = type(facing) == "number" and string.format("%.1f", facing) or ""
+    return string.format("TP2|%d|%.4f|%.4f|%s", mapID or 0, x or 0, y or 0, facing)
+end
+
+local POSITION_CHECK, STATUS_CHECK, CHAT_CHECK = 0.25, 0.5, 2
+local positionSent, positionAt, positionCheckedAt = nil, -100, -100
+local statusCheckedAt, chatCheckedAt = -100, -100
+local function corners()
+    local now = GetTime()
+    -- The chat box and what came of a tap go at once; then new chat lines.
+    local okOpen, opened = ns.Measured("chat box", ns.ChatOpenPayload)
+    local okUse, use = false, nil
+    if not (okOpen and opened) then okUse, use = ns.Measured("tap result", ns.UsePayload) end
+    if okOpen and opened then
+        ns.CornerWrite("chat", opened)
+    elseif okUse and use then
+        ns.CornerWrite("chat", use)
+    elseif not ns.CornerBusy("chat") and chatNow() and (chatAgain or ns.ChatPending() or now - chatCheckedAt > CHAT_CHECK) then
+        chatCheckedAt = now
+        local ok, p = ns.Measured("chat", chat)
+        if ok and p then ns.CornerWrite("chat", p) end
+    end
+    chatUrgent = false
+    -- The status: after a loading screen at once (and every few seconds for a while), else
+    -- when something besides the position changed, and every STATUS_AGAIN seconds.
+    if statusUrgent or (not ns.CornerBusy("status") and now - statusCheckedAt >= STATUS_CHECK) then
+        statusCheckedAt = now
+        local ok, p = ns.Measured("status", status)
+        if not ok then p = "TS1|error|" .. tostring(p) end
+        local hold
+        if statusUrgent then
+            statusUrgent, bagsUrgent, namesWait, hold = false, true, true, 1.5
+            turn = 1  -- the bags (2) next on the data square
+        end
+        if hold or now - statusAt > STATUS_AGAIN or (now - loadedAt < 30 and now - statusAt > 8)
+            or withoutPosition(p) ~= withoutPosition(lastSent[1]) then
+            statusAt, lastSent[1] = now, p
+            ns.CornerWrite("status", p, hold)
+        end
+    end
+    -- The position, when it changed (at most every MOVE_SECONDS).
+    if not ns.CornerBusy("position") and now - positionCheckedAt >= POSITION_CHECK and now - positionAt >= MOVE_SECONDS then
+        positionCheckedAt = now
+        local ok, p = pcall(position)
+        if ok and p ~= positionSent then
+            positionSent, positionAt = p, now
+            ns.CornerWrite("position", p, 0.4)  -- the app looks at the corners about every 0.15 s
+        end
+    end
+end
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
 f:SetScript("OnEvent", function()
@@ -484,14 +551,17 @@ f:SetScript("OnEvent", function()
             if ticks % REFRESH_TICKS == 0 then lastSent, chatAgain, known = {}, true, {} ns.QuestPagesAgain() end
             if ticks % MAP_REFRESH_TICKS == 0 then lastSent[5], known[5] = nil, nil end
         end
+        if ns.CornersOn() then ns.Measured("corners: what to send", corners) end
         -- What came of a tap goes out at once; whatever it cut short is sent again.
-        local okOpen, opened = ns.Measured("chat box", ns.ChatOpenPayload)
+        local okOpen, opened = false, nil
+        if not ns.CornersOn() then okOpen, opened = ns.Measured("chat box", ns.ChatOpenPayload) end
         if okOpen and opened then
             if showingTurn and ns.StripBusy() then interrupted(showingTurn) end showingTurn = nil
             ns.StripWrite(opened)
             return
         end
-        local okUse, use = ns.Measured("tap result", ns.UsePayload)
+        local okUse, use = false, nil
+        if not ns.CornersOn() then okUse, use = ns.Measured("tap result", ns.UsePayload) end
         if okUse and use then
             if showingTurn and ns.StripBusy() then interrupted(showingTurn) end showingTurn = nil
             ns.StripWrite(use)
@@ -527,7 +597,7 @@ f:SetScript("OnEvent", function()
         if ns.StripBusy() then return end
         -- What the app has no picture of yet comes up by itself, one at a time (not while
         -- chat lines wait: each picture holds the square for seconds).
-        if (caughtUp and GetTime() > picturesAfter or GetTime() > caughtUpBy + 5) and not ns.ChatPending() then
+        if (caughtUp and GetTime() > picturesAfter or GetTime() > caughtUpBy + 5) and (ns.CornersOn() or not ns.ChatPending()) then
             local okAuto, shown = ns.Measured("zone picture", ns.MapPictureAuto)
             if okAuto and shown then return end
             okAuto, shown = ns.Measured("item icons", ns.IconsAuto)
@@ -551,6 +621,7 @@ local function setting(key, value, low, high, what)
     end
     ThorCompanionDB[key] = value
     ns.StripRefresh()
+    ns.CornersRefresh()
 end
 
 SLASH_THORCOMPANION1 = "/thor"
@@ -560,14 +631,16 @@ SlashCmdList.THORCOMPANION = function(msg)
     local cell = msg:match("^cell%s+(%d+)$")
     local shadeStep = msg:match("^shade%s+(%d+)$")
     if right then
-        local bar = ThorCompanionDB.shape == nil or ThorCompanionDB.shape == "bar"
-        setting(bar and "barRight" or "right", right, 0, 2000, "the distance from the right edge")
-        setting(bar and "barTop" or "top", top, 0, 1200, "the distance from the top edge")
-    elseif msg == "shape line" or msg == "shape square" or msg == "shape bar" then
+        local prefix = ns.CornersOn() and "data" or ThorCompanionDB.shape == "bar" and "bar" or nil
+        setting(prefix and prefix .. "Right" or "right", right, 0, 2000, "the distance from the right edge")
+        setting(prefix and prefix .. "Top" or "top", top, 0, 1200, "the distance from the top edge")
+    elseif msg == "shape line" or msg == "shape square" or msg == "shape bar" or msg == "shape corners" then
         ThorCompanionDB.shape = msg:sub(7)
         ThorCompanionDB.top = nil  -- each shape has its own default place
         ns.StripRefresh()
+        ns.CornersRefresh()
         print("|cff66ccffForever Companion|r data shown as " .. (msg == "shape bar" and "a thin colour bar while something is sent"
+            or msg == "shape corners" and "four small colour squares in the corners while something is sent"
             or msg == "shape square" and "the dark square" or "a dark line") .. " (the app follows by itself)")
     elseif cell then
         setting("cell", cell, 2, 8, "the cell size")
@@ -596,6 +669,7 @@ SlashCmdList.THORCOMPANION = function(msg)
         print("|cff66ccffForever Companion|r memory made (type /thor mem again after a minute):\n" .. ns.MemReport())
     elseif msg == "info" then
         print("|cff66ccffForever Companion|r " .. ns.StripInfo())
+        if ns.CornersOn() then print("|cff66ccffForever Companion|r corners: " .. ns.CornersInfo()) end
     elseif msg == "taps" then
         print("|cff66ccffForever Companion|r " .. ns.TapsInfo())
     elseif msg == "taps on" or msg == "taps off" then
@@ -605,6 +679,7 @@ SlashCmdList.THORCOMPANION = function(msg)
     elseif msg == "hide" or msg == "show" then
         ThorCompanionDB.hidden = (msg == "hide")
         ns.StripShow(msg == "show")
+        ns.CornersRefresh()
     else
         print("|cff66ccffForever Companion|r " .. ns.StripInfo())
         for _, kind in ipairs({ status, bags, ns.MapPayload }) do

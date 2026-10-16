@@ -233,7 +233,7 @@ function ns.ChatPayload(again, peek)
     local names = {}
     for n = 1, WHISPER_SLOTS do names[n] = whisperName[n] or "" end
     local head = "TH1|" .. session .. "\t" .. table.concat(names, ",") .. "\t" .. chans
-    local room = ns.StripCapacity() - #head - 1
+    local room = (ns.CornersOn() and ns.CornerCapacity("chat") or ns.StripCapacity()) - #head - 1
     local picked, used = {}, 0
     local function take(l)
         local entry = table.concat(l, "\t")

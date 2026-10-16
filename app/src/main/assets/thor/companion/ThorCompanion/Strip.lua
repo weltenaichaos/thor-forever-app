@@ -17,7 +17,9 @@
 -- (twice after it changes, then the square stays still); the app puts them back
 -- together. The companion app decodes this from a capture of the top screen.
 --
--- The default (/thor shape bar): a thin colour bar, BAR_COLS x BAR_ROWS cells, that is only
+-- The default is /thor shape corners: the same colour cells, the data square COLS x DATA_ROWS in the
+-- top-right corner and the position, chat and status in the other corners (Corners.lua).
+-- /thor shape bar: a thin colour bar, BAR_COLS x BAR_ROWS cells, that is only
 -- there while something is being sent. Same sync cells and calibration (in grey), but
 -- every other cell carries 6 bits: 2 in each of red, green and blue (four levels each),
 -- so 3 bytes take 4 cells. Header version BAR_VERSION.
@@ -28,13 +30,16 @@ local _, ns = ...
 -- the game frees it again now and then, so what counts is how fast it climbs. Only counts
 -- what runs in between: another addon's code never runs inside these calls.
 local memUse, memSince = {}, nil
-function ns.Measured(label, fn, ...)
-    local before = collectgarbage("count")
-    local r = { pcall(fn, ...) }
+-- (The results pass straight through: a table for them, ten times a second, adds up too.)
+local function counted(label, before, ...)
     local made = collectgarbage("count") - before
     -- Negative when the game freed memory in between: that call is left out.
     if made > 0 then memUse[label] = (memUse[label] or 0) + made end
-    return unpack(r)
+    return ...
+end
+function ns.Measured(label, fn, ...)
+    local before = collectgarbage("count")
+    return counted(label, before, pcall(fn, ...))
 end
 
 -- The parts that made the most, per second since the last call; then counting starts again.
@@ -86,6 +91,12 @@ local MAX_PARTS = 6
 local BAR_COLS, BAR_ROWS = 80, 3
 local BAR_VERSION = 5
 local BAR_PART_BYTES = math.floor((BAR_COLS * BAR_ROWS - COLS - CALIB) * 6 / 8) - 4 - 2   -- 153
+-- The default (/thor shape corners): the same colours as the bar in a square in the top-right
+-- corner, COLS x DATA_ROWS cells, for everything but the position, the status and the chat,
+-- which have their own small squares in the other corners (Corners.lua).
+local DATA_ROWS = 16
+local DATA_VERSION = 9
+local DATA_PART_BYTES = math.floor((COLS * DATA_ROWS - COLS - CALIB) / 4) * 3 - 4 - 2   -- 213
 local BAR_IDLE = 1.5   -- seconds after the last part before the bar goes away
 -- Two ways to go round (/thor speed fast|safe):
 --  safe: every part 0.35 s, all parts twice; every message stays at least 1.5 s.
@@ -113,12 +124,27 @@ local function lineShape()
     return ThorCompanionDB and ThorCompanionDB.shape == "line"
 end
 
--- The bar is the default; /thor shape square brings back the dark square.
+-- The corners are the default; /thor shape bar brings back the bar, /thor shape square the dark square.
+local function cornersShape()
+    return not ThorCompanionDB or ThorCompanionDB.shape == nil or ThorCompanionDB.shape == "corners"
+end
+function ns.CornersOn() return cornersShape() end
+
+-- The shapes in colour: the bar, and the corners' data square.
 local function barShape()
-    return not ThorCompanionDB or ThorCompanionDB.shape == nil or ThorCompanionDB.shape == "bar"
+    return cornersShape() or ThorCompanionDB.shape == "bar"
 end
 
-local function partBytes() return barShape() and BAR_PART_BYTES or PART_BYTES end
+-- Cells per row, rows and header version of the colour shape in use.
+local function barSize()
+    if cornersShape() then return COLS, DATA_ROWS, DATA_VERSION end
+    return BAR_COLS, BAR_ROWS, BAR_VERSION
+end
+
+local function partBytes()
+    if cornersShape() then return DATA_PART_BYTES end
+    return barShape() and BAR_PART_BYTES or PART_BYTES
+end
 
 local function settings()
     local db = ThorCompanionDB or {}
@@ -126,6 +152,8 @@ local function settings()
     local cell = db.cell or 3
     if barShape() and cell < 3 then cell = 3 end
     -- The bar has its own place: over the buffs, clear of the zone name (/thor pos).
+    -- The corners' data square: in the very corner, two pixels in (/thor pos).
+    if cornersShape() then return cell, db.shade or 24, db.dataRight or 2, db.dataTop or 2 end
     if barShape() then return cell, db.shade or 24, db.barRight or 240, db.barTop or 0 end
     return cell, db.shade or 24, db.right or 0, db.top or (lineShape() and 0 or 22)
 end
@@ -156,7 +184,7 @@ local function setColour(i, v)
     end
 end
 
-local function crc16(s)
+function ns.Crc16(s)
     local crc = 0xFFFF
     for i = 1, #s do
         crc = bit.bxor(crc, bit.lshift(s:byte(i), 8))
@@ -176,8 +204,9 @@ local function place()
     local _, h = GetPhysicalScreenSize()
     -- Ignoring the UI scale, with this scale 1 unit = 1 physical pixel.
     frame:SetScale(768 / h)
-    local perRow = barShape() and BAR_COLS or lineShape() and COLS * COLS or COLS
-    local count = barShape() and BAR_COLS * BAR_ROWS or COLS * COLS
+    local barCols, barRows = barSize()
+    local perRow = barShape() and barCols or lineShape() and COLS * COLS or COLS
+    local count = barShape() and barCols * barRows or COLS * COLS
     frame:SetSize(perRow * cell, count / perRow * cell)
     frame:ClearAllPoints()
     frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -right, -top)
@@ -193,9 +222,10 @@ end
 -- The bar's part: sync and calibration in grey, then 6 bits per cell.
 local function drawBar(index)
     local body = parts[index]
-    local head = string.char(BAR_VERSION, msgSeq, (index - 1) * 16 + (#parts - 1), #body)
+    local barCols, barRows, version = barSize()
+    local head = string.char(version, msgSeq, (index - 1) * 16 + (#parts - 1), #body)
     local bytes = head .. body
-    local crc = crc16(bytes)
+    local crc = ns.Crc16(bytes)
     bytes = bytes .. string.char(bit.rshift(crc, 8), bit.band(crc, 255))
     for c = 0, COLS - 1 do setGrey(c, c % 2 == 0 and 3 or 0) end
     -- Calibration: grey 0..3, then red, green and blue at full level, then black,
@@ -210,7 +240,7 @@ local function drawBar(index)
         local v = a * 65536 + b * 256 + c
         for s = 3, 0, -1 do setColour(i, bit.band(bit.rshift(v, s * 6), 63)) i = i + 1 end
     end
-    for j = i, BAR_COLS * BAR_ROWS - 1 do setColour(j, 0) end
+    for j = i, barCols * barRows - 1 do setColour(j, 0) end
 end
 
 -- Draws one part: the sync row, calibration, header, payload and checksum.
@@ -223,7 +253,7 @@ local function draw(index)
     local body = parts[index]
     local head = string.char(VERSION, msgSeq, (index - 1) * 16 + (#parts - 1), #body)
     local bytes = head .. body
-    local crc = crc16(bytes)
+    local crc = ns.Crc16(bytes)
     bytes = bytes .. string.char(bit.rshift(crc, 8), bit.band(crc, 255))
     for c = 0, COLS - 1 do setCell(c, c % 2 == 0 and 3 or 0) end
     local i = COLS
