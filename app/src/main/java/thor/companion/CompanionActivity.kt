@@ -20,6 +20,12 @@ import thor.companion.strip.GameState
 import thor.companion.strip.CharacterInfo
 import thor.companion.strip.ChatLine
 import thor.companion.strip.Gear
+import thor.companion.strip.BankCounts
+import thor.companion.strip.ItemCompare
+import thor.companion.strip.ItemStats
+import thor.companion.strip.Professions
+import thor.companion.strip.Recipe
+import thor.companion.strip.RecipePage
 import thor.companion.strip.GearItem
 import thor.companion.strip.ChatLog
 import thor.companion.strip.Cooldowns
@@ -65,7 +71,7 @@ import java.util.Locale
  */
 class CompanionActivity : Activity() {
 
-    private enum class Panel(val title: String) { BAGS("Bags"), CHARACTER("Character"), QUESTS("Quests"), MAP("Map"), CHAT("Chat") }
+    private enum class Panel(val title: String) { BAGS("Bags"), CHARACTER("Character"), QUESTS("Quests"), CRAFT("Craft"), MAP("Map"), CHAT("Chat") }
 
     /** The chat's own tabs: which lines each shows, and the key that answers there. */
     private enum class ChatTab(val title: String, val kinds: Set<String>?) {
@@ -105,6 +111,14 @@ class CompanionActivity : Activity() {
     @Volatile private var questPages = QuestPages()
     /** Class spells to learn soon (TV1), for the level card. */
     private var spells: SpellPlan? = null
+    /** Your professions and what you made (TF1), their recipes a page at a time (TR1, kept as "TR1|<profession>|<page>"), the bank's materials (TK1). */
+    private var professions: Professions? = null
+    private val recipePages = java.util.concurrent.ConcurrentHashMap<String, RecipePage>()
+    private var bank: BankCounts? = null
+    /** The Craft tab's open profession and recipe, and whether it shows only what you can make now. */
+    private var craftProfession: String? = null
+    private var craftRecipe: Recipe? = null
+    private var craftOnlyMakeable = false
     private var chatTab = ChatTab.ALL
     /** Per chat tab, the number of the last line seen there (see ChatLog.total). */
     private val chatSeen = HashMap<ChatTab, Int>()
@@ -156,7 +170,7 @@ class CompanionActivity : Activity() {
         for (p in Panel.entries) {
             val b = TextView(this).apply {
                 text = p.title
-                textSize = 15f
+                textSize = 14f
                 gravity = Gravity.CENTER
                 typeface = Typeface.DEFAULT_BOLD
                 setOnClickListener { show(p) }
@@ -289,6 +303,7 @@ class CompanionActivity : Activity() {
         val kind = message.take(4)
         return when {
             kind == "TL2|" -> message.substringBefore('\n').split('|').getOrNull(1)?.let { "TL2|$it" }
+            kind == "TR1|" -> message.substringBefore('\n').split('|').takeIf { it.size > 4 }?.let { "TR1|${it[1]}|${it[4]}" }
             kind in KEPT -> kind
             else -> null
         }
@@ -328,10 +343,14 @@ class CompanionActivity : Activity() {
     private fun applyKept() {
         state = null; character = null; gear = emptyList(); zoneMap = null; spells = null
         questFirst = null; quests = null; bagsFresh = false
+        professions = null; recipePages.clear(); bank = null; craftRecipe = null
         val pages = QuestPages()
         for ((key, m) in lastMessages) {
             when {
                 key.startsWith("TL2|") -> pages.add(m)
+                key.startsWith("TR1|") -> RecipePage.parse(m)?.let { recipePages[key] = it }
+                m.startsWith("TF1|") -> professions = Professions.parse(m)
+                m.startsWith("TK1|") -> bank = BankCounts.parse(m)
                 m.startsWith("TM1|") -> zoneMap = ZoneMap.parse(m)
                 m.startsWith("TP1|") -> character = CharacterInfo.parse(m)
                 m.startsWith("TQ1|") -> gear = Gear.parse(m).orEmpty()
@@ -791,6 +810,9 @@ class CompanionActivity : Activity() {
             }
             message.startsWith("TV1|") -> SpellPlan.parse(message)?.let { runOnUiThread { onSpells(it) } }
             message.startsWith("TT1|") -> ItemTips.parse(message)?.let { tips.addAll(it) }
+            message.startsWith("TF1|") -> Professions.parse(message)?.let { runOnUiThread { onProfessions(it) } }
+            message.startsWith("TR1|") -> RecipePage.parse(message)?.let { p -> keptKey(message)?.let { k -> runOnUiThread { onRecipePage(k, p) } } }
+            message.startsWith("TK1|") -> BankCounts.parse(message)?.let { runOnUiThread { onBank(it) } }
             page != null -> {
                 val changed = names.addAll(page)
                 runOnUiThread { onNames(changed) }
@@ -1005,7 +1027,38 @@ class CompanionActivity : Activity() {
 
     private fun onNames(changed: Boolean) {
         connected()
-        if (changed && (panel == Panel.BAGS || panel == Panel.CHARACTER)) render()
+        if (changed && (panel == Panel.BAGS || panel == Panel.CHARACTER || panel == Panel.CRAFT)) render()
+    }
+
+    private fun onProfessions(p: Professions) {
+        connected()
+        if (p == professions) return
+        professions = p
+        if (panel == Panel.CRAFT) render()
+    }
+
+    /** A page of recipes: pages of the same profession read before it (the window was opened again since) go. */
+    private fun onRecipePage(key: String, page: RecipePage) {
+        connected()
+        if (recipePages[key] == page) return
+        var dropped = false
+        for ((k, old) in recipePages) {
+            if (k != key && old.profession == page.profession && (old.readAt < page.readAt || old.page > page.pages)) {
+                recipePages.remove(k)
+                lastMessages.remove(k)
+                dropped = true
+            }
+        }
+        if (dropped) saveLast()
+        recipePages[key] = page
+        if (panel == Panel.CRAFT) render()
+    }
+
+    private fun onBank(b: BankCounts) {
+        connected()
+        if (b == bank) return
+        bank = b
+        if (panel == Panel.CRAFT) render()
     }
 
     private fun show(p: Panel) {
@@ -1040,6 +1093,7 @@ class CompanionActivity : Activity() {
             Panel.MAP -> renderMap()
             Panel.CHAT -> renderChat()
             Panel.QUESTS -> renderQuests()
+            Panel.CRAFT -> renderCraft(s)
         }
     }
 
@@ -1497,10 +1551,216 @@ class CompanionActivity : Activity() {
                 Panel.QUESTS -> if (ready > 0) badge(ready.toString(), ACCENT)
                 Panel.BAGS -> if (full) badge("●", Theme.BAD)
                 Panel.CHARACTER -> if (broken) badge("●", Theme.BAD)
-                Panel.MAP -> {}
+                Panel.MAP, Panel.CRAFT -> {}
             }
             b.text = text
         }
+    }
+
+    /** The game's colours for how sure a recipe's skill point is. */
+    private fun recipeColour(c: Char): Int = when (c) {
+        'o' -> Color.rgb(255, 128, 64)
+        'm' -> Color.rgb(255, 255, 0)
+        'e' -> Color.rgb(64, 191, 64)
+        else -> Color.rgb(128, 128, 128)
+    }
+
+    /** "3 h 20 min", "12 min", "1 d 4 h". */
+    private fun duration(seconds: Long): String {
+        val m = (seconds + 59) / 60
+        return when {
+            m >= 24 * 60 -> "${m / (24 * 60)} d ${m / 60 % 24} h"
+            m >= 60 -> "${m / 60} h ${m % 60} min"
+            else -> "$m min"
+        }
+    }
+
+    /**
+     * The Craft tab: your professions with their levels, the open one's recipes (what you
+     * can make from your bags, grey when nothing), a recipe's materials and Make buttons,
+     * and what you made lately. The recipes are the ones the game showed the last time
+     * the profession window was open.
+     */
+    private fun renderCraft(s: GameState) {
+        val p = professions
+        // Recipes kept under a name the skill list doesn't use (the window's own) count as a profession too.
+        val list = p?.list.orEmpty().toMutableList()
+        for (page in recipePages.values) {
+            if (list.none { it.name == page.profession }) list += thor.companion.strip.Profession(page.profession, page.level, page.max)
+        }
+        if (list.isEmpty()) {
+            content.addView(empty(if (p == null) "Professions are coming in…" else "No professions yet",
+                if (p == null) "They come from the game in a moment (the addon 0.26 or newer). If nothing comes, tap Load from the game."
+                else "This character hasn't learned a profession yet."))
+            return
+        }
+        val selected = list.firstOrNull { it.name == craftProfession } ?: list.first()
+        craftProfession = selected.name
+
+        // The professions: tap one to see its recipes.
+        val profs = Flow(this, dp(6))
+        for (prof in list) {
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = Theme.box(context, SURFACE, 12, if (prof.name == selected.name) ACCENT else STROKE, if (prof.name == selected.name) 2f else 1f)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                setOnClickListener { craftProfession = prof.name; craftRecipe = null; scroll.scrollTo(0, 0); render() }
+            }
+            box.addView(line(prof.name, if (prof.name == selected.name) ACCENT else TEXT, 14f, bold = true).apply { setPadding(0, 0, 0, 0) })
+            box.addView(line(if (prof.max > 0) "${prof.level} / ${prof.max}" else "${prof.level}", TEXT, 13f).apply { setPadding(0, dp(2), 0, dp(4)) })
+            if (prof.max > 0) box.addView(Bar(this).apply { value = prof.level.toFloat() / prof.max; colour = ACCENT }, LinearLayout.LayoutParams(dp(96), dp(5)))
+            profs.addView(box)
+        }
+        content.addView(profs, cardParams())
+
+        // What you have: the bags as they are now, the bank as it was when last open.
+        val inBags = HashMap<Int, Int>()
+        for (i in s.items) inBags[i.itemId] = (inBags[i.itemId] ?: 0) + i.count
+        val inBank = bank?.counts.orEmpty()
+        val bags: (Int) -> Int = { inBags[it] ?: 0 }
+        val both: (Int) -> Int = { (inBags[it] ?: 0) + (inBank[it] ?: 0) }
+
+        val pages = recipePages.values.filter { it.profession == selected.name }
+        val newest = pages.maxOfOrNull { it.readAt }
+        val shown = pages.filter { it.readAt == newest }.sortedBy { it.page }
+        val recipes = shown.flatMap { it.recipes }
+        if (recipes.isEmpty()) {
+            content.addView(empty("Open ${selected.name} in the game once",
+                "The game shows the recipes only while the profession window is open (for Mining that is Smelting). Open it once and they stay here, also after a restart."))
+        } else {
+            val open = craftRecipe
+            if (open != null && recipes.any { it == open }) renderRecipe(open, selected.name, bags, inBank) else craftRecipe = null
+            val filters = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
+            for ((i, label) in listOf("All recipes", "Can make now").withIndex()) {
+                filters.addView(chip(label) { craftOnlyMakeable = i == 1; render() }.apply {
+                    if ((i == 1) == craftOnlyMakeable) { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) }
+                }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+            }
+            content.addView(filters)
+            val first = shown.first()
+            val age = newest?.let { System.currentTimeMillis() / 1000 - it }
+            content.addView(section("Tap a recipe for its materials" +
+                (age?.takeIf { it > 3600 }?.let { "  ·  read ${duration(it)} ago" } ?: "") +
+                (if (shown.size < first.pages) "  ·  more coming (${shown.size} of ${first.pages})" else "")))
+            val now = System.currentTimeMillis() / 1000
+            var heading: String? = null
+            var any = false
+            for (r in recipes) {
+                if (r.heading) { heading = r.name; continue }
+                val n = r.canMake(bags)
+                val withBank = r.canMake(both)
+                if (craftOnlyMakeable && (n ?: 0) <= 0) continue
+                heading?.let { content.addView(section(it)); heading = null }
+                any = true
+                val known = names[r.itemId]
+                val greyed = n == 0
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = Theme.box(context, if (r == craftRecipe) RAISED else SURFACE, 10, STROKE)
+                    setPadding(dp(10), dp(6), dp(10), dp(6))
+                    setOnClickListener { craftRecipe = if (craftRecipe == r) null else r; scroll.scrollTo(0, 0); render() }
+                    setOnLongClickListener { if (r.itemId > 0) showDetails(r.itemId); true }
+                }
+                row.addView(View(this).apply { background = Theme.box(context, recipeColour(r.colour), 5) }, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginEnd = dp(8) })
+                row.addView(icon(r.itemId.takeIf { it > 0 }, known?.let { qualityColour(it.quality) }, 28).apply { if (greyed) alpha = 0.45f },
+                    LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(8) })
+                val nameColour = if (greyed) DIM else known?.let { qualityColour(it.quality) } ?: TEXT
+                row.addView(line(r.name, nameColour, 14f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+                val wait = r.readyAt - now
+                val right = when {
+                    wait > 0 -> "ready in ${duration(wait)}"
+                    n == null -> ""
+                    n > 0 -> "can make $n"
+                    (withBank ?: 0) > 0 -> "$withBank with the bank"
+                    else -> "missing"
+                }
+                row.addView(line(right, if (wait > 0) Theme.WARN else if ((n ?: 0) > 0) Theme.GOOD else DIM, 13f).apply { setPadding(dp(8), 0, 0, 0) })
+                content.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+            }
+            if (!any) content.addView(empty("Nothing to make right now", "Your bags don't have the materials for any of these recipes."))
+        }
+
+        // What the game said lately: things made, skill points.
+        p?.results?.takeIf { it.isNotEmpty() }?.let { results ->
+            content.addView(section("Lately"))
+            val box = card()
+            val now = System.currentTimeMillis() / 1000
+            for (r in results.reversed()) {
+                val ago = (now - r.at).coerceAtLeast(0)
+                box.addView(line("${if (ago < 60) "now" else duration(ago) + " ago"}  ·  ${r.text}", if (r.text.startsWith("Your skill")) ACCENT else TEXT, 13f).apply { setPadding(0, dp(2), 0, dp(2)) })
+            }
+            content.addView(box, cardParams())
+        }
+    }
+
+    /** A recipe's card: what it makes, its materials (have / need, grey when missing) and the Make buttons. */
+    private fun renderRecipe(r: Recipe, profession: String, bags: (Int) -> Int, inBank: Map<Int, Int>) {
+        val known = names[r.itemId]
+        val box = card().apply { background = Theme.box(context, RAISED, 14, known?.let { Theme.withAlpha(qualityColour(it.quality), 150) } ?: STROKE) }
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            if (r.itemId > 0) setOnClickListener { showDetails(r.itemId) }
+        }
+        top.addView(icon(r.itemId.takeIf { it > 0 }, known?.let { qualityColour(it.quality) }, 40), LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(10) })
+        val words = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        words.addView(line(r.name, known?.let { qualityColour(it.quality) } ?: TEXT, 16f, bold = true).apply { setPadding(0, 0, 0, 0) })
+        val makes = if (r.madeMax > r.made) "Makes ${r.made} to ${r.madeMax}" else "Makes ${r.made}"
+        val point = when (r.colour) {
+            'o' -> "orange: a skill point every time"
+            'm' -> "yellow: a skill point most times"
+            'e' -> "green: a skill point now and then"
+            else -> "grey: no more skill points"
+        }
+        words.addView(line("$makes  ·  ", DIM, 13f).apply {
+            val t = android.text.SpannableStringBuilder("$makes  ·  ")
+            val start = t.length
+            t.append(point)
+            t.setSpan(android.text.style.ForegroundColorSpan(recipeColour(r.colour)), start, t.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            text = t
+            setPadding(0, dp(2), 0, 0)
+        })
+        top.addView(words, LinearLayout.LayoutParams(0, -2, 1f))
+        box.addView(top)
+
+        box.addView(line("Materials", DIM, 12f).apply { setPadding(0, dp(10), 0, dp(2)) })
+        for (m in r.materials) {
+            val have = if (m.itemId > 0) bags(m.itemId) else 0
+            val banked = if (m.itemId > 0) inBank[m.itemId] ?: 0 else 0
+            val mName = names[m.itemId]?.name ?: m.name.ifEmpty { "Item #${m.itemId}" }
+            val enough = have >= m.count
+            val withBank = have + banked >= m.count
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(3), 0, dp(3)) }
+            row.addView(icon(m.itemId.takeIf { it > 0 }, names[m.itemId]?.let { qualityColour(it.quality) }, 28).apply { if (!enough) alpha = 0.45f },
+                LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(8) })
+            row.addView(line(mName, if (enough) TEXT else DIM, 14f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+            val count = "$have / ${m.count}" + if (banked > 0) "  (+$banked in the bank)" else ""
+            row.addView(line(count, when { enough -> Theme.GOOD; withBank -> Theme.WARN; else -> DIM }, 13f).apply { setPadding(dp(8), 0, 0, 0) })
+            if (m.itemId > 0) row.setOnClickListener { showDetails(m.itemId, have) }
+            box.addView(row)
+        }
+        if (bank == null && r.materials.isNotEmpty()) box.addView(line("Open your bank once to count what is in it too.", DIM, 12f).apply { setPadding(0, dp(2), 0, 0) })
+
+        // Make: the app types /thor make into the game's chat box, and the addon starts the
+        // game's own crafting in the open profession window. One tap, one command.
+        val n = r.canMake(bags) ?: 0
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, 0) }
+        val what = if (r.itemId > 0) r.itemId.toString() else r.name.lowercase(Locale.ROOT)
+        val waiting = r.readyAt > System.currentTimeMillis() / 1000
+        for ((label, count) in listOf("Make one" to "1", "Make 5" to "5", "Make all ($n)" to "all")) {
+            buttons.addView(chip(label) {
+                when {
+                    waiting -> say("${r.name} isn't ready yet: its cooldown is still running")
+                    n <= 0 -> say("Not enough materials for ${r.name} in your bags")
+                    else -> sendChat("Make ${r.name}", "", "/thor make $count $what")
+                }
+            }.apply {
+                if (n <= 0 || waiting || (count == "5" && n < 5)) setTextColor(DIM)
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        }
+        box.addView(buttons)
+        box.addView(line("Make works while the $profession window is open in the game. Tap the item for its details.", DIM, 12f).apply { setPadding(0, dp(6), 0, 0) })
+        content.addView(box, cardParams())
     }
 
     /** The quest log: quests in this zone first, ready ones marked; tap one to see it on the map. */
@@ -1844,6 +2104,7 @@ class CompanionActivity : Activity() {
                 box.addView(line(t, colour, 13f).apply { setPadding(0, dp(2), 0, 0) })
             }
         }
+        compareWithGear(itemId)?.let { box.addView(it) }
         val price = known?.sellPrice ?: 0
         box.addView(line("", TEXT, 13f).apply {
             text = when {
@@ -1857,6 +2118,40 @@ class CompanionActivity : Activity() {
         box.addView(line(if (usable) "Tap the item to use it. Tap here to close." else "Tap here to close.", DIM, 12f).apply { setPadding(0, dp(6), 0, 0) })
         box.setOnClickListener { footer.removeAllViews() }
         footer.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+    }
+
+    /**
+     * For something you can wear: what it changes against what you wear in that slot
+     * ("+32 Armor  +2 Strength  -1 Stamina", gains green, losses red), from both tooltips.
+     * Null for what isn't worn, for what you wear yourself, and before the tooltip is in.
+     */
+    private fun compareWithGear(itemId: Int): View? {
+        val lines = tips[itemId] ?: return null
+        val item = ItemStats.parse(lines)
+        val (slot, worn) = ItemCompare.wornFor(item, gear) ?: return null
+        if (gear.any { it.itemId == itemId }) return null
+        val slotName = Gear.slotName(slot).lowercase(Locale.ROOT)
+        val wornStats = worn?.let { w -> tips[w.itemId]?.let { ItemStats.parse(it) } }
+        val view = line("", TEXT, 13f).apply { setPadding(0, dp(8), 0, dp(2)) }
+        if (worn != null && wornStats == null) {
+            view.text = "Compared with your $slotName: its details are still coming in"
+            view.setTextColor(DIM)
+            return view
+        }
+        val t = android.text.SpannableStringBuilder()
+        val title = if (worn == null) "Your $slotName slot is empty: you gain" else "Instead of ${names[worn.itemId]?.name ?: "your $slotName"}:"
+        t.append(title)
+        t.setSpan(android.text.style.StyleSpan(Typeface.BOLD), 0, t.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val changes = ItemCompare.changes(item, wornStats)
+        if (changes.isEmpty()) t.append("  the same stats")
+        for (c in changes) {
+            val v = if (c.change == Math.rint(c.change)) c.change.toLong().toString() else String.format(Locale.US, "%.1f", c.change)
+            val start = t.length
+            t.append("  ").append(if (c.change > 0) "+$v" else v).append(" ").append(c.stat)
+            t.setSpan(android.text.style.ForegroundColorSpan(if (c.change > 0) Theme.GOOD else Theme.BAD), start, t.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        view.text = t
+        return view
     }
 
     private fun chatLine(l: ChatLine): TextView {
@@ -2703,7 +2998,7 @@ class CompanionActivity : Activity() {
         const val LOCK_ROWS = 24
         /** The start-up card's rows before the status says what there is. */
         val PLACEHOLDER = listOf("Character and gear", "Bags", "Item names", "Map", "Quests", "Spells to learn")
-        val KEPT = setOf("TS1|", "TB1|", "TM1|", "TP1|", "TQ1|", "TL1|", "TV1|")
+        val KEPT = setOf("TS1|", "TB1|", "TM1|", "TP1|", "TQ1|", "TL1|", "TV1|", "TF1|", "TK1|")
         /** The paper doll's slots, left column then right, as Character.lua sends them. */
         val GEAR_SLOTS = listOf(1, 2, 3, 15, 5, 4, 19, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17)
     }
