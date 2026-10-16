@@ -953,9 +953,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
             probe.recycle();
             if (why.equals("drawn")) {
                 main.postDelayed(new DarkWatch(), DarkWatch.EVERY_MS);
-                // The login screen: the keyboard comes up by itself for the password (it goes
-                // away with its Enter; the side menu's keyboard button brings it back).
-                if (touchpadView != null) touchpadView.postDelayed(touchpadView::showSoftKeyboard, 800L);
             }
         }
     }
