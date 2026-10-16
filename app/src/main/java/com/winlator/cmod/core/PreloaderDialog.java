@@ -75,7 +75,7 @@ public class PreloaderDialog {
         close();
         if (dialog == null) create();
 
-        if (textResId == R.string.starting_up) {
+        if (textResId == R.string.starting_up || textResId == R.string.wow_closing) {
             configureLaunchScreen(textResId);
         } else {
             configureStandardPreloader(textResId);
