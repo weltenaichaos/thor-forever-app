@@ -229,6 +229,7 @@ local function cooldowns()
     return cooldownPayload
 end
 
+local KIND_NAMES = { "status", "bags", "item names", "chat", "map", "character", "gear", "quests", "cooldowns", "spells", "quest pages" }
 local kinds = { status, bags, namesPayload, chat, map, ns.CharacterPayload, ns.GearPayload, ns.QuestsPayload, cooldowns, ns.SpellsPayload, ns.QuestPagesPayload }
 -- Small changes to a long message (a looted item, a quest objective) go out as
 --   TD1|<kind>|<checksum before>|<checksum after>|<at>|<cut>|<new bytes>
@@ -363,7 +364,7 @@ local function nextMessage()
         turn = turn % #kinds + 1
         local ok, p = true, nil
         if turn == 10 then namesWait = false end  -- the spells: the last the card waits for
-        if (turn ~= 4 or chatNow()) and (turn ~= 3 or not namesWait) then ok, p = pcall(kinds[turn]) end
+        if (turn ~= 4 or chatNow()) and (turn ~= 3 or not namesWait) then ok, p = ns.Measured(KIND_NAMES[turn], kinds[turn]) end
         if not ok then p = "TS1|error|" .. tostring(p) end
         -- Every change redraws the square, so a moving position is sent only now and then.
         if turn == 1 and p and lastSent[1] and withoutPosition(p) == withoutPosition(lastSent[1])
@@ -399,7 +400,7 @@ local function nextMessage()
         caughtUp, chatUrgent, picturesAfter = true, true, GetTime() + 1
     end
     -- Nothing changed: time for the item tooltips the app hasn't got yet.
-    local ok, tips = pcall(ns.TooltipsPayload)
+    local ok, tips = ns.Measured("item tooltips", ns.TooltipsPayload)
     if ok and tips then
         showingTurn = nil
         return tips
@@ -468,7 +469,9 @@ f:SetScript("OnEvent", function()
     -- (most calls only find the square still busy); the refreshes count half seconds.
     local sub, idleUntil = 0, 0
     local overlayUp = false
-    ticker = C_Timer.NewTicker(0.1, function()
+    local tick
+    ticker = C_Timer.NewTicker(0.1, function() ns.Measured("all of the 0.1 s round", tick) end)
+    tick = function()
         -- Nothing while a loading screen is up, and for a moment after: the game is
         -- busy setting up the zone then, and asking it things is better left alone.
         if loading or GetTime() < quietUntil then return end
@@ -479,20 +482,20 @@ f:SetScript("OnEvent", function()
             if ticks % MAP_REFRESH_TICKS == 0 then lastSent[5], known[5] = nil, nil end
         end
         -- What came of a tap goes out at once; whatever it cut short is sent again.
-        local okOpen, opened = pcall(ns.ChatOpenPayload)
+        local okOpen, opened = ns.Measured("chat box", ns.ChatOpenPayload)
         if okOpen and opened then
             if showingTurn and ns.StripBusy() then interrupted(showingTurn) end showingTurn = nil
             ns.StripWrite(opened)
             return
         end
-        local okUse, use = pcall(ns.UsePayload)
+        local okUse, use = ns.Measured("tap result", ns.UsePayload)
         if okUse and use then
             if showingTurn and ns.StripBusy() then interrupted(showingTurn) end showingTurn = nil
             ns.StripWrite(use)
             return
         end
         -- The zone picture is up: say where, so the app can take it.
-        local okPicture, picture = pcall(ns.MapPicturePayload)
+        local okPicture, picture = ns.Measured("zone picture", ns.MapPicturePayload)
         if not okPicture then picture = nil end
         if picture then
             if showingTurn and ns.StripBusy() then interrupted(showingTurn) end showingTurn = nil
@@ -500,7 +503,7 @@ f:SetScript("OnEvent", function()
             overlayUp = true
             return
         end
-        local okIcons, icons = pcall(ns.IconsPayload)
+        local okIcons, icons = ns.Measured("item icons", ns.IconsPayload)
         if okIcons and icons then
             if showingTurn and ns.StripBusy() then interrupted(showingTurn) end showingTurn = nil
             ns.StripWrite(icons)
@@ -522,9 +525,9 @@ f:SetScript("OnEvent", function()
         -- What the app has no picture of yet comes up by itself, one at a time (not while
         -- chat lines wait: each picture holds the square for seconds).
         if (caughtUp and GetTime() > picturesAfter or GetTime() > caughtUpBy + 5) and not ns.ChatPending() then
-            local okAuto, shown = pcall(ns.MapPictureAuto)
+            local okAuto, shown = ns.Measured("zone picture", ns.MapPictureAuto)
             if okAuto and shown then return end
-            okAuto, shown = pcall(ns.IconsAuto)
+            okAuto, shown = ns.Measured("item icons", ns.IconsAuto)
             if okAuto and shown then return end
         end
         -- Building every kind to find nothing changed costs: when nothing was, wait half a
@@ -534,7 +537,7 @@ f:SetScript("OnEvent", function()
         statusHold = nil
         local p = nextMessage()
         if p then ns.StripWrite(p, statusHold) else idleUntil = GetTime() + 0.45 end
-    end)
+    end
 end)
 
 local function setting(key, value, low, high, what)
@@ -586,6 +589,8 @@ SlashCmdList.THORCOMPANION = function(msg)
         print("|cff66ccffForever Companion|r " .. ns.IconsInfo())
     elseif msg == "map" then
         print("|cff66ccffForever Companion|r " .. ns.MapInfo())
+    elseif msg == "mem" then
+        print("|cff66ccffForever Companion|r memory made (type /thor mem again after a minute):\n" .. ns.MemReport())
     elseif msg == "info" then
         print("|cff66ccffForever Companion|r " .. ns.StripInfo())
     elseif msg == "taps" then
