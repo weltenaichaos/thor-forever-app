@@ -526,10 +526,14 @@ local positionSent, positionAt, positionCheckedAt = nil, -100, -100
 local statusCheckedAt, chatCheckedAt = -100, -100
 local function corners()
     local now = GetTime()
-    -- The chat box and what came of a tap go at once; then new chat lines.
-    local okOpen, opened = ns.Measured("chat box", ns.ChatOpenPayload)
-    local okUse, use = false, nil
-    if not (okOpen and opened) then okUse, use = ns.Measured("tap result", ns.UsePayload) end
+    -- The chat box and what came of a tap go first, then new chat lines; each waits until
+    -- the last one in the corner has been up its time. (Written over at once, your own line,
+    -- which comes just as the chat box closes, was gone before the app could read it.)
+    local okOpen, opened, okUse, use = false, nil, false, nil
+    if not ns.CornerBusy("chat") then
+        okOpen, opened = ns.Measured("chat box", ns.ChatOpenPayload)
+        if not (okOpen and opened) then okUse, use = ns.Measured("tap result", ns.UsePayload) end
+    end
     if okOpen and opened then
         ns.CornerWrite("chat", opened)
     elseif okUse and use then
