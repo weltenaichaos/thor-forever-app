@@ -255,7 +255,7 @@ class CompanionActivity : Activity() {
         super.onStart()
         android.util.Log.i("ThorCompanion", "onStart")
         CompanionBridge.setShown(true)
-        worker = Thread(::loop, "strip-reader").apply { isDaemon = true; start() }
+        worker = Thread(::readSafely, "strip-reader").apply { isDaemon = true; start() }
         content.removeCallbacks(updateCheck)
         content.post(updateCheck)
     }
@@ -488,6 +488,23 @@ class CompanionActivity : Activity() {
         runCatching { trailFile().writeText(trail.save()) }
     }
 
+    /**
+     * The reading loop, started again after a mistake in it instead of ending the app: the
+     * companion runs inside Thor Forever, and an uncaught error here closed the game too.
+     */
+    private fun readSafely() {
+        while (worker === Thread.currentThread()) {
+            try {
+                loop()
+                return
+            } catch (e: RuntimeException) {
+                android.util.Log.e("ThorCompanion", "reading loop failed, starting it again", e)
+                runOnUiThread { say("The app hit a reading error and carried on (logged)") }
+                SystemClock.sleep(1000)
+            }
+        }
+    }
+
     private fun loop() {
         if (!RootShell.available()) {
             runOnUiThread {
@@ -552,7 +569,7 @@ class CompanionActivity : Activity() {
                 for ((i, a) in cornerAreas.withIndex()) {
                     val shot = screen.captureArea(Rect(a[0], a[1], a[2], a[3])) ?: continue
                     px = shot.pixels
-                    val r = StripDecoder.decode(shot.pixels, cornerNear[i])
+                    val r = safeDecode(shot.pixels, cornerNear[i])
                     val f = (r as? StripDecoder.Result.Ok)?.frame
                     cornerNear[i] = f?.row ?: -1
                     if (f != null) synchronized(cornerReads) { cornerReads.add(i, f) }
@@ -575,7 +592,7 @@ class CompanionActivity : Activity() {
                 if (lock != null && (size != lockSize || t0 - lockAt > LOCK_MS)) lock = null
                 val shot = lock?.let { screen.captureArea(it) } ?: screen.capture()?.let { TopScreen.Shot(0, 0, it) }
                 px = shot?.pixels
-                val r = if (shot == null) null else StripDecoder.decode(shot.pixels, if (near >= 0) near - shot.top else -1)
+                val r = if (shot == null) null else safeDecode(shot.pixels, if (near >= 0) near - shot.top else -1)
                 if (r != null && result !is StripDecoder.Result.Ok) result = r
                 val f = (r as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
                 if (f != null) {
@@ -849,10 +866,21 @@ class CompanionActivity : Activity() {
         handle(status.joinToString("|"), -1)
     }
 
+    /**
+     * The decoder, never throwing: the companion runs inside Thor Forever, so a crash
+     * here took the game down with it. A mistake in it is logged and counts as no read.
+     */
+    private fun safeDecode(px: Pixels, near: Int): StripDecoder.Result = try {
+        StripDecoder.decode(px, near)
+    } catch (e: RuntimeException) {
+        android.util.Log.w("ThorCompanion", "decoder failed", e)
+        StripDecoder.Result.Failed("decoder error: $e")
+    }
+
     /** The addon's data square in a whole picture: in the top-right corner while it uses the corners. */
     private fun dataFrame(px: Pixels): StripFrame? =
-        if (SystemClock.uptimeMillis() - cornersAt < LOCK_MS) CornerAreas.dataFrame(px, cornerCell)
-        else (StripDecoder.decode(px) as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
+        if (SystemClock.uptimeMillis() - cornersAt < LOCK_MS) runCatching { CornerAreas.dataFrame(px, cornerCell) }.getOrNull()
+        else (safeDecode(px, -1) as? StripDecoder.Result.Ok)?.frame?.takeIf { it.crcOk }
 
     /** Messages that came while the app waits for the status (see [awaitStatus]), oldest first. */
     private val held = ArrayDeque<String>()

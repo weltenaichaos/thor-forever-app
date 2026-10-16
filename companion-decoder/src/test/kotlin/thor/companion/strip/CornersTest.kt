@@ -74,6 +74,20 @@ class CornersTest {
         assertTrue(data.x > px.width - 200, "the data square is in the top-right corner (x ${data.x})")
     }
 
+    /** A square cut off by the right edge of the part looked at (seen on the Thor: a crash) is just not found. */
+    @Test
+    fun aSquareCutOffAtTheEdgeIsNoCrash() {
+        val px = render(spot = null, bar = null, seq = 5, corners = mapOf(StripDecoder.DATA_VERSION to "TB1|1/2|3:4"))
+        for (cut in 1..120) {
+            val part = object : Pixels {
+                override val width = px.width - cut
+                override val height = 200
+                override fun rgb(x: Int, y: Int) = px.rgb(x, y)
+            }
+            StripDecoder.decode(part)
+        }
+    }
+
     /**
      * The cells Strip.lua's ns.ColourCells drew for four messages, normal and dense (8 levels),
      * each only as many rows as it needs (corner-cells.txt, written by the addon's code):

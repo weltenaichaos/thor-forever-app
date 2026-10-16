@@ -332,6 +332,8 @@ object StripDecoder {
             if ((0 until need).any { abs(edgeX[i + it] - edgeX[i] - it * pitch) > slack }) continue
             val x0 = edgeX[i] + 0.5 - pitch
             if (x0 < 0) continue
+            // A square cut off by the picture's edge (only part of a corner copied): not this one.
+            if ((x0 + (COLS - 0.5) * pitch).toInt() >= w) continue
             // Light cells alike, dark cells alike, and clearly apart.
             val light = (0 until COLS step 2).map { l[(x0 + (it + 0.5) * pitch).toInt()] }
             val dark = (1 until COLS step 2).map { l[(x0 + (it + 0.5) * pitch).toInt()] }
