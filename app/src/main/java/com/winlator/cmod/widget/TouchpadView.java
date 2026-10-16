@@ -760,9 +760,9 @@ public class TouchpadView extends View {
         InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
         if (imm == null) return;
         imm.restartInput(this);
-        if (!imm.showSoftInput(this, InputMethodManager.SHOW_FORCED)) {
-            imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0);
-        }
+        boolean shown = imm.showSoftInput(this, InputMethodManager.SHOW_FORCED);
+        Log.i("SoftKeyboard", "show: " + shown + ", focused " + hasFocus() + ", window focus " + hasWindowFocus());
+        if (!shown) imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0);
     }
 
     @Override
@@ -785,6 +785,7 @@ public class TouchpadView extends View {
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
         if (!softKeyboardRequested) return null;
+        Log.i("SoftKeyboard", "connection made");
         outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT | EditorInfo.TYPE_TEXT_VARIATION_PASSWORD
                 | EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
