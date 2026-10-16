@@ -402,10 +402,12 @@ end
 local function ownCount(reagents, info, link)
     local n
     for r = 1, reagents or 0 do
-        local _, _, need, have = info(r)
+        local rname, _, need, have = info(r)
         need = number(need) or 1
         local id = itemID(link and link(r))
         local carried = id and number(GetItemCount(id)) or number(have)
+        -- Without a link, by its name (GetItemCount takes the name of an item in the bags).
+        if not carried and type(rname) == "string" and not secret(rname) then carried = number(GetItemCount(rname)) end
         if not carried or need <= 0 then return nil end
         n = math.min(n or math.huge, math.floor(carried / need))
     end

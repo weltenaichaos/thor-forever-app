@@ -1747,7 +1747,8 @@ class CompanionActivity : Activity() {
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, 0) }
         val what = if (r.itemId > 0) r.itemId.toString() else r.name.lowercase(Locale.ROOT)
         val waiting = r.readyAt > System.currentTimeMillis() / 1000
-        for ((label, count) in listOf("Make one" to "1", "Make 5" to "5", "Make all ($n)" to "all")) {
+        // Make all sends the number the app counted: the game's own count can be 0 here (see Professions.lua).
+        for ((label, count) in listOf("Make one" to "1", "Make 5" to "5", "Make all ($n)" to n.toString())) {
             buttons.addView(chip(label) {
                 when {
                     waiting -> say("${r.name} isn't ready yet: its cooldown is still running")
