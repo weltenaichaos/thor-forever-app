@@ -607,6 +607,12 @@ public class XServerDisplayActivity extends AppCompatActivity {
         xServer.windowManager.addOnWindowModificationListener(new WindowManager.OnWindowModificationListener() {
             @Override
             public void onUpdateWindowContent(Window window) {
+                // WoW opened a window again (it only closed one): the closing screen goes away.
+                if (wowClosingShown && !exiting.get() && isWowWindow(window)) {
+                    wowClosingShown = false;
+                    Log.i("XServerDisplayActivity", "WoW window back: closing screen closed");
+                    preloaderDialog.closeOnUiThread();
+                }
                 if (!winStarted[0] && window.isApplicationWindow()) {
                     if (!simulateTouchScreen) {
                         xServerView.setCursorVisible(true);
@@ -647,6 +653,13 @@ public class XServerDisplayActivity extends AppCompatActivity {
             @Override
             public void onDestroyWindow(Window window) {
                 changeFrameRatingVisibility(window, null);
+                // WoW closed its window: the loading screen, saying so, instead of a black
+                // screen while the game and Wine shut down.
+                // (Not while the start-up loading screen is still up: WoW may swap windows then.)
+                if (winStarted[0] && !wowClosingShown && !preloaderDialog.isShowing() && isWowWindow(window)) {
+                    Log.i("XServerDisplayActivity", "WoW window closed: " + window.getClassName());
+                    showWowClosing();
+                }
             }
         });
 
@@ -865,6 +878,24 @@ public class XServerDisplayActivity extends AppCompatActivity {
         handler.removeCallbacks(savePlaytimeRunnable);
     }
 
+    /** True while the "closing" loading screen is up (see {@link #showWowClosing}). */
+    private volatile boolean wowClosingShown = false;
+
+    /** A window of World of Warcraft's own (Wine names its windows' class after the program). */
+    private boolean isWowWindow(Window window) {
+        return isWowForeverShortcut() && window.isApplicationWindow()
+                && window.getClassName().toLowerCase(java.util.Locale.ROOT).contains("wow");
+    }
+
+    /** The start-up loading screen again, saying World of Warcraft is closing. */
+    private void showWowClosing() {
+        boolean removeLoadingBar = PreferenceManager.getDefaultSharedPreferences(this)
+                .getBoolean("remove_loading_bar_when_booting_games", false);
+        if (removeLoadingBar) return;
+        wowClosingShown = true;
+        preloaderDialog.showOnUiThread(R.string.wow_closing);
+    }
+
     private boolean isWowForeverShortcut() {
         return shortcut != null && shortcut.file.getPath().endsWith("/World of Warcraft Forever.desktop");
     }
@@ -981,7 +1012,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
         NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID);
         boolean removeLoadingBar = PreferenceManager.getDefaultSharedPreferences(this)
                 .getBoolean("remove_loading_bar_when_booting_games", false);
-        if (!removeLoadingBar) preloaderDialog.showOnUiThread(R.string.shutdown);
+        // For WoW the loading screen saying it is closing (already up when its window closed),
+        // not the shutdown notice, which read as if the whole device was shutting down.
+        if (!removeLoadingBar) preloaderDialog.showOnUiThread(isWowForeverShortcut() ? R.string.wow_closing : R.string.shutdown);
 
         if (xServerView != null) {
             xServerView.forceCleanup();

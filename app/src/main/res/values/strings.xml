@@ -21,6 +21,7 @@
     <string name="installing_system_files">Installing System Files…</string>
     <string name="updating_system_files">Updating System Files…</string>
     <string name="starting_up">Starting up…</string>
+    <string name="wow_closing">Closing World of Warcraft…</string>
     <string name="remove_loading_bar_when_booting_games">Remove loading bar when booting games</string>
     <string name="unable_to_install_system_files">Unable to install system files</string>
     <string name="keyboard">Keyboard</string>
