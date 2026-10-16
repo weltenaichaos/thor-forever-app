@@ -2177,6 +2177,8 @@ class CompanionActivity : Activity() {
         fun start(language: String?) {
             if (listening !== recognizer) return
             language?.let { speechIntent.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, it) }
+            // Which language it listens for, so you can tell when it picked the wrong one.
+            say("Listening (${language ?: "the speech app's own language"})… speak your message")
             runCatching { recognizer.startListening(speechIntent) }.onFailure { stopListening(); say("Speech recognition didn't start: ${it.message}") }
         }
         // Android 13+: ask once which languages it has (with a recognizer of its own: one
