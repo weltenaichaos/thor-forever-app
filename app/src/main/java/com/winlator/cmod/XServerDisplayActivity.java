@@ -607,12 +607,6 @@ public class XServerDisplayActivity extends AppCompatActivity {
         xServer.windowManager.addOnWindowModificationListener(new WindowManager.OnWindowModificationListener() {
             @Override
             public void onUpdateWindowContent(Window window) {
-                // WoW opened a window again (it only closed one): the closing screen goes away.
-                if (wowClosingShown && !exiting.get() && isWowWindow(window)) {
-                    wowClosingShown = false;
-                    Log.i("XServerDisplayActivity", "WoW window back: closing screen closed");
-                    preloaderDialog.closeOnUiThread();
-                }
                 if (!winStarted[0] && window.isApplicationWindow()) {
                     if (!simulateTouchScreen) {
                         xServerView.setCursorVisible(true);
@@ -852,6 +846,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
     @Override
     public void onResume() {
         super.onResume();
+        resumedNow = true;
 
         if (pauseDeferred) {
             // Never paused: the game kept running while the companion had the focus.
@@ -873,6 +868,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
     public void onPause() {
         if (taskManagerSidebar != null) taskManagerSidebar.stop();
         super.onPause();
+        resumedNow = false;
 
         if (!isInPictureInPictureMode()) {
             // Typing in the companion on the other screen takes the focus from the game, and
@@ -898,6 +894,9 @@ public class XServerDisplayActivity extends AppCompatActivity {
         }
         ProcessHelper.pauseAllWineProcesses();
     }
+
+    /** Between onResume and onPause: the game paused (in the background) says nothing about closing. */
+    private volatile boolean resumedNow = false;
 
     /** True while the "closing" loading screen is up (see {@link #showWowClosing}). */
     private volatile boolean wowClosingShown = false;
@@ -952,6 +951,51 @@ public class XServerDisplayActivity extends AppCompatActivity {
             Log.i("XServerDisplayActivity", "Loading screen closed: " + why);
             preloaderDialog.close();
             probe.recycle();
+            if (why.equals("drawn")) main.postDelayed(new DarkWatch(), DarkWatch.EVERY_MS);
+        }
+    }
+
+    /**
+     * While WoW runs, looks at a small copy of its picture once a second. Quitting, the game
+     * turns its picture black seconds before its window closes: black twice in a row, the
+     * closing screen comes up then. Something on the picture again (it was only a moment of
+     * black, or WoW swapped a window), it goes away again.
+     */
+    private class DarkWatch implements Runnable {
+        static final long EVERY_MS = 1000;
+        private static final int DARK_READS = 2;
+        private final android.graphics.Bitmap probe = android.graphics.Bitmap.createBitmap(64, 36, android.graphics.Bitmap.Config.ARGB_8888);
+        private final Handler main = new Handler(Looper.getMainLooper());
+        private int dark = 0;
+
+        @Override
+        public void run() {
+            if (isFinishing() || exiting.get() || xServerView == null) {
+                probe.recycle();
+                return;
+            }
+            try {
+                android.view.PixelCopy.request(xServerView, probe, result -> {
+                    if (result == android.view.PixelCopy.SUCCESS) look(isDark(probe));
+                    main.postDelayed(this, EVERY_MS);
+                }, main);
+            } catch (IllegalArgumentException e) {
+                // No surface right now (the app in the background): look again later.
+                main.postDelayed(this, EVERY_MS);
+            }
+        }
+
+        private void look(boolean isDark) {
+            dark = isDark && resumedNow ? dark + 1 : 0;
+            if (exiting.get() || !resumedNow) return;
+            if (dark >= DARK_READS && !wowClosingShown && !preloaderDialog.isShowing()) {
+                Log.i("XServerDisplayActivity", "WoW picture black: closing screen");
+                showWowClosing();
+            } else if (!isDark && wowClosingShown) {
+                wowClosingShown = false;
+                Log.i("XServerDisplayActivity", "WoW picture back: closing screen closed");
+                preloaderDialog.close();
+            }
         }
     }
 
