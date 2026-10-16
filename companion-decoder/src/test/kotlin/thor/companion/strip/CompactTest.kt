@@ -27,4 +27,25 @@ class CompactTest {
     fun otherMessagesStayAsTheyAre() {
         for (m in listOf("TB1|3/98|1:2", "TH1|x", "Sbroken", "Pzz")) assertEquals(m, Compact.expand(m))
     }
+
+    /** Messages packed by the addon's own Pack.lua and ns.Short (resource packed.txt, made with it). */
+    @Test
+    fun packedByTheAddon() {
+        fun bytes(hex: String) = String(ByteArray(hex.length / 2) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }, Charsets.UTF_8)
+        val rows = javaClass.getResource("/packed.txt")!!.readText().trim().lines()
+        assert(rows.size >= 8)
+        for (row in rows) {
+            val (original, sent) = row.split(' ').map { bytes(it) }
+            // Several messages that went out together are in one row, between them byte 30.
+            assertEquals(original.split('\u001e'), Compact.expandAll(sent))
+        }
+    }
+
+    @Test
+    fun bags() {
+        assertEquals("TB1|0/16|", Compact.expand("B000G"))
+        // A damaged one stays as it is.
+        assertEquals("B0", Compact.expand("B0"))
+        assertEquals("Z\u0001zz0", Compact.expand("Z\u0001zz0"))
+    }
 }

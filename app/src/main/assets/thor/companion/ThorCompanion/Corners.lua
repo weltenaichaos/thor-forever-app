@@ -108,7 +108,10 @@ end
 -- Shows payload in the corner (hold: how long it stays at least).
 function ns.CornerWrite(name, payload, hold)
     local sq = square(name)
-    if #payload > ns.CornerCapacity(name) then payload = payload:sub(1, ns.CornerCapacity(name)) end
+    -- Made smaller for the way (see Pack.lua); the app writes it out again.
+    local packed = ns.Pack(payload)
+    if #packed <= ns.CornerCapacity(name) then payload = packed
+    elseif #payload > ns.CornerCapacity(name) then payload = payload:sub(1, ns.CornerCapacity(name)) end
     sq.seq = (sq.seq + 1) % 256
     local size = partBytes(sq.kind.rows)
     sq.parts = {}

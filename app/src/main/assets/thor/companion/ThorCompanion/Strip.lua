@@ -446,6 +446,8 @@ function ns.StripWrite(payload, hold)
     msgSeq = (msgSeq + 1) % 256
     parts = {}
     local size = partBytes()
+    -- Made smaller for the way (see Pack.lua); the app writes it out again.
+    payload = ns.Pack(ns.Short and ns.Short(payload) or payload)
     for p = 1, math.max(1, math.ceil(#payload / size)) do
         parts[p] = payload:sub((p - 1) * size + 1, p * size)
     end

@@ -273,10 +273,15 @@ local function encode(t, p)
     return p
 end
 
--- A message cut short by a tap's answer: the app may not have it.
+-- The kinds that went out together in the last message (see nextMessage), first one first.
+local bundled = {}
+
+-- A message cut short by a tap's answer: the app may not have it (nor the kinds that came with it).
 local function interrupted(t)
-    lastSent[t] = nil
-    known[t] = knownBefore[t]
+    for _, b in ipairs(bundled[1] == t and bundled or { t }) do
+        lastSent[b] = nil
+        known[b] = knownBefore[b]
+    end
 end
 local turn = 0
 local statusAt = 0
@@ -365,6 +370,12 @@ local function nextMessage()
         turn = 3  -- lines waiting in a busy chat: every other message is the chat
     end
     mapUrgent = false
+    -- With the corners, small messages go out together in one ("Y" and the messages, each
+    -- in its short form, between them byte 30), as long as they fit one part of the square:
+    -- after a login the map, character, gear, cooldowns and spells are there at once,
+    -- instead of one after another, each up for its own time.
+    local picked, pickedTurns, first = {}, {}, nil
+    local room = ns.StripPartBytes()
     for _ = 1, #kinds do
         turn = turn % #kinds + 1
         local ok, p = true, nil
@@ -381,14 +392,31 @@ local function nextMessage()
         -- The chat and the quest pages say themselves when they have something to send
         -- (each goes out twice, and the second time can look just like the first).
         if p and (p ~= lastSent[turn] or turn == 4 or turn == 11 or (turn == 1 and GetTime() - statusAt > STATUS_AGAIN)) then
+            local e = encode(turn, p)
+            if #picked > 0 then
+                local together = "Y" .. table.concat(picked, "\30") .. "\30" .. ns.Short(e)
+                if #ns.Pack(together) > room then
+                    -- Next time, on its own or with the ones after it.
+                    known[turn] = knownBefore[turn]
+                    turn = turn - 1
+                    break
+                end
+            end
             if turn == 1 then statusAt = GetTime() end
             if COPY_AGAIN[turn] and ns.StripFast() then copyAgain[turn] = true end
             if turn == 5 then mapAt, mapID = GetTime(), p:match("^TM1|(%d+)") end
             lastSent[turn] = p
             if SUMMED[turn] then sums[turn] = checksum(p) end
-            showingTurn = turn
-            return encode(turn, p)
+            picked[#picked + 1], pickedTurns[#pickedTurns + 1] = ns.Short(e), turn
+            first = first or e
+            -- On its own: the status (it has a hold of its own), without the corners, or one that fills a part already.
+            if not corners or turn == 1 or #ns.Pack(picked[1]) > room then break end
         end
+    end
+    if #picked > 0 then
+        showingTurn, bundled = pickedTurns[1], pickedTurns
+        if #picked == 1 then return first end
+        return "Y" .. table.concat(picked, "\30")
     end
     -- With the square going round once (/thor speed fast), what went out once goes out
     -- a second time when nothing else is waiting, for an app that missed a part.
@@ -504,11 +532,41 @@ local function place(mapID, x, y, facing)
     return b64(mapID, 3) .. b64(math.floor((tonumber(x) or 0) * FULL + 0.5), 3) .. b64(math.floor((tonumber(y) or 0) * FULL + 0.5), 3)
         .. (f and b64(math.floor(f / (2 * math.pi) * 64 + 0.5) % 64, 1) or "")
 end
--- TP2|... as P..., TS1|... as S...; anything else as it is.
+--   B<free 2><total 2><item>...      instead of TB1|free/total|itemID:count[:key],... Each item is
+--                                    one digit saying how wide the rest is (id 3 or 4, count 0 to 2 (0: 1),
+--                                    key 0 to 2 (0: none)), then the id, count and key
+local function width(n, max)
+    local w = 0
+    while n >= 64 ^ w do w = w + 1 end
+    return w <= max and w or nil
+end
+local function bagsShort(p)
+    local free, total, list = p:match("^TB1|(%d+)/(%d+)|(.*)$")
+    if not free or tonumber(free) >= 4096 or tonumber(total) >= 4096 then return nil end
+    local out = { "B", b64(free, 2), b64(total, 2) }
+    for e in list:gmatch("[^,]+") do
+        local id, count, key = e:match("^(%d+):(%d+):?(%d*)$")
+        if not id then return nil end
+        id, count, key = tonumber(id), tonumber(count), tonumber(key)
+        -- No leading zeros, so the app writes the same text again.
+        if e ~= id .. ":" .. count .. (key and (":" .. key) or "") then return nil end
+        local iw = id < 262144 and 3 or (id < 16777216 and 4 or nil)
+        local cw = count == 1 and 0 or (count > 0 and width(count, 2))
+        local kw = key and (key > 0 and width(key, 2)) or 0
+        if not iw or not cw or not kw then return nil end
+        out[#out + 1] = b64((iw - 3) + 2 * cw + 6 * kw, 1) .. b64(id, iw)
+            .. (cw > 0 and b64(count, cw) or "") .. (kw > 0 and b64(key, kw) or "")
+    end
+    return table.concat(out)
+end
+
+-- TP2|... as P..., TS1|... as S..., TB1|... as B...; anything else as it is.
 function ns.Short(p)
     if p:sub(1, 4) == "TP2|" then
         local m, x, y, f = p:match("^TP2|(%d+)|([%d.]+)|([%d.]+)|(.*)$")
         if m then return "P" .. place(m, x, y, f) end
+    elseif p:sub(1, 4) == "TB1|" then
+        return bagsShort(p) or p
     elseif p:sub(1, 4) == "TS1|" then
         local f = { strsplit("|", p) }
         if #f >= 12 and f[2] ~= "error" then

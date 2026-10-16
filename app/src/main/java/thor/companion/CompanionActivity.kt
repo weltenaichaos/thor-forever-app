@@ -631,9 +631,8 @@ class CompanionActivity : Activity() {
                     if (frame.version != StripDecoder.POSITION_VERSION) changedAt = SystemClock.uptimeMillis()
                 }
                 val parts = assemblerOf(frame.version)
-                // The corners' short forms (P..., S...) written out again as TP2 and TS1.
-                val message = parts.add(frame)?.let { Compact.expand(it) }
-                if (message != null) {
+                // The short and packed forms (P..., S..., B..., Z..., several in a Y...) written out again.
+                for (message in parts.add(frame)?.let { Compact.expandAll(it) } ?: emptyList()) {
                     if (seenAt == 0L) seenAt = SystemClock.uptimeMillis()
                     messageAt = SystemClock.uptimeMillis()
                     if (game != Game.UNKNOWN && game != Game.IN_WORLD) game = Game.IN_WORLD
@@ -1004,7 +1003,7 @@ class CompanionActivity : Activity() {
         }
         val px = screen.capture(rows = 4000) ?: return fail("the screenshot failed")
         val frame = dataFrame(px) ?: return fail("the data square was not readable in the screenshot")
-        if (String(frame.payload) != message) return fail("the map was closed or changed before the screenshot")
+        if (Compact.expand(String(frame.payload)) != message) return fail("the map was closed or changed before the screenshot")
         val r = pic.onScreen(frame)
         val l = r[0].coerceIn(0, px.width); val t = r[1].coerceIn(0, px.height)
         val w = r[2].coerceIn(0, px.width) - l; val h = r[3].coerceIn(0, px.height) - t
