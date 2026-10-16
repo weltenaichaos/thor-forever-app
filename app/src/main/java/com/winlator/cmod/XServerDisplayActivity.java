@@ -861,6 +861,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         super.onPause();
 
         if (!isInPictureInPictureMode()) {
+            resumedNow = false;  // frozen: its picture says nothing about closing
             if (environment != null) {
                 environment.onPause();
                 xServerView.onPause();
