@@ -1844,7 +1844,7 @@ class CompanionActivity : Activity() {
 
     /** Redraws the Craft tab while an entry of the list is being made, for its progress. */
     private var craftShown = ""
-    private val craftTick = Runnable {
+    private val craftTick: Runnable = Runnable {
         val r = craftRunning ?: return@Runnable
         // Drawn again only when something changed: a redraw every second would make the list jump.
         val now = "${r.made()}|${r.finished()}"
