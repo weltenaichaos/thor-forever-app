@@ -32,17 +32,6 @@ object CompanionBridge {
     /** Whether the game's screen has the key focus now (the main thread only). */
     fun gameHasFocus(): Boolean = view?.hasWindowFocus() == true
 
-    /** True while the companion shows on the other screen; the game then keeps running when it loses focus. */
-    @Volatile private var companionShown = false
-
-    @JvmStatic
-    fun shown(): Boolean = companionShown
-
-    @JvmStatic
-    fun setShown(on: Boolean) {
-        companionShown = on
-    }
-
     @JvmStatic
     fun enabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
@@ -88,18 +77,11 @@ object CompanionBridge {
         val dm = activity.getSystemService(DisplayManager::class.java) ?: return
         val other = dm.displays.firstOrNull { it.displayId != here } ?: return
         val options = ActivityOptions.makeBasic().setLaunchDisplayId(other.displayId)
-        // Starting the companion pauses the game's screen before the companion's onStart runs:
-        // count it as shown already, or the game freezes on its loading screen until the top
-        // screen is tapped.
-        companionShown = true
-        try {
-            activity.startActivity(
-                Intent(activity, CompanionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                options.toBundle()
-            )
-        } catch (e: RuntimeException) {
-            companionShown = false
-            throw e
-        }
+        // Starting it pauses the game's screen; the game keeps running all the same while it
+        // is shown (see XServerDisplayActivity.onPause).
+        activity.startActivity(
+            Intent(activity, CompanionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            options.toBundle()
+        )
     }
 }

@@ -841,7 +841,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
         }
     }
 
-    /** onPause left the game running because the companion took the focus; onStop pauses it after all. */
+    /** onPause left the game running because it is still shown; onStop pauses it once it is really gone. */
     private boolean pauseDeferred = false;
 
     @Override
@@ -871,16 +871,14 @@ public class XServerDisplayActivity extends AppCompatActivity {
         super.onPause();
 
         if (!isInPictureInPictureMode()) {
-            // Typing in the companion on the other screen takes the focus from the game, and
-            // Android pauses it, though it is still on the top screen. Freezing it then stopped
-            // the game until the top screen was tapped. With the companion shown, the game
-            // keeps running and is only paused when it is really gone (onStop).
-            if (thor.companion.CompanionBridge.shown()) {
-                Log.i("XServerDisplayActivity", "Paused with the companion shown: the game keeps running");
-                pauseDeferred = true;
-            }
-            else
-                pauseGame();
+            // Anything on the other screen that takes the focus (the companion while you type,
+            // or after it was closed, any app or the home screen there) makes Android pause
+            // the game, though it is still on the top screen. Freezing it then stopped the
+            // game until the top screen was tapped, and a long freeze lost the connection to
+            // the server (back to WoW's login screen). So the game keeps running while it is
+            // shown and is only paused when it is really gone (onStop).
+            Log.i("XServerDisplayActivity", "Paused while still shown: the game keeps running");
+            pauseDeferred = true;
         }
 
         savePlaytimeData();
