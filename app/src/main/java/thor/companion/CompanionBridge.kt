@@ -25,6 +25,13 @@ object CompanionBridge {
     @Volatile var xServer: XServer? = null
         private set
 
+    /** The game screen's task, to give the key focus back to it (see CompanionActivity.giveFocusToGame); -1: none. */
+    @Volatile var gameTaskId: Int = -1
+        private set
+
+    /** Whether the game's screen has the key focus now (the main thread only). */
+    fun gameHasFocus(): Boolean = view?.hasWindowFocus() == true
+
     /** True while the companion shows on the other screen; the game then keeps running when it loses focus. */
     @Volatile private var companionShown = false
 
@@ -60,6 +67,7 @@ object CompanionBridge {
     fun attach(activity: Activity, xServer: XServer, view: SurfaceView, shortcutPath: String?) {
         this.xServer = xServer
         this.view = view
+        gameTaskId = activity.taskId
         if (!enabled(activity) || shortcutPath?.endsWith("/$WOW_SHORTCUT_FILE") != true) return
         runCatching { open(activity) }
     }
@@ -70,6 +78,7 @@ object CompanionBridge {
         if (view != null && this.view !== view) return
         this.view = null
         xServer = null
+        gameTaskId = -1
     }
 
     /** Opens the companion on the screen the game is not on; nothing on a device with one screen. */

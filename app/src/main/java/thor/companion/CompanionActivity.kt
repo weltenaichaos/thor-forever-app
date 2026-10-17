@@ -257,12 +257,30 @@ class CompanionActivity : Activity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         android.util.Log.i("ThorCompanion", "window focus $hasFocus")
+        // A tap on the game while typing here: the box and its keyboard close (they stayed open,
+        // and closing them later left this screen with the key focus and no window to take it).
+        if (!hasFocus && composing != null) content.postDelayed({
+            if (composing != null && !hasWindowFocus() && CompanionBridge.gameHasFocus()) closeCompose()
+        }, 300)
+    }
+
+    /**
+     * Gives the key focus back to the game. While typing here this screen has it; made
+     * unfocusable again, it kept it, with no window to take the keys: a controller button
+     * then waited for one, and after 5 s Android closed the app as not responding
+     * ("Input dispatching timed out (Application does not have a focused window)").
+     */
+    private fun giveFocusToGame() {
+        val id = CompanionBridge.gameTaskId
+        if (id < 0 || CompanionBridge.gameHasFocus()) return
+        runCatching { getSystemService(android.app.ActivityManager::class.java).moveTaskToFront(id, 0) }
+            .onFailure { android.util.Log.w("ThorCompanion", "focus back to the game failed", it) }
     }
 
     override fun onStop() {
         android.util.Log.i("ThorCompanion", "onStop")
         CompanionBridge.setShown(false)
-        closeCompose()
+        closeCompose(giveBack = false)  // going away (Home, Exit): don't bring the game back over it
         worker = null
         watcher = null
         runCatching { watchSocket?.close() }
@@ -2573,7 +2591,7 @@ class CompanionActivity : Activity() {
         else say("Without the microphone, speech to text can't work")
     }
 
-    private fun closeCompose() {
+    private fun closeCompose(giveBack: Boolean = true) {
         stopListening()
         micFor = null
         if (composing == null) return
@@ -2581,6 +2599,7 @@ class CompanionActivity : Activity() {
         getSystemService(android.view.inputmethod.InputMethodManager::class.java)
             .hideSoftInputFromWindow(footer.windowToken, 0)
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+        if (giveBack) giveFocusToGame()
         if (panel == Panel.CHAT) render() else footer.removeAllViews()
     }
 
