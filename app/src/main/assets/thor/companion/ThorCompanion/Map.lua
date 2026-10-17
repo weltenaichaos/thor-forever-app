@@ -33,6 +33,9 @@ local function label(s)
     return s
 end
 
+-- The same names in the quest areas' message (Areas.lua), so the app can tell which is which.
+ns.MapLabel = label
+
 local function xy(pos)
     if not pos or secret(pos) then return end
     local x, y = pos.x, pos.y
@@ -280,6 +283,8 @@ function ns.MapPictureShow()
         return
     end
     pictureMap, pictureUntil = mapID, GetTime() + PICTURE_SECONDS
+    -- The quest areas follow it (Areas.lua).
+    if ns.AreasWithPicture then ns.AreasWithPicture(mapID) end
     ThorCompanionDB.pictured = ThorCompanionDB.pictured or {}
     ThorCompanionDB.pictured[mapID] = true
     note = "showed map " .. mapID .. " at " .. date("%H:%M:%S") .. ", " .. exploredNote
@@ -317,7 +322,7 @@ end
 -- For /thor map: what the map picture did last, and the places message.
 function ns.MapInfo()
     local ok, p = pcall(ns.MapPayload)
-    return "zone picture: " .. note .. "\nzone size from " .. sizeSource .. " (" .. sizeNote .. ")\n" .. (ok and (p or "no map here") or ("error: " .. tostring(p)))
+    return "zone picture: " .. note .. "\n" .. (ns.AreasInfo and ns.AreasInfo() or "") .. "\nzone size from " .. sizeSource .. " (" .. sizeNote .. ")\n" .. (ok and (p or "no map here") or ("error: " .. tostring(p)))
 end
 
 -- The zone's size in yards from walking, when the game won't say it outright.

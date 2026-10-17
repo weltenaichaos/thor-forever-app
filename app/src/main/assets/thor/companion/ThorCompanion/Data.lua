@@ -695,6 +695,13 @@ f:SetScript("OnEvent", function()
             overlayUp = true
             return
         end
+        local okAreas, areas = ns.Measured("quest areas", ns.AreasPayload)
+        if okAreas and areas then
+            if showingTurn and ns.StripBusy() then interrupted(showingTurn) end showingTurn = nil
+            ns.StripWrite(areas)
+            overlayUp = true
+            return
+        end
         -- The picture or icons just went away: the square must not keep saying where they
         -- were, or the app may still take a screenshot of what is behind them.
         if overlayUp then
@@ -713,6 +720,8 @@ f:SetScript("OnEvent", function()
             local okAuto, shown = ns.Measured("zone picture", ns.MapPictureAuto)
             if okAuto and shown then return end
             okAuto, shown = ns.Measured("item icons", ns.IconsAuto)
+            if okAuto and shown then return end
+            okAuto, shown = ns.Measured("quest areas", ns.AreasAuto)
             if okAuto and shown then return end
         end
         -- Building every kind to find nothing changed costs: when nothing was, wait half a
@@ -776,7 +785,7 @@ SlashCmdList.THORCOMPANION = function(msg)
         ns.MapPictureShow()
     elseif msg == "auto on" or msg == "auto off" then
         ThorCompanionDB.auto = (msg == "auto on")
-        print("|cff66ccffForever Companion|r zone pictures and new item icons by themselves " .. (msg == "auto on" and "on" or "off"))
+        print("|cff66ccffForever Companion|r zone pictures, new item icons and quest areas by themselves " .. (msg == "auto on" and "on" or "off"))
     elseif msg == "icons" then
         ns.IconsShow()
         print("|cff66ccffForever Companion|r " .. ns.IconsInfo())

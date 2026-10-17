@@ -8,6 +8,7 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
+import thor.companion.strip.AreaMask
 import thor.companion.strip.MapPlace
 import thor.companion.strip.ZoneMap
 import kotlin.math.cos
@@ -22,7 +23,8 @@ import kotlin.math.sin
  * change it, like the minimap's zoom, and drag to look elsewhere ([panned]). With
  * [turns], the area around you turns with you like the minimap (where you face is up).
  * Names make room for each other: one that would cover another name or a pin is left
- * out, and a tap there says what it is.
+ * out, and a tap there says what it is. Quest areas have their real shape once the app
+ * took it from the game ([areas]); until then they are circles round the game's one point.
  */
 class MapView(context: Context) : View(context) {
     var zone: ZoneMap? = null
@@ -37,6 +39,8 @@ class MapView(context: Context) : View(context) {
     var span = 0.4
     /** Whether quest objective areas are drawn. */
     var questAreas = true
+    /** The real shapes of quest areas the app took (by the name in their q places); the others are circles. */
+    var areas: Map<String, AreaMask> = emptyMap()
     /** A quest title whose places are marked more strongly (tapped in the Quests tab). */
     var highlight: String? = null
     /** The selected quest's nearest place, ringed, and an optional note written under the ring. */
@@ -72,6 +76,17 @@ class MapView(context: Context) : View(context) {
         pathEffect = android.graphics.DashPathEffect(floatArrayOf(5 * d, 4 * d), 0f)
     }
     private val areaText = Paint(text).apply { color = Color.rgb(255, 226, 130); textSize = 10 * d }
+    // A real shape: filled faintly, with a thin line round it (white for the followed quest).
+    private val shapeFill = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+        colorFilter = android.graphics.PorterDuffColorFilter(Color.argb(46, 255, 210, 0), android.graphics.PorterDuff.Mode.SRC_IN)
+    }
+    private val shapeFillMarked = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+        colorFilter = android.graphics.PorterDuffColorFilter(Color.argb(70, 255, 255, 255), android.graphics.PorterDuff.Mode.SRC_IN)
+    }
+    private val shapeEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 210, 0); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val shapeEdgeMarked = Paint(shapeEdge).apply { color = Color.WHITE }
+    /** Each shape as a picture to stretch over the zone, and its outline (made once). */
+    private val shapes = java.util.WeakHashMap<AreaMask, Pair<android.graphics.Bitmap, FloatArray>>()
     private val marked = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3 * d }
     private val distanceText = Paint(text).apply { textAlign = Paint.Align.CENTER; color = Color.WHITE; textSize = 13 * d; isFakeBoldText = true }
     private val bounds = android.graphics.RectF()
@@ -151,6 +166,28 @@ class MapView(context: Context) : View(context) {
         return out
     }
 
+    /** The real shape of a quest area, when the app took one. */
+    private fun shape(p: MapPlace): AreaMask? = if (p.kind == 'q') areas[p.label]?.takeIf { !it.empty } else null
+
+    /** Draws [m] over the zone, which lies at [zl], [zt] to [zr], [zb] on screen (before turning). */
+    private fun drawShape(canvas: Canvas, m: AreaMask, marked: Boolean, zl: Float, zt: Float, zr: Float, zb: Float) {
+        val (img, outline) = shapes.getOrPut(m) {
+            val px = IntArray(m.w * m.h) { i -> if (m[i % m.w, i / m.w]) Color.WHITE else Color.TRANSPARENT }
+            android.graphics.Bitmap.createBitmap(px, m.w, m.h, android.graphics.Bitmap.Config.ARGB_8888) to m.outline()
+        }
+        bounds.set(zl, zt, zr, zb)
+        canvas.drawBitmap(img, null, bounds, if (marked) shapeFillMarked else shapeFill)
+        // The outline is in the shape's cells: scaled onto the zone, the line kept thin.
+        val k = (zr - zl) / m.w
+        val edgePaint = if (marked) shapeEdgeMarked else shapeEdge
+        edgePaint.strokeWidth = (if (marked) 2.5f else 1.3f) * d / k
+        canvas.save()
+        canvas.translate(zl, zt)
+        canvas.scale(k, (zb - zt) / m.h)
+        canvas.drawLines(outline, edgePaint)
+        canvas.restore()
+    }
+
     private fun pinRadius(kind: Char) = if (kind == 'a' || kind == 'Q') 9 * d else 7 * d
 
     /**
@@ -199,10 +236,14 @@ class MapView(context: Context) : View(context) {
             var g = 0.0
             while (g <= 1.0) { canvas.drawLine(sx(g), zt, sx(g), zb, grid); canvas.drawLine(zl, sy(g), zr, sy(g), grid); g += stepGrid }
         }
-        // Quest objectives are areas, not spots: a soft circle where to do them.
+        // Quest objectives are areas, not spots: their real shape once the app took it from
+        // the game, until then a soft circle where to do them.
         val radius = 0.03f * ux
         if (questAreas) for (place in places) {
             if (place.kind != 'q') continue
+            val m = shape(place)
+            if (m != null && title != null && matches(place.label, title)) continue  // drawn marked below
+            if (m != null) { drawShape(canvas, m, false, zl, zt, zr, zb); continue }
             canvas.drawCircle(sx(place.x), sy(place.y), radius, area)
             canvas.drawCircle(sx(place.x), sy(place.y), radius, areaEdge)
         }
@@ -216,11 +257,14 @@ class MapView(context: Context) : View(context) {
         // The quest tapped in the Quests tab: a white ring round each of its places, whatever the toggles.
         if (title != null) for (place in places) {
             if (place.kind !in "qQa" || !matches(place.label, title)) continue
-            canvas.drawCircle(sx(place.x), sy(place.y), if (place.kind == 'q') radius else 13 * d, marked)
+            val m = shape(place)
+            if (m != null) drawShape(canvas, m, true, zl, zt, zr, zb)
+            else canvas.drawCircle(sx(place.x), sy(place.y), if (place.kind == 'q') radius else 13 * d, marked)
         }
-        // Where you are led: a white ring.
+        // Where you are led: a white ring (on a real shape, a small one at its nearest point to you).
         targetNote?.let { (place, _) ->
-            canvas.drawCircle(sx(place.x), sy(place.y), if (place.kind == 'q') radius else 13 * d, marked)
+            val r = when { place.kind != 'q' -> 13 * d; shape(place) != null -> 9 * d; else -> radius }
+            canvas.drawCircle(sx(place.x), sy(place.y), r, marked)
         }
         canvas.restore()
         canvas.drawRect(zl, zt, zr, zb, edge)
@@ -399,8 +443,18 @@ class MapView(context: Context) : View(context) {
         if (pin != null) { onPlaces(listOf(pin)); return true }
         val reach = maxOf(0.03f * ux, 22 * d)
         val title = highlight
-        val areas = places.filter { it.kind == 'q' && (questAreas || (title != null && matches(it.label, title))) && far(it) < reach }
-        if (areas.isNotEmpty()) onPlaces(areas.sortedBy(::far)) else performClick()
+        // The tap on the map, and whether it is on a real shape (or a finger's width from one).
+        val mx = left + at.x / ux; val my = top + at.y / uy
+        fun onShape(m: AreaMask): Boolean {
+            if (m.inside(mx, my)) return true
+            val p = m.nearest(mx, my) ?: return false
+            return hypot((p[0] - mx) * ux, (p[1] - my) * uy) < 14 * d
+        }
+        val hit = places.filter {
+            it.kind == 'q' && (questAreas || (title != null && matches(it.label, title))) &&
+                (shape(it)?.let(::onShape) ?: (far(it) < reach))
+        }
+        if (hit.isNotEmpty()) onPlaces(hit.sortedBy(::far)) else performClick()
         return true
     }
 
