@@ -67,6 +67,7 @@ function ns.TooltipsPayload()
     local all = {}
     for _, id in ipairs(ns.BagIDs()) do all[#all + 1] = id end
     for _, id in ipairs(ns.EquippedIDs()) do all[#all + 1] = id end
+    for _, id in ipairs(ns.ProfessionItemIDs()) do all[#all + 1] = id end
     for _, id in ipairs(all) do
         if not sent[id] then
             local l = lines(id)

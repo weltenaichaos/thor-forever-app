@@ -124,6 +124,12 @@ public class Window extends XResource {
         sendEvent(Event.PROPERTY_CHANGE, new PropertyNotify(this, id, true));
     }
 
+    /** Sets [atom] to exactly this type, format and data (unlike modifyProperty's REPLACE, the type too). */
+    public void replaceProperty(int atom, int type, Property.Format format, byte[] data) {
+        properties.put(atom, new Property(atom, type, format, data));
+        sendEvent(Event.PROPERTY_CHANGE, new PropertyNotify(this, atom, false));
+    }
+
     public Property modifyProperty(int atom, int type, Property.Format format, Property.Mode mode, byte[] data) {
         Property property = getProperty(atom);
         boolean modified = false;
