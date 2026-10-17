@@ -2958,8 +2958,8 @@ class CompanionActivity : Activity() {
 
     @Volatile private var chatBox: ChatBox? = null
 
-    /** False once a paste didn't reach the game (it started without the paste way in): then lines are typed. */
-    @Volatile private var pasteWorks = true
+    /** Pastes in a row that didn't reach the chat box: from two on, lines are typed straight away. */
+    @Volatile private var pasteFailures = 0
 
     private fun sendChat(label: String, command: String, text: String) {
         val target = gameDisplay()
@@ -2985,34 +2985,18 @@ class CompanionActivity : Activity() {
                 command == GROUP -> box.group.ifEmpty { "/p " }
                 else -> command
             }
-            // The whole line goes in with one paste (CTRL-V): the app hands it to the game
-            // directly (WineRequestHandler), not through Android's clipboard, so no "copied"
-            // pop-up. The box opens empty, so text the addon then reports came from the paste.
-            // If none shows up (the game started before this app had the paste way in), the
-            // line is typed key by key, and from then on too until the game starts again.
+            // The whole line goes in with one paste (CTRL-V): the app's own X server holds it
+            // as the X clipboard, where Wine takes the game's paste from (GamePaste), so
+            // Android's clipboard and its "copied" pop-up stay out of it. The box opens empty,
+            // so text the addon then reports came from the paste. If the game doesn't take
+            // it, the line is typed key by key.
             val line = prefix + text
-            var pasted = false
-            val tried = pasteWorks && box.length == 0
-            if (tried) {
-                com.winlator.cmod.core.WineRequestHandler.offerPaste(line, 3000)
-                KeySender.send(this, target, "CTRL-V")
-                // The game may turn "/w Name " into the box's whisper mode: then only your text is left.
-                val bytes = text.toByteArray(Charsets.UTF_8).size
-                val wait = SystemClock.uptimeMillis() + 2500
-                while (SystemClock.uptimeMillis() < wait) {
-                    val now = chatBox
-                    if (now != null && now.n == box.n && (now.length ?: 0) >= bytes) { pasted = true; break }
-                    lastKeyAt = SystemClock.uptimeMillis()
-                    SystemClock.sleep(30)
-                }
-                com.winlator.cmod.core.WineRequestHandler.endPaste()
-                if (!pasted) {
-                    pasteWorks = false
-                    android.util.Log.i("ThorCompanion", "paste didn't reach the chat box: typing from now on")
-                    // Whatever went in partly: cleared before typing (the box was empty).
-                    val partly = chatBox?.length ?: 0
-                    if (partly > 0) repeat(partly) { KeySender.send(this, target, "BACKSPACE"); SystemClock.sleep(5) }
-                }
+            val tried = pasteFailures < 2 && box.length == 0
+            val pasted = tried && pasteLine(target, line, box)
+            if (tried) pasteFailures = if (pasted) 0 else pasteFailures + 1
+            if (tried && !pasted) {
+                // Whatever went in partly: cleared before typing (the box was empty).
+                clearChatBox(target, box)
             }
             if (!pasted) {
                 val typed = KeySender.type(this, target, line)
@@ -3045,8 +3029,51 @@ class CompanionActivity : Activity() {
                 }
                 android.util.Log.i("ThorCompanion", "chat box still holds the text after Enter: once more")
             }
-            runOnUiThread { say(if (pasted) "$label: sent" else if (tried) "$label: sent (typed; restart the game once for pasting)" else "$label: sent") }
+            runOnUiThread { say(if (tried && !pasted) "$label: sent (typed, the game didn't take the paste)" else "$label: sent") }
         }
+    }
+
+    /**
+     * Pastes [line] into the open chat [box]; true once the addon shows text there that
+     * the game fetched from the X clipboard. Logs only what happened, never the text.
+     */
+    private fun pasteLine(target: Int, line: String, box: ChatBox): Boolean {
+        val offer = GamePaste.offer(line) ?: return false
+        fun await(ms: Long, done: () -> Boolean) = GamePaste.await(ms) { lastKeyAt = SystemClock.uptimeMillis(); done() }
+        // Wine may still hold the last line (or the game's own copy): until it has looked
+        // again, a paste could bring that back.
+        if (offer.mustWait && !await(PASTE_LOOK_MS) { GamePaste.seen(offer) }) {
+            android.util.Log.i("ThorCompanion", "paste: Wine didn't look at the clipboard")
+            return false
+        }
+        for (attempt in 1..2) {
+            val seenBefore = GamePaste.seen(offer)
+            KeySender.send(this, target, "CTRL-V")
+            if (await(1000) { GamePaste.taken(offer) }) {
+                val shown = await(2500) { chatBox.let { it != null && it.n == box.n && (it.length ?: 0) > 0 } }
+                android.util.Log.i("ThorCompanion", "paste: the game took it (try $attempt), chat box " +
+                    (if (shown) "shows ${chatBox?.length} bytes" else "stays empty"))
+                return shown
+            }
+            // Not taken: Wine hadn't seen this line yet, so the game pasted nothing or an old one.
+            android.util.Log.i("ThorCompanion", "paste: the game didn't take it (try $attempt, Wine ${if (seenBefore) "had" else "hadn't"} seen it)")
+            if (seenBefore || attempt == 2) return false
+            if (!await(PASTE_LOOK_MS) { GamePaste.seen(offer) }) {
+                android.util.Log.i("ThorCompanion", "paste: Wine didn't look at the clipboard")
+                return false
+            }
+            clearChatBox(target, box)
+        }
+        return false
+    }
+
+    /** Empties the chat [box] the app opened (it was empty then), with Backspace. */
+    private fun clearChatBox(target: Int, box: ChatBox) {
+        // The addon reports the box's length when it changes: a moment for that to come.
+        GamePaste.await(600) { chatBox.let { it != null && it.n == box.n && (it.length ?: 0) > 0 } }
+        val now = chatBox
+        val partly = if (now != null && now.n == box.n) now.length ?: 0 else 0
+        if (partly > 0) repeat(partly) { KeySender.send(this, target, "BACKSPACE"); SystemClock.sleep(5) }
     }
 
     /** The Thor's recent log (this app, the speech service, the game's input) and the game's picture, into Download. */
@@ -3424,6 +3451,8 @@ class CompanionActivity : Activity() {
         const val ALL = -1
         /** A list entry counts as stopped when the bags got nothing new for this long. */
         const val STALL_MS = 15_000L
+        /** Wine looks at the X clipboard every two seconds (when the game pastes too): this long covers one look. */
+        const val PASTE_LOOK_MS = 3000L
         /** Professions every character can learn on top of its two main ones; shown in the second row. */
         val SECONDARY_PROFESSIONS = setOf("Cooking", "First Aid", "Fishing", "Riding", "Archaeology")
         val KEPT = setOf("TS1|", "TB1|", "TM1|", "TP1|", "TQ1|", "TL1|", "TV1|", "TF1|", "TK1|")

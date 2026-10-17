@@ -326,10 +326,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             this.envVars.put("WINE_FROM_ANDROID_CLIPBOARD", "1");
             this.envVars.put("WINE_TO_ANDROID_CLIPBOARD", "1");
         }
-        // The Forever Companion pastes its chat lines through the same way in (see WineRequestHandler).
-        else if (thor.companion.CompanionBridge.INSTANCE.enabled(context)) {
-            this.envVars.put("WINE_FROM_ANDROID_CLIPBOARD", "1");
-        }
 
         EnvVars execEnvVars = new EnvVars();
 

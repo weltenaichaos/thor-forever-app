@@ -30,15 +30,31 @@ public abstract class SelectionRequests {
     public static void getSelectionOwner(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         int atom = inputStream.readInt();
         if (!Atom.isValid(atom)) throw new BadAtom(atom);
-        Window owner = client.xServer.selectionManager.getSelection(atom).owner;
+        int owner = client.xServer.selectionManager.ownerId(atom);
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
             outputStream.writeByte((byte)0);
             outputStream.writeShort(client.getSequenceNumber());
             outputStream.writeInt(0);
-            outputStream.writeInt(owner != null ? owner.id : 0);
+            outputStream.writeInt(owner);
             outputStream.writePad(20);
         }
+    }
+
+    public static void convertSelection(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
+        int requestorId = inputStream.readInt();
+        int selection = inputStream.readInt();
+        int target = inputStream.readInt();
+        int property = inputStream.readInt();
+        int timestamp = inputStream.readInt();
+
+        Window requestor = client.xServer.windowManager.getWindow(requestorId);
+        if (requestor == null) throw new BadWindow(requestorId);
+        if (!Atom.isValid(selection)) throw new BadAtom(selection);
+        if (!Atom.isValid(target)) throw new BadAtom(target);
+        if (property != 0 && !Atom.isValid(property)) throw new BadAtom(property);
+
+        client.xServer.selectionManager.convertSelection(client, requestor, selection, target, property, timestamp);
     }
 }

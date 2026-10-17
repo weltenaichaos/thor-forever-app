@@ -28,22 +28,6 @@ public class WineRequestHandler {
     private Context context;
     private ServerSocket serverSocket;
 
-    // Text the Forever Companion hands the game for one paste (its chat line), instead of
-    // Android's clipboard: nothing goes through Android's clipboard, so no "copied" pop-up.
-    private static volatile String offeredText;
-    private static volatile long offeredUntil;
-
-    /** Makes [text] what the game gets on its next paste(s) for the next [forMs] milliseconds. */
-    public static void offerPaste(String text, long forMs) {
-        offeredText = text;
-        offeredUntil = android.os.SystemClock.uptimeMillis() + forMs;
-    }
-
-    /** Ends an offer early (the paste went in). */
-    public static void endPaste() {
-        offeredText = null;
-    }
-
     public WineRequestHandler(Context context) {
         this.context = context;
     }
@@ -118,22 +102,16 @@ public class WineRequestHandler {
     private void setWineClipboard(DataInputStream inputStream, DataOutputStream outputStream) throws IOException {
         int format = 13;
         String clipText;
-        String offered = offeredText;
-        if (offered != null && android.os.SystemClock.uptimeMillis() < offeredUntil) {
-            clipText = offered;
+        ClipboardManager clipboardManager = (ClipboardManager)context.getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipData clipData = clipboardManager.getPrimaryClip();
+        if (clipData != null && clipData.getItemCount() > 0 && clipData.getItemAt(0).getText() != null) {
+            clipText = clipData.getItemAt(0).getText().toString();
         }
         else {
-            ClipboardManager clipboardManager = (ClipboardManager)context.getSystemService(Context.CLIPBOARD_SERVICE);
-            ClipData clipData = clipboardManager.getPrimaryClip();
-            if (clipData != null && clipData.getItemCount() > 0 && clipData.getItemAt(0).getText() != null) {
-                clipText = clipData.getItemAt(0).getText().toString();
-            }
-            else {
-                clipText = "";
-            }
+            clipText = "";
         }
         // (Only the length: what is pasted can be a chat line or a password.)
-        Log.d("WineRequestHandler", "Received request code SET_WINE_CLIPBOARD, " + clipText.length() + " characters" + (offered != null ? " (companion)" : ""));
+        Log.d("WineRequestHandler", "Received request code SET_WINE_CLIPBOARD, " + clipText.length() + " characters");
         clipText = clipText + "\0";
         byte[] dataByte = clipText.getBytes(StandardCharsets.UTF_16LE);
         int size = dataByte.length;
