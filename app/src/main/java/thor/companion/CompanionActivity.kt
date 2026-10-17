@@ -119,6 +119,7 @@ class CompanionActivity : Activity() {
     private var craftProfession: String? = null
     private var craftRecipe: Recipe? = null
     private var craftOnlyMakeable = false
+    private var craftSheet: String? = null  // the Craft tab's pop-up: "list", "lately" or none
     private var chatTab = ChatTab.ALL
     /** Per chat tab, the number of the last line seen there (see ChatLog.total). */
     private val chatSeen = HashMap<ChatTab, Int>()
@@ -1612,56 +1613,61 @@ class CompanionActivity : Activity() {
                 else "This character hasn't learned a profession yet."))
             return
         }
-        val selected = list.firstOrNull { it.name == craftProfession } ?: list.first()
+        // The main professions first, then the secondary ones (each row shares its width).
+        val (minor, major) = list.partition { it.name in SECONDARY_PROFESSIONS }
+        val selected = list.firstOrNull { it.name == craftProfession } ?: (major + minor).first()
         craftProfession = selected.name
 
-        // The professions: tap one to see its recipes.
-        val profs = Flow(this, dp(6))
-        for (prof in list) {
-            val box = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                background = Theme.box(context, SURFACE, 12, if (prof.name == selected.name) ACCENT else STROKE, if (prof.name == selected.name) 2f else 1f)
-                setPadding(dp(12), dp(8), dp(12), dp(8))
-                setOnClickListener { craftProfession = prof.name; craftRecipe = null; scroll.scrollTo(0, 0); render() }
+        // Fixed above the recipes: the professions, then one row for the list.
+        for ((row, small) in listOf(major to false, minor to true)) {
+            if (row.isEmpty()) continue
+            val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
+            for (prof in row) {
+                val on = prof.name == selected.name
+                val box = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    background = Theme.box(context, if (on) RAISED else SURFACE, 12, if (on) ACCENT else STROKE, if (on) 2f else 1f)
+                    setPadding(dp(8), dp(if (small) 4 else 6), dp(8), dp(if (small) 4 else 6))
+                    setOnClickListener { craftProfession = prof.name; craftRecipe = null; scroll.scrollTo(0, 0); render() }
+                }
+                val level = if (prof.max > 0) "${prof.level}/${prof.max}" else "${prof.level}"
+                box.addView(line(prof.name, if (on) ACCENT else TEXT, if (small) 13f else 14f, bold = true).apply {
+                    setPadding(0, 0, 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+                box.addView(line(level, DIM, 12f).apply { setPadding(0, 0, 0, dp(2)) })
+                if (prof.max > 0 && !small) box.addView(Bar(this).apply { value = prof.level.toFloat() / prof.max; colour = ACCENT }, LinearLayout.LayoutParams(-1, dp(4)))
+                bar.addView(box, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
             }
-            box.addView(line(prof.name, if (prof.name == selected.name) ACCENT else TEXT, 14f, bold = true).apply { setPadding(0, 0, 0, 0) })
-            box.addView(line(if (prof.max > 0) "${prof.level} / ${prof.max}" else "${prof.level}", TEXT, 13f).apply { setPadding(0, dp(2), 0, dp(4)) })
-            if (prof.max > 0) box.addView(Bar(this).apply { value = prof.level.toFloat() / prof.max; colour = ACCENT }, LinearLayout.LayoutParams(dp(96), dp(5)))
-            profs.addView(box)
+            toolbar.addView(bar)
         }
-        content.addView(profs, cardParams())
 
-        // The crafting list: what you want to make, one tap on Make next each (the game wants a
-        // press per recipe). And the last thing made, to make it again.
+        // The list row: Make next (or Make again), and the list and what you made lately on a tap.
         val queue = craftList()
         val again = lastJob()
-        if (queue.isNotEmpty() || again != null) {
-            val box = card()
-            if (queue.isNotEmpty()) {
-                box.addView(line("Crafting list", DIM, 12f).apply { setPadding(0, 0, 0, dp(2)) })
-                for ((i, job) in queue.withIndex()) {
-                    val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(2)) }
-                    row.addView(line(job.label(), if (i == 0) TEXT else DIM, 14f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
-                    row.addView(line(job.profession, DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
-                    row.addView(chip("✕") { saveCraftList(craftList().also { if (i < it.size) it.removeAt(i) }); render() })
-                    box.addView(row)
-                }
-                val next = queue.first()
-                box.addView(chip("Make next: ${next.label()}") {
-                    val now = craftList()
-                    val job = now.firstOrNull() ?: return@chip
-                    if (runJob(job)) { now.removeAt(0); saveCraftList(now); render() }
-                }.apply {
-                    background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK); textSize = 15f
-                    setPadding(dp(12), dp(12), dp(12), dp(12))
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-            }
-            if (again != null) {
-                box.addView(chip("Make again: ${again.label()}") { runJob(again) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(if (queue.isEmpty()) 0 else 6) })
-            }
-            if (queue.isNotEmpty()) box.addView(chip("Clear the list") { saveCraftList(emptyList()); render() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
-            content.addView(box, cardParams())
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, dp(2)) }
+        val main = queue.firstOrNull()?.let { "Make next: ${it.label()}" } ?: again?.let { "Make again: ${it.label()}" }
+        if (main != null) {
+            actions.addView(chip(main) {
+                val now = craftList()
+                val job = now.firstOrNull()
+                if (job != null) { if (runJob(job)) { now.removeAt(0); saveCraftList(now); render() } }
+                else lastJob()?.let { runJob(it) }
+            }.apply {
+                background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK)
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        } else {
+            actions.addView(line("Tap a recipe to make it or put it on the list", DIM, 12f).apply { setPadding(dp(4), 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
         }
+        fun sheetChip(label: String, which: String) = chip(label) {
+            craftSheet = if (craftSheet == which) null else which
+            craftRecipe = null
+            render()
+        }.apply { if (craftSheet == which) { background = Theme.box(context, RAISED, 18, ACCENT, 2f) } }
+        actions.addView(sheetChip(if (queue.isEmpty()) "List" else "List (${queue.size})", "list"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(4) })
+        if (!p?.results.isNullOrEmpty()) actions.addView(sheetChip("Lately", "lately"))
+        toolbar.addView(actions)
 
         // What you have: the bags as they are now, the bank as it was when last open.
         val inBags = HashMap<Int, Int>()
@@ -1674,80 +1680,121 @@ class CompanionActivity : Activity() {
         val newest = pages.maxOfOrNull { it.readAt }
         val shown = pages.filter { it.readAt == newest }.sortedBy { it.page }
         val recipes = shown.flatMap { it.recipes }
+
+        // Below the recipes, like a small pop-up: the recipe tapped, the list, or what you made lately.
+        val open = craftRecipe
+        when {
+            open != null && recipes.any { it == open } -> renderRecipe(open, recipes.indexOf(open) + 1, selected.name, bags, inBank)
+            craftSheet == "list" -> craftListSheet(queue)
+            craftSheet == "lately" && !p?.results.isNullOrEmpty() -> latelySheet(p!!.results)
+        }
+        if (open != null && recipes.none { it == open }) craftRecipe = null
+
         if (recipes.isEmpty()) {
             content.addView(empty("Open ${selected.name} in the game once",
                 "The game shows the recipes only while the profession window is open (for Mining that is Smelting). Open it once and they stay here, also after a restart."))
-        } else {
-            val open = craftRecipe
-            if (open != null && recipes.any { it == open }) renderRecipe(open, recipes.indexOf(open) + 1, selected.name, bags, inBank) else craftRecipe = null
-            val filters = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
-            for ((i, label) in listOf("All recipes", "Can make now").withIndex()) {
-                filters.addView(chip(label) { craftOnlyMakeable = i == 1; render() }.apply {
-                    if ((i == 1) == craftOnlyMakeable) { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) }
-                }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
-            }
-            content.addView(filters)
-            val first = shown.first()
-            val age = newest?.let { System.currentTimeMillis() / 1000 - it }
-            content.addView(section("Tap a recipe for its materials" +
-                (age?.takeIf { it > 3600 }?.let { "  ·  read ${duration(it)} ago" } ?: "") +
-                (if (shown.size < first.pages) "  ·  more coming (${shown.size} of ${first.pages})" else "")))
-            val now = System.currentTimeMillis() / 1000
-            var heading: String? = null
-            var any = false
-            for (r in recipes) {
-                if (r.heading) { heading = r.name; continue }
-                val n = r.canMake(bags)
-                val withBank = r.canMake(both)
-                if (craftOnlyMakeable && (n ?: 0) <= 0) continue
-                heading?.let { content.addView(section(it)); heading = null }
-                any = true
-                val known = names[r.itemId]
-                val greyed = n == 0
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    background = Theme.box(context, if (r == craftRecipe) RAISED else SURFACE, 10, STROKE)
-                    setPadding(dp(10), dp(6), dp(10), dp(6))
-                    setOnClickListener { craftRecipe = if (craftRecipe == r) null else r; scroll.scrollTo(0, 0); render() }
-                    setOnLongClickListener { if (r.itemId > 0) showDetails(r.itemId); true }
-                }
-                row.addView(View(this).apply { background = Theme.box(context, recipeColour(r.colour), 5) }, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginEnd = dp(8) })
-                row.addView(icon(r.itemId.takeIf { it > 0 }, known?.let { qualityColour(it.quality) }, 28).apply { if (greyed) alpha = 0.45f },
-                    LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(8) })
-                val nameColour = if (greyed) DIM else known?.let { qualityColour(it.quality) } ?: TEXT
-                row.addView(line(r.name, nameColour, 14f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
-                val wait = r.readyAt - now
-                val right = when {
-                    wait > 0 -> "ready in ${duration(wait)}"
-                    n == null -> ""
-                    n > 0 -> "can make $n"
-                    (withBank ?: 0) > 0 -> "$withBank with the bank"
-                    else -> "missing"
-                }
-                row.addView(line(right, if (wait > 0) Theme.WARN else if ((n ?: 0) > 0) Theme.GOOD else DIM, 13f).apply { setPadding(dp(8), 0, 0, 0) })
-                content.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
-            }
-            if (!any) content.addView(empty("Nothing to make right now", "Your bags don't have the materials for any of these recipes."))
+            return
         }
-
-        // What the game said lately: things made, skill points.
-        p?.results?.takeIf { it.isNotEmpty() }?.let { results ->
-            content.addView(section("Lately"))
-            val box = card()
-            val now = System.currentTimeMillis() / 1000
-            for (r in results.reversed()) {
-                val ago = (now - r.at).coerceAtLeast(0)
-                box.addView(line("${if (ago < 60) "now" else duration(ago) + " ago"}  ·  ${r.text}", if (r.text.startsWith("Your skill")) ACCENT else TEXT, 13f).apply { setPadding(0, dp(2), 0, dp(2)) })
+        val first = shown.first()
+        val age = newest?.let { System.currentTimeMillis() / 1000 - it }
+        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(6), 0, dp(4)) }
+        head.addView(line("Recipes" +
+            (age?.takeIf { it > 3600 }?.let { "  ·  read ${duration(it)} ago" } ?: "") +
+            (if (shown.size < first.pages) "  ·  more coming (${shown.size} of ${first.pages})" else ""), DIM, 13f).apply { setPadding(0, 0, 0, 0) },
+            LinearLayout.LayoutParams(0, -2, 1f))
+        head.addView(chip(if (craftOnlyMakeable) "✓ Can make now" else "Can make now") { craftOnlyMakeable = !craftOnlyMakeable; render() }.apply {
+            if (craftOnlyMakeable) { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) }
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+        })
+        content.addView(head)
+        val now = System.currentTimeMillis() / 1000
+        var heading: String? = null
+        var any = false
+        for (r in recipes) {
+            if (r.heading) { heading = r.name; continue }
+            val n = r.canMake(bags)
+            val withBank = r.canMake(both)
+            if (craftOnlyMakeable && (n ?: 0) <= 0) continue
+            heading?.let { content.addView(section(it)); heading = null }
+            any = true
+            val known = names[r.itemId]
+            val greyed = n == 0
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = Theme.box(context, if (r == craftRecipe) RAISED else SURFACE, 10, if (r == craftRecipe) ACCENT else STROKE)
+                setPadding(dp(10), dp(6), dp(10), dp(6))
+                setOnClickListener { craftRecipe = if (craftRecipe == r) null else r; craftSheet = null; render() }
+                setOnLongClickListener { if (r.itemId > 0) showDetails(r.itemId); true }
             }
-            content.addView(box, cardParams())
+            row.addView(View(this).apply { background = Theme.box(context, recipeColour(r.colour), 5) }, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginEnd = dp(8) })
+            row.addView(icon(r.itemId.takeIf { it > 0 }, known?.let { qualityColour(it.quality) }, 28).apply { if (greyed) alpha = 0.45f },
+                LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(8) })
+            val nameColour = if (greyed) DIM else known?.let { qualityColour(it.quality) } ?: TEXT
+            row.addView(line(r.name, nameColour, 14f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+            val wait = r.readyAt - now
+            val right = when {
+                wait > 0 -> "ready in ${duration(wait)}"
+                n == null -> ""
+                n > 0 -> "can make $n"
+                (withBank ?: 0) > 0 -> "$withBank with the bank"
+                else -> "missing"
+            }
+            row.addView(line(right, if (wait > 0) Theme.WARN else if ((n ?: 0) > 0) Theme.GOOD else DIM, 13f).apply { setPadding(dp(8), 0, 0, 0) })
+            content.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+        }
+        if (!any) content.addView(empty("Nothing to make right now", "Your bags don't have the materials for any of these recipes."))
+    }
+
+    /** A small pop-up at the bottom (the footer): a title with a close button over [body], kept short with its own scrolling. */
+    private fun sheet(title: String, onClose: () -> Unit, body: LinearLayout.() -> Unit) {
+        val box = card().apply { background = Theme.box(context, SURFACE, 14, ACCENT, 1f); setPadding(dp(12), dp(8), dp(12), dp(10)) }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        top.addView(line(title, TEXT, 14f, bold = true).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+        top.addView(chip("✕") { onClose() }.apply { setPadding(dp(12), dp(4), dp(12), dp(4)) })
+        box.addView(top)
+        val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; body() }
+        val cap = (resources.displayMetrics.heightPixels * 0.42f).toInt()
+        val scroller = object : ScrollView(this) {
+            override fun onMeasure(w: Int, h: Int) = super.onMeasure(w, MeasureSpec.makeMeasureSpec(cap, MeasureSpec.AT_MOST))
+        }.apply { isVerticalScrollBarEnabled = false; addView(inner) }
+        box.addView(scroller)
+        footer.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+    }
+
+    /** The crafting list as a pop-up: each entry with its ✕, and Clear. */
+    private fun craftListSheet(queue: List<CraftJob>) = sheet("Crafting list", { craftSheet = null; render() }) {
+        if (queue.isEmpty()) {
+            addView(line("Empty. Tap a recipe, then + 1, + 5 or + all under \"To the list\". Make next makes the first one; each tap makes one entry.", DIM, 13f))
+            return@sheet
+        }
+        for ((i, job) in queue.withIndex()) {
+            val row = LinearLayout(this@CompanionActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(3), 0, dp(3)) }
+            row.addView(line("${i + 1}.  ${job.label()}", if (i == 0) TEXT else DIM, 14f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(line(job.profession, DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
+            row.addView(chip("✕") { saveCraftList(craftList().also { if (i < it.size) it.removeAt(i) }); render() }.apply { setPadding(dp(10), dp(4), dp(10), dp(4)) })
+            addView(row)
+        }
+        addView(chip("Clear the list") { saveCraftList(emptyList()); render() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+    }
+
+    /** What the game said lately (things made, skill points), as a pop-up. */
+    private fun latelySheet(results: List<thor.companion.strip.CraftResult>) = sheet("Lately", { craftSheet = null; render() }) {
+        val now = System.currentTimeMillis() / 1000
+        for (r in results.reversed()) {
+            val ago = (now - r.at).coerceAtLeast(0)
+            addView(line("${if (ago < 60) "now" else duration(ago) + " ago"}  ·  ${r.text}", if (r.text.startsWith("Your skill")) ACCENT else TEXT, 13f).apply { setPadding(0, dp(2), 0, dp(2)) })
         }
     }
 
     /** A recipe's card: what it makes, its materials (have / need, grey when missing) and the Make buttons. */
     private fun renderRecipe(r: Recipe, row: Int, profession: String, bags: (Int) -> Int, inBank: Map<Int, Int>) {
         val known = names[r.itemId]
-        val box = card().apply { background = Theme.box(context, RAISED, 14, known?.let { Theme.withAlpha(qualityColour(it.quality), 150) } ?: STROKE) }
+        sheet("Recipe", { craftRecipe = null; render() }) { recipeCard(this, r, row, profession, bags, inBank) }
+    }
+
+    private fun recipeCard(box: LinearLayout, r: Recipe, row: Int, profession: String, bags: (Int) -> Int, inBank: Map<Int, Int>) {
+        val known = names[r.itemId]
         val top = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             if (r.itemId > 0) setOnClickListener { showDetails(r.itemId) }
@@ -1773,7 +1820,7 @@ class CompanionActivity : Activity() {
         top.addView(words, LinearLayout.LayoutParams(0, -2, 1f))
         box.addView(top)
 
-        box.addView(line("Materials", DIM, 12f).apply { setPadding(0, dp(10), 0, dp(2)) })
+        box.addView(line("Materials", DIM, 12f).apply { setPadding(0, dp(8), 0, dp(2)) })
         for (m in r.materials) {
             val have = if (m.itemId > 0) bags(m.itemId) else 0
             val banked = if (m.itemId > 0) inBank[m.itemId] ?: 0 else 0
@@ -1815,8 +1862,6 @@ class CompanionActivity : Activity() {
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
         }
         box.addView(later)
-        box.addView(line("Make opens the $profession window in the game first when it is closed. Tap the item for its details.", DIM, 12f).apply { setPadding(0, dp(6), 0, 0) })
-        content.addView(box, cardParams())
     }
 
     /** Something to make: a recipe (its [row] in the profession's recipes, 1 first) and how many ([ALL]: as many as the bags allow). */
@@ -1851,7 +1896,6 @@ class CompanionActivity : Activity() {
         } else list += job
         saveCraftList(list)
         say("On the crafting list: ${(if (i >= 0) list[i] else job).label()}")
-        craftRecipe = null
         render()
     }
 
@@ -3160,6 +3204,8 @@ class CompanionActivity : Activity() {
         val PLACEHOLDER = listOf("Character and gear", "Bags", "Item names", "Map", "Quests", "Spells to learn")
         /** A craft count: as many as the bags allow when it is made. */
         const val ALL = -1
+        /** Professions every character can learn on top of its two main ones; shown in the second row. */
+        val SECONDARY_PROFESSIONS = setOf("Cooking", "First Aid", "Fishing", "Riding", "Archaeology")
         val KEPT = setOf("TS1|", "TB1|", "TM1|", "TP1|", "TQ1|", "TL1|", "TV1|", "TF1|", "TK1|")
         /** The paper doll's slots, left column then right, as Character.lua sends them. */
         val GEAR_SLOTS = listOf(1, 2, 3, 15, 5, 4, 19, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17)
