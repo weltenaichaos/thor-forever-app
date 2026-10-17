@@ -6,6 +6,7 @@
 --   w<tab><profession>                                 the profession window open now (no row: none)
 --   k<tab><profession><tab><key>                       the key that opens that profession's window (an
 --                                                      index into ns.ActionKeys, see the open keys below)
+--   f<tab>1                                            the Make keys are bound (see the Make keys below)
 --   TR1|<profession>|<level>|<max>|<page>|<pages>|<read at>
 --   <kind><tab><itemID><tab><made min><tab><made max><tab><ready at><tab><materials><tab><name>
 --                                                      the recipes, in the profession window's order
@@ -360,6 +361,69 @@ bindOpenKeys = function()
 end
 ns.BindProfessionKeys = bindOpenKeys
 
+-- The Make keys: the app's Make without typing in the chat. It presses, one after another,
+--   <profession n> SEP <row> SEP <count> MAKE
+-- each number as digit keys: ALT-CTRL-NUMPAD0 to 9, SEP is ALT-CTRL-F1 and MAKE ALT-CTRL-F2.
+-- <profession n> is that profession's open key (ALT-SHIFT-F<n>), <row> the recipe's place in
+-- its TR1 rows (1 first, headings counted). MAKE is the key press that crafts (the game wants
+-- one); the digits before it only say what. One tap in the app, one craft, as with typing.
+local makeOwner = CreateFrame("Frame")
+local digits, digitsAt = "", 0
+local makeBound = false
+local function keyButton(name, onPress)
+    local b = CreateFrame("Button", name, UIParent)
+    b:RegisterForClicks("AnyDown")
+    b:SetScript("OnClick", function(_, _, down)
+        if down == false then return end  -- the key's release, where a game sends it
+        onPress()
+    end)
+    return b
+end
+local function addDigit(d)
+    if GetTime() - digitsAt > 2 then digits = "" end  -- what was left of an earlier tap
+    digits, digitsAt = digits .. d, GetTime()
+end
+local function makeNow()
+    local text = digits
+    digits = ""
+    if GetTime() - digitsAt > 2 then return end
+    local n, row, count = text:match("^(%d+)%*(%d+)%*(%d+)$")
+    n, row, count = tonumber(n), tonumber(row), tonumber(count)
+    local names = {}
+    for name in pairs(mine().recipes) do names[#names + 1] = name end
+    table.sort(names)
+    local p = n and names[n] and mine().recipes[names[n]]
+    local r = p and p.rows[row]
+    if not r then
+        addResult("Couldn't tell which recipe to make (the app's list is older than the game's)")
+        return
+    end
+    local f = { strsplit("\t", r) }
+    local id = tonumber(f[2]) or 0
+    local what = id > 0 and tostring(id) or (f[7] or ""):lower()
+    print("|cff66ccffForever Companion|r " .. ns.Make(math.max(1, count or 1) .. " " .. what))
+end
+local makeButtons = {}
+for d = 0, 9 do makeButtons[#makeButtons + 1] = { "ALT-CTRL-NUMPAD" .. d, keyButton("ThorCompanionDigit" .. d, function() addDigit(tostring(d)) end) } end
+makeButtons[#makeButtons + 1] = { "ALT-CTRL-F1", keyButton("ThorCompanionMakeSep", function() addDigit("*") end) }
+makeButtons[#makeButtons + 1] = { "ALT-CTRL-F2", keyButton("ThorCompanionMake", makeNow) }
+local makePending = false
+local function bindMakeKeys()
+    if InCombatLockdown() then makePending = true return end
+    makePending = false
+    ClearOverrideBindings(makeOwner)
+    local on = not ns.TapsEnabled or ns.TapsEnabled()
+    if on then
+        for _, kb in ipairs(makeButtons) do SetOverrideBindingClick(makeOwner, true, kb[1], kb[2]:GetName()) end
+    end
+    if on ~= makeBound then makeBound, changed = on, true end
+end
+makeOwner:RegisterEvent("PLAYER_LOGIN")
+makeOwner:RegisterEvent("PLAYER_REGEN_ENABLED")
+makeOwner:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" or makePending then pcall(bindMakeKeys) end
+end)
+
 openOwner:RegisterEvent("PLAYER_LOGIN")
 openOwner:RegisterEvent("PLAYER_REGEN_ENABLED")
 openOwner:SetScript("OnEvent", function(_, event)
@@ -381,6 +445,7 @@ local function build()
     for _, r in ipairs(m.results) do out[#out + 1] = table.concat({ "e", r.at, r.text }, "\t") end
     if openWindow then out[#out + 1] = "w\t" .. openWindow end
     for name, key in pairs(openKeys) do out[#out + 1] = "k\t" .. name .. "\t" .. key end
+    if makeBound then out[#out + 1] = "f\t1" end
     head = table.concat(out, "\n")
     -- The recipes, a profession at a time, cut into pages that fit the square.
     pages = {}

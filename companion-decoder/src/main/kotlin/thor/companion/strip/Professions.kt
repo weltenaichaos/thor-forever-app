@@ -11,10 +11,11 @@ data class CraftResult(val at: Long, val text: String)
  * `TF1|<now>\np\t<profession>\t<level>\t<max>\n...e\t<time>\t<text>\n...` (see addon/ThorCompanion/Professions.lua).
  * [now] is the game's clock when it was sent, the same clock as the results' and the cooldowns' times.
  * [open] is the profession window open in the game (`w\t<profession>`), null when none is.
+ * [makeKeys]: the addon has its Make keys bound (`f\t1`), so Make needs no typing.
  * [openKeys]: the key (an index into [ActionKeys]) that opens each profession's window (`k\t<profession>\t<key>`).
  */
 data class Professions(val now: Long, val list: List<Profession>, val results: List<CraftResult>, val open: String? = null,
-    val openKeys: Map<String, Int> = emptyMap()) {
+    val openKeys: Map<String, Int> = emptyMap(), val makeKeys: Boolean = false) {
     companion object {
         fun parse(payload: String): Professions? {
             if (!payload.startsWith("TF1|")) return null
@@ -24,6 +25,7 @@ data class Professions(val now: Long, val list: List<Profession>, val results: L
             val results = mutableListOf<CraftResult>()
             var open: String? = null
             val keys = mutableMapOf<String, Int>()
+            var makeKeys = false
             for (row in rows.drop(1)) {
                 val f = row.split('\t')
                 when {
@@ -31,9 +33,21 @@ data class Professions(val now: Long, val list: List<Profession>, val results: L
                     f[0] == "e" && f.size >= 3 -> results += CraftResult(f[1].toLongOrNull() ?: 0, f.drop(2).joinToString("\t"))
                     f[0] == "w" && f.size >= 2 -> open = f[1]
                     f[0] == "k" && f.size >= 3 -> f[2].toIntOrNull()?.let { keys[f[1]] = it }
+                    f[0] == "f" -> makeKeys = true
                 }
             }
-            return Professions(now, list, results, open, keys)
+            return Professions(now, list, results, open, keys, makeKeys)
+        }
+
+        /**
+         * The keys the app presses for Make without typing (see Professions.lua): the
+         * profession's number [n] (its open key ALT-SHIFT-F<n>), the recipe's [row] in its
+         * TR1 rows (1 first), how many, each number as ALT-CTRL-NUMPAD digits, a separator
+         * ALT-CTRL-F1 between them and ALT-CTRL-F2, which crafts, at the end.
+         */
+        fun makeKeys(n: Int, row: Int, count: Int): List<String> {
+            fun digits(v: Int) = v.toString().map { "ALT-CTRL-NUMPAD$it" }
+            return digits(n) + "ALT-CTRL-F1" + digits(row) + "ALT-CTRL-F1" + digits(count) + "ALT-CTRL-F2"
         }
 
         /** The spell that opens a profession's window (for /cast): Mining's is Smelting. */

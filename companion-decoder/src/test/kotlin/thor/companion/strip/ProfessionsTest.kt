@@ -15,6 +15,10 @@ class ProfessionsTest {
         assertNull(p.open)
         assertEquals("Blacksmithing", Professions.parse("TF1|5\nw\tBlacksmithing")!!.open)
         assertEquals(mapOf("First Aid" to 48), Professions.parse("TF1|5\nk\tFirst Aid\t48")!!.openKeys)
+        assertEquals(true, Professions.parse("TF1|5\nf\t1")!!.makeKeys)
+        assertEquals(false, p.makeKeys)
+        assertEquals(listOf("ALT-CTRL-NUMPAD2", "ALT-CTRL-F1", "ALT-CTRL-NUMPAD1", "ALT-CTRL-NUMPAD4", "ALT-CTRL-F1",
+            "ALT-CTRL-NUMPAD5", "ALT-CTRL-F2"), Professions.makeKeys(2, 14, 5))
         assertEquals("Smelting", Professions.windowSpell("Mining"))
         assertEquals(0, Professions.parse("TF1|5")!!.list.size)
         assertNull(Professions.parse("TV1|5"))

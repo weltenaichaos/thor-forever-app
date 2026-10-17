@@ -1631,6 +1631,38 @@ class CompanionActivity : Activity() {
         }
         content.addView(profs, cardParams())
 
+        // The crafting list: what you want to make, one tap on Make next each (the game wants a
+        // press per recipe). And the last thing made, to make it again.
+        val list = craftList()
+        val again = lastJob()
+        if (list.isNotEmpty() || again != null) {
+            val box = card()
+            if (list.isNotEmpty()) {
+                box.addView(line("Crafting list", DIM, 12f).apply { setPadding(0, 0, 0, dp(2)) })
+                for ((i, job) in list.withIndex()) {
+                    val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(2)) }
+                    row.addView(line(job.label(), if (i == 0) TEXT else DIM, 14f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+                    row.addView(line(job.profession, DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
+                    row.addView(chip("✕") { saveCraftList(craftList().also { if (i < it.size) it.removeAt(i) }); render() })
+                    box.addView(row)
+                }
+                val next = list.first()
+                box.addView(chip("Make next: ${next.label()}") {
+                    val now = craftList()
+                    val job = now.firstOrNull() ?: return@chip
+                    if (runJob(job)) { now.removeAt(0); saveCraftList(now); render() }
+                }.apply {
+                    background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK); textSize = 15f
+                    setPadding(dp(12), dp(12), dp(12), dp(12))
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            }
+            if (again != null) {
+                box.addView(chip("Make again: ${again.label()}") { runJob(again) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(if (list.isEmpty()) 0 else 6) })
+            }
+            if (list.isNotEmpty()) box.addView(chip("Clear the list") { saveCraftList(emptyList()); render() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            content.addView(box, cardParams())
+        }
+
         // What you have: the bags as they are now, the bank as it was when last open.
         val inBags = HashMap<Int, Int>()
         for (i in s.items) inBags[i.itemId] = (inBags[i.itemId] ?: 0) + i.count
@@ -1647,7 +1679,7 @@ class CompanionActivity : Activity() {
                 "The game shows the recipes only while the profession window is open (for Mining that is Smelting). Open it once and they stay here, also after a restart."))
         } else {
             val open = craftRecipe
-            if (open != null && recipes.any { it == open }) renderRecipe(open, selected.name, bags, inBank) else craftRecipe = null
+            if (open != null && recipes.any { it == open }) renderRecipe(open, recipes.indexOf(open) + 1, selected.name, bags, inBank) else craftRecipe = null
             val filters = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
             for ((i, label) in listOf("All recipes", "Can make now").withIndex()) {
                 filters.addView(chip(label) { craftOnlyMakeable = i == 1; render() }.apply {
@@ -1713,7 +1745,7 @@ class CompanionActivity : Activity() {
     }
 
     /** A recipe's card: what it makes, its materials (have / need, grey when missing) and the Make buttons. */
-    private fun renderRecipe(r: Recipe, profession: String, bags: (Int) -> Int, inBank: Map<Int, Int>) {
+    private fun renderRecipe(r: Recipe, row: Int, profession: String, bags: (Int) -> Int, inBank: Map<Int, Int>) {
         val known = names[r.itemId]
         val box = card().apply { background = Theme.box(context, RAISED, 14, known?.let { Theme.withAlpha(qualityColour(it.quality), 150) } ?: STROKE) }
         val top = LinearLayout(this).apply {
@@ -1759,27 +1791,116 @@ class CompanionActivity : Activity() {
         }
         if (bank == null && r.materials.isNotEmpty()) box.addView(line("Open your bank once to count what is in it too.", DIM, 12f).apply { setPadding(0, dp(2), 0, 0) })
 
-        // Make: the app types /thor make into the game's chat box, and the addon starts the
-        // game's own crafting in the open profession window. One tap, one command.
+        // Make (see runJob), or onto the crafting list for later.
         val n = r.canMake(bags) ?: 0
-        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, 0) }
-        val what = if (r.itemId > 0) r.itemId.toString() else r.name.lowercase(Locale.ROOT)
         val waiting = r.readyAt > System.currentTimeMillis() / 1000
-        // Make all sends the number the app counted: the game's own count can be 0 here (see Professions.lua).
-        for ((label, count) in listOf("Make one" to "1", "Make 5" to "5", "Make all ($n)" to n.toString())) {
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, 0) }
+        for ((label, count) in listOf("Make one" to 1, "Make 5" to 5, "Make all ($n)" to ALL)) {
             buttons.addView(chip(label) {
                 when {
                     waiting -> say("${r.name} isn't ready yet: its cooldown is still running")
                     n <= 0 -> say("Not enough materials for ${r.name} in your bags")
-                    else -> make(r.name, profession, count, what)
+                    else -> runJob(CraftJob(profession, row, r.itemId, r.name, count))
                 }
             }.apply {
-                if (n <= 0 || waiting || (count == "5" && n < 5)) setTextColor(DIM)
+                if (n <= 0 || waiting || (count == 5 && n < 5)) setTextColor(DIM)
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
         }
         box.addView(buttons)
+        val later = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
+        later.addView(line("To the list:", DIM, 13f).apply { setPadding(0, 0, dp(6), 0) })
+        for ((label, count) in listOf("+1" to 1, "+5" to 5, "+ all" to ALL)) {
+            later.addView(chip(label) {
+                addToList(CraftJob(profession, row, r.itemId, r.name, count))
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        }
+        box.addView(later)
         box.addView(line("Make opens the $profession window in the game first when it is closed. Tap the item for its details.", DIM, 12f).apply { setPadding(0, dp(6), 0, 0) })
         content.addView(box, cardParams())
+    }
+
+    /** Something to make: a recipe (its [row] in the profession's recipes, 1 first) and how many ([ALL]: as many as the bags allow). */
+    private data class CraftJob(val profession: String, val row: Int, val itemId: Int, val name: String, val count: Int) {
+        fun label() = (if (count == ALL) "all" else "$count") + " × " + name
+        fun line() = listOf(profession, row, itemId, count, name).joinToString("\t")
+        companion object {
+            fun parse(s: String): CraftJob? {
+                val f = s.split('\t')
+                if (f.size < 5) return null
+                return CraftJob(f[0], f[1].toIntOrNull() ?: return null, f[2].toIntOrNull() ?: 0, f[4], f[3].toIntOrNull() ?: return null)
+            }
+        }
+    }
+
+    /** The crafting list (made one by one with Make next) and the last thing made, kept per character. */
+    private fun craftKey(what: String) = "$what|${keptFor.orEmpty()}"
+    private fun craftList(): MutableList<CraftJob> =
+        getPreferences(MODE_PRIVATE).getString(craftKey("craftList"), null)?.split('\n')?.mapNotNull { CraftJob.parse(it) }?.toMutableList()
+            ?: mutableListOf()
+    private fun saveCraftList(list: List<CraftJob>) =
+        getPreferences(MODE_PRIVATE).edit().putString(craftKey("craftList"), list.joinToString("\n") { it.line() }).apply()
+    private fun lastJob(): CraftJob? = getPreferences(MODE_PRIVATE).getString(craftKey("lastCraft"), null)?.let { CraftJob.parse(it) }
+
+    private fun addToList(job: CraftJob) {
+        val list = craftList()
+        // The same recipe again: one entry with both counts.
+        val i = list.indexOfFirst { it.profession == job.profession && it.row == job.row && it.name == job.name }
+        if (i >= 0) {
+            val old = list[i]
+            list[i] = old.copy(count = if (old.count == ALL || job.count == ALL) ALL else old.count + job.count)
+        } else list += job
+        saveCraftList(list)
+        say("On the crafting list: ${(if (i >= 0) list[i] else job).label()}")
+        craftRecipe = null
+        render()
+    }
+
+    /** The recipe [job] stands for in the recipes kept now, or null when they changed since. */
+    private fun recipeOf(job: CraftJob): Recipe? {
+        val pages = recipePages.values.filter { it.profession == job.profession }
+        val newest = pages.maxOfOrNull { it.readAt }
+        val recipes = pages.filter { it.readAt == newest }.sortedBy { it.page }.flatMap { it.recipes }
+        return recipes.getOrNull(job.row - 1)?.takeIf { it.name == job.name }
+    }
+
+    /**
+     * Makes [job]: with the addon's Make keys, one key press says it all and crafts (see
+     * Professions.makeKeys; the profession's open key first when its window is closed), so
+     * nothing is typed; with an older addon, through the chat (see make). True when it went out.
+     */
+    private fun runJob(job: CraftJob): Boolean {
+        val r = recipeOf(job)
+        if (r == null) { say("${job.name} isn't in the ${job.profession} recipes any more: open that window in the game once"); return false }
+        val have = state?.items.orEmpty().groupBy { it.itemId }.mapValues { e -> e.value.sumOf { it.count } }
+        val can = r.canMake { have[it] ?: 0 } ?: 0
+        if (can <= 0) { say("Not enough materials for ${job.name} in your bags"); return false }
+        val count = if (job.count == ALL) can else minOf(job.count, can)
+        getPreferences(MODE_PRIVATE).edit().putString(craftKey("lastCraft"), job.line()).apply()
+        val p = professions
+        val openKey = p?.openKeys?.get(job.profession)?.let { ActionKeys.forIndex(it) }
+        val n = openKey?.substringAfterLast("-F")?.toIntOrNull()
+        if (p != null && p.makeKeys && openKey != null && n != null) {
+            val press = Professions.makeKeys(n, job.row, count)
+            val opening = p.open != job.profession
+            val target = gameDisplay()
+            lastKeyAt = SystemClock.uptimeMillis()
+            say("Making $count × ${job.name}")
+            keys.execute {
+                if (opening) {
+                    KeySender.send(this, target, openKey)
+                    SystemClock.sleep(300)  // the window opens on the key's release, a frame or two later
+                }
+                for (k in press) {
+                    val err = KeySender.send(this, target, k)
+                    if (err != null && !err.startsWith("(focus")) return@execute runOnUiThread { say("Not made: $err") }
+                    SystemClock.sleep(10)
+                }
+                lastKeyAt = SystemClock.uptimeMillis()
+            }
+        } else {
+            make(job.name, job.profession, count.toString(), if (r.itemId > 0) r.itemId.toString() else r.name.lowercase(Locale.ROOT))
+        }
+        return true
     }
 
     /**
@@ -3049,6 +3170,8 @@ class CompanionActivity : Activity() {
         const val LOCK_ROWS = 24
         /** The start-up card's rows before the status says what there is. */
         val PLACEHOLDER = listOf("Character and gear", "Bags", "Item names", "Map", "Quests", "Spells to learn")
+        /** A craft count: as many as the bags allow when it is made. */
+        const val ALL = -1
         val KEPT = setOf("TS1|", "TB1|", "TM1|", "TP1|", "TQ1|", "TL1|", "TV1|", "TF1|", "TK1|")
         /** The paper doll's slots, left column then right, as Character.lua sends them. */
         val GEAR_SLOTS = listOf(1, 2, 3, 15, 5, 4, 19, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17)
