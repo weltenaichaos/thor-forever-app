@@ -2439,6 +2439,7 @@ class CompanionActivity : Activity() {
         val away = q.waypoint?.takeIf { it.mapId != state?.mapId }?.zone?.ifEmpty { null }
         val where = when {
             h != null -> distance(h)
+            q.ready && away != null -> "Turn it in at ${turnInPlace(q, away)}"
             away != null -> "In $away"
             // No waypoint from the game, but the quest's text names where to hand it in.
             q.ready && q.waypoint == null && q.place.isNotEmpty() -> "Turn it in at ${q.place}"
@@ -2451,6 +2452,9 @@ class CompanionActivity : Activity() {
         box.setOnClickListener { selectQuest(q) }
         return box
     }
+
+    /** Where a quest ready to turn in is handed in, in another zone: "Brill, Tirisfal Glades", or the zone alone. */
+    private fun turnInPlace(q: Quest, zone: String) = listOf(q.place, zone).filter { it.isNotEmpty() }.distinct().joinToString(", ")
 
     /** Selects quest [q]: its places get a white ring on the map, which zooms to show you and the nearest one. */
     private fun selectQuest(q: Quest) {
@@ -2469,6 +2473,7 @@ class CompanionActivity : Activity() {
             val away = q.waypoint?.takeIf { it.mapId != state?.mapId }?.zone?.ifEmpty { null }
             say(when {
                 h != null -> "${q.title}: marked with a white ring on the map"
+                q.ready && away != null -> "${q.title}: turn it in at ${turnInPlace(q, away)}, not in this zone"
                 away != null -> "${q.title}: the next step is in $away, not in this zone"
                 q.ready && q.waypoint == null && q.place.isNotEmpty() -> "${q.title}: turn it in at ${q.place} (the game gives no map spot for it)"
                 else -> "${q.title}: not on this zone's map"
