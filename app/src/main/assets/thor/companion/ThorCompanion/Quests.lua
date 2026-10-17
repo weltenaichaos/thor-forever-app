@@ -7,11 +7,11 @@
 -- (elsewhere); quests in this zone come first. A log too long for one square goes
 -- out in pages: the rest as TL2 (see below), <pages> says how many there are. Objectives are the game's own text, like "4/8 Boar Ribs".
 -- <level> is the quest's level (0 when unknown), for the colour of its title.
--- <waypoint> is where the game's own arrow points next, "mapID:x:y:zone" (empty
--- when the game doesn't say): for a quest ready to turn in that is whoever takes it,
--- also when they are in another zone. <place> is the town there (empty when none
--- is near), for the app's errands; without a waypoint, the town the quest's text
--- names for the turn-in.
+-- <waypoint> is where to go next, "mapID:x:y:zone" (empty when the game doesn't say):
+-- for a quest ready to turn in, whoever takes it (the "?" the world map shows for it,
+-- also in another zone), else where the game's own arrow points. <place> is the town
+-- there (empty when none is near), for the app's errands; without a spot, the town
+-- the quest's text names for the turn-in, or at least the zone it is handed in in.
 
 local _, ns = ...
 
@@ -84,37 +84,89 @@ local function ready(id)
     return ok and r == true
 end
 
--- Where to go next for a quest, as the game's own arrow knows it: "mapID:x:y:zone"
--- (empty when the game doesn't say). This also covers quests whose next step, or
--- whose turn-in, is in another zone.
--- Also the town there, from the nearest flight master (empty when none is close).
 -- The town the quest's own text names for handing it in ("Return to Zinge in the
--- Undercity." gives "Undercity"), for when the game gives no waypoint, which it doesn't
--- for many turn-ins in another zone, often one you haven't been to.
+-- Undercity." gives "Undercity", "... at Sentinel Hill." gives "Sentinel Hill"): the
+-- last "in" or "at" followed by a name, for when the game gives no spot to go to.
 local function namedPlace(id)
     local index = C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetLogIndexForQuestID(id)
     if not index or not GetQuestLogCompletionText then return "" end
     local ok, text = pcall(GetQuestLogCompletionText, index)
     if not ok or type(text) ~= "string" or secret(text) then return "" end
-    local place
-    for p in text:gmatch(" in ([^%.,;!]+)") do place = p end
-    if not place then return "" end
-    place = place:gsub("^[Tt]he ", ""):gsub("%s+$", "")
-    return place
+    local place, last = nil, 0
+    for _, word in ipairs({ "in", "at" }) do
+        for pos, p in text:gmatch("() " .. word .. " ([^%.,;!]+)") do
+            p = p:gsub("^[Tt]he ", ""):gsub("%s+$", "")
+            -- A name, not "at once" or "in time".
+            if pos > last and p:match("^%u") then place, last = p, pos end
+        end
+    end
+    return place or ""
 end
 
-local function waypoint(id, isReady)
-    local ok, mapID, x, y = pcall(C_QuestLog.GetNextWaypoint, id)
-    if not ok or not mapID or secret(mapID) or not x or not y then
-        if not isReady then return "", "" end
-        local okNamed, named = pcall(namedPlace, id)
-        return "", okNamed and clean(named, 24) or ""
+-- Where a quest is handed in, from the game's own quest marks, like the world map
+-- finds it when you click the quest in its log: the map it opens for the quest
+-- (GetQuestUiMapID, not following the arrow) and the quest's "?" on that map. Also
+-- when that is in another zone. The map alone when it has no mark for the quest.
+local function turnInSpot(id)
+    if not GetQuestUiMapID then return end
+    local ok, mapID = pcall(GetQuestUiMapID, id, true)
+    mapID = ok and number(mapID)
+    if not mapID or mapID <= 0 then return end
+    local okList, list = pcall(C_QuestLog.GetQuestsOnMap, mapID)
+    if okList and type(list) == "table" then
+        for _, q in ipairs(list) do
+            local x, y = number(q.x), number(q.y)
+            if q.questID == id and x and y and x > 0 and y > 0 then
+                -- A mark on a continent map: on the zone map there instead, so the zone has its name.
+                local info = C_Map.GetMapInfo(mapID)
+                if info and Enum.UIMapType and info.mapType and info.mapType < Enum.UIMapType.Zone then
+                    local okZone, zone, zx, zy = pcall(function()
+                        local z = C_Map.GetMapInfoAtPosition(mapID, x, y)
+                        if not z or z.mapID == mapID then return end
+                        local continent, world = C_Map.GetWorldPosFromMapPos(mapID, CreateVector2D(x, y))
+                        local _, pos = C_Map.GetMapPosFromWorldPos(continent, world, z.mapID)
+                        if pos then return z.mapID, pos:GetXY() end
+                    end)
+                    if okZone and zone and zx and zy and zx > 0 and zy > 0 and zx < 1 and zy < 1 then mapID, x, y = zone, zx, zy end
+                end
+                return mapID, x, y
+            end
+        end
     end
-    mapID, x, y = number(mapID), number(x), number(y)
-    if not mapID or not x or not y then return "", "" end
+    return mapID
+end
+
+local function spot(mapID, x, y)
     local info = C_Map.GetMapInfo(mapID)
     local okPlace, place = pcall(ns.PlaceName, mapID, x, y)
     return string.format("%d:%.3f:%.3f:%s", mapID, x, y, clean(info and info.name, 24)), okPlace and clean(place, 24) or ""
+end
+
+-- Where to go next for a quest, and the town there: for a quest ready to turn in its
+-- "?" (turnInSpot), else (and for the others) where the game's own arrow points, which
+-- may also be in another zone. Without either, for a quest ready to turn in, the town
+-- its text names, or at least the zone of its "?" (the arrow has no spot for many
+-- turn-ins in another zone, often one you haven't been to).
+local function waypoint(id, isReady)
+    local turnInMap
+    if isReady then
+        local ok, mapID, x, y = pcall(turnInSpot, id)
+        if ok and mapID and x then return spot(mapID, x, y) end
+        if ok then turnInMap = mapID end
+    end
+    local ok, mapID, x, y = pcall(C_QuestLog.GetNextWaypoint, id)
+    if ok and mapID and not secret(mapID) and x and y then
+        mapID, x, y = number(mapID), number(x), number(y)
+        if mapID and x and y then return spot(mapID, x, y) end
+    end
+    if not isReady then return "", "" end
+    local okNamed, named = pcall(namedPlace, id)
+    named = okNamed and clean(named, 24) or ""
+    if named == "" and turnInMap then
+        local info = C_Map.GetMapInfo(turnInMap)
+        named = clean(info and info.name, 24)
+    end
+    return "", named
 end
 
 -- The whole log, cut into pages that fit the square: page 1 goes out as TL1 (with the
@@ -170,7 +222,7 @@ end
 -- experience changes (see ns.Remember).
 local build = ns.Remember(buildLog, { "QUEST_LOG_UPDATE", "QUEST_WATCH_UPDATE", "UNIT_QUEST_LOG_CHANGED",
     "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "ZONE_CHANGED", "ZONE_CHANGED_NEW_AREA",
-    "ZONE_CHANGED_INDOORS", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP" }, 5)
+    "ZONE_CHANGED_INDOORS", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "QUEST_POI_UPDATE" }, 5)
 
 -- The pages after the first the app hasn't had twice since they changed, and whether
 -- one of them hasn't gone out once.

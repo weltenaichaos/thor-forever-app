@@ -1,7 +1,7 @@
 package thor.companion.strip
 
 /** One quest in the log: ready to turn in, in this zone, the experience it gives and its objectives. */
-/** Where the game's own arrow points next for a quest: the turn-in once it is ready. */
+/** Where to go next for a quest: once it is ready, where it is handed in (its "?" on the world map, else the game's arrow). */
 data class Waypoint(val mapId: Int, val x: Double, val y: Double, val zone: String) {
     companion object {
         /** From the addon's "mapID:x:y:zone", or null when it is empty or damaged. */
@@ -24,7 +24,7 @@ data class Quest(
     val level: Int = 0,
     /** Where to go next, also when that is in another zone; null when the game didn't say. */
     val waypoint: Waypoint? = null,
-    /** The town at [waypoint] (from the nearest flight master), empty when none is near. */
+    /** The town at [waypoint] (from the nearest flight master), empty when none is near; without a waypoint, for a quest ready to turn in, the town its text names or the zone it is handed in in. */
     val place: String = "",
 ) {
     /** How hard it is for you at [playerLevel], like the game's quest colours. */
