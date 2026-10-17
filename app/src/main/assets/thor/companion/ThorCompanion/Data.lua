@@ -322,6 +322,9 @@ local statusHold
 -- app that missed the first one keeps what it reads apart until it knows who is playing.
 local loadedAt = 0
 function ns.ChatUrgent() chatUrgent = true end
+-- The profession window opened or closed: the professions (12) go next (the app's Make waits for it).
+local professionsUrgent = false
+function ns.ProfessionsUrgent() professionsUrgent = true end
 local bagEvents = CreateFrame("Frame")
 bagEvents:RegisterEvent("BAG_UPDATE_DELAYED")
 bagEvents:SetScript("OnEvent", function() bagsUrgent = true end)
@@ -337,7 +340,7 @@ local function chatNow() return caughtUp or not namesWait or GetTime() > caughtU
 
 -- The kinds sent only when they change (the chat, names and quest pages go twice
 -- by themselves, the status comes every few seconds).
-local COPY_AGAIN = { [2] = true, [5] = true, [6] = true, [7] = true, [8] = true, [9] = true, [10] = true }
+local COPY_AGAIN = { [2] = true, [5] = true, [6] = true, [7] = true, [8] = true, [9] = true, [10] = true, [12] = true, [14] = true }
 local copyAgain = {}
 
 local function nextMessage()
@@ -364,6 +367,9 @@ local function nextMessage()
     elseif bagsUrgent then
         turn = 1  -- the bags (2) are next
         bagsUrgent = false
+    elseif professionsUrgent then
+        turn = 11  -- the professions (12) are next
+        professionsUrgent = false
     elseif mapUrgent or (id and tostring(id) ~= mapID) then
         turn = 4  -- the map (5) is next
         mapForce = mapUrgent

@@ -1904,34 +1904,22 @@ class CompanionActivity : Activity() {
     }
 
     /**
-     * Make: the game crafts only in the open profession window. When the addon says it isn't
-     * open, the app first presses the profession's open key (the addon's secure button with
-     * the profession's spell: one key press, like a click in the spellbook) and types
-     * /thor make right after; the addon makes it as soon as the window is there. With no key
-     * (an older addon, /thor taps off) it types /cast instead and waits for the window.
+     * Make by typing, when the addon's Make keys aren't known to the app yet: the game
+     * crafts only in the open profession window, so when it isn't open the app first opens
+     * it (the addon's open key, or /cast with an older addon) and types /thor make right
+     * after; the addon waits a few seconds for the window and makes it then. The app doesn't
+     * wait for the game to say the window is open: that message can come late.
      */
     private fun make(name: String, profession: String, count: String, what: String) {
-        if (professions?.open == profession) { sendChat("Make $name", "", "/thor make $count $what"); return }
-        val key = professions?.openKeys?.get(profession)?.let { ActionKeys.forIndex(it) }
-        if (key != null) {
-            pressKey(key) { err -> say("Couldn't open the $profession window: $err") }
-            sendChat("Make $name", "", "/thor make $count $what")
-            return
+        val p = professions
+        if (p?.open != profession) {
+            val key = p?.openKeys?.get(profession)?.let { ActionKeys.forIndex(it) }
+            if (key != null) pressKey(key) { err -> say("Couldn't open the $profession window: $err") }
+            else sendChat("Open $profession", "", "/cast ${Professions.windowSpell(profession)}")
         }
-        val spell = Professions.windowSpell(profession)
-        sendChat("Open $profession", "", "/cast $spell")
-        keys.execute {
-            // The /cast was typed just before this, on the same queue: now the window.
-            val until = SystemClock.uptimeMillis() + 8000
-            while (SystemClock.uptimeMillis() < until && professions?.open != profession) {
-                lastKeyAt = SystemClock.uptimeMillis()
-                SystemClock.sleep(100)
-            }
-            runOnUiThread {
-                if (professions?.open == profession) sendChat("Make $name", "", "/thor make $count $what")
-                else say("The $profession window didn't open in the game, so nothing was made")
-            }
-        }
+        sendChat("Make $name", "", "/thor make $count $what")
+        // Then ask the game for its keys again (it sends everything once more), so the next Make needs no typing.
+        if (p?.makeKeys != true || p.openKeys[profession] == null) pressKey(ActionKeys.REFRESH) { }
     }
 
     /** The quest log: quests in this zone first, ready ones marked; tap one to see it on the map. */

@@ -272,23 +272,25 @@ local bankOpen = false
 events:RegisterEvent("BANKFRAME_CLOSED")
 -- Which profession window is open (for the app's Make: it opens the window first when not).
 local openWindow = nil
+-- The app waits for it (Make), so it goes out next, not in its turn.
+local function urgent() if ns.ProfessionsUrgent then ns.ProfessionsUrgent() end end
 for _, e in ipairs({ "TRADE_SKILL_CLOSE", "CRAFT_CLOSE" }) do pcall(events.RegisterEvent, events, e) end
 events:SetScript("OnEvent", function(_, event, text)
     if event == "TRADE_SKILL_SHOW" or event == "TRADE_SKILL_UPDATE" or event == "TRADE_SKILL_LIST_UPDATE" then
         readSoon(function()
             local r = { readTradeSkills() }
             if not r[1] then r = { readModern() } end
-            if r[1] and r[1] ~= openWindow then openWindow, changed = r[1], true end
+            if r[1] and r[1] ~= openWindow then openWindow, changed = r[1], true urgent() end
             return unpack(r)
         end)
     elseif event == "CRAFT_SHOW" or event == "CRAFT_UPDATE" then
         readSoon(function()
             local r = { readCrafts() }
-            if r[1] and r[1] ~= openWindow then openWindow, changed = r[1], true end
+            if r[1] and r[1] ~= openWindow then openWindow, changed = r[1], true urgent() end
             return unpack(r)
         end)
     elseif event == "TRADE_SKILL_CLOSE" or event == "CRAFT_CLOSE" then
-        if openWindow then openWindow, changed = nil, true end
+        if openWindow then openWindow, changed = nil, true urgent() end
     elseif event == "BANKFRAME_OPENED" then
         bankOpen = true
         pcall(readBank)
@@ -441,11 +443,12 @@ local function build()
     -- (Recipes are kept under the name the profession window gives, which may not be the
     -- skill's: the app shows those as professions of their own.)
     local out = { "TF1|" .. now }
-    for _, l in ipairs(list) do out[#out + 1] = table.concat({ "p", l.name, l.rank, l.max }, "\t") end
-    for _, r in ipairs(m.results) do out[#out + 1] = table.concat({ "e", r.at, r.text }, "\t") end
+    -- The window and the keys first: the app's Make goes by them.
     if openWindow then out[#out + 1] = "w\t" .. openWindow end
     for name, key in pairs(openKeys) do out[#out + 1] = "k\t" .. name .. "\t" .. key end
     if makeBound then out[#out + 1] = "f\t1" end
+    for _, l in ipairs(list) do out[#out + 1] = table.concat({ "p", l.name, l.rank, l.max }, "\t") end
+    for _, r in ipairs(m.results) do out[#out + 1] = table.concat({ "e", r.at, r.text }, "\t") end
     head = table.concat(out, "\n")
     -- The recipes, a profession at a time, cut into pages that fit the square.
     pages = {}
@@ -648,7 +651,7 @@ function ns.Make(args, again)
     end
     if not again then
         -- Its window may be opening right now (the app's open key): made as soon as it is.
-        pendingMake = { args = args, before = GetTime() + 5 }
+        pendingMake = { args = args, before = GetTime() + 10 }
         return "waiting for the profession window to open"
     end
     addResult("Open the profession window in the game to make things")
@@ -666,5 +669,12 @@ function ns.ProfessionsInfo()
         "; recipes kept: " .. (#kept > 0 and table.concat(kept, ", ") or "none (open a profession window)") ..
         "; game has: " .. (GetNumTradeSkills and "trade skill window" or "") .. (GetNumCrafts and ", craft window" or "") ..
         (C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs and ", new profession window" or "") ..
-        "; bank items kept: " .. (function() local n = 0 for _ in pairs(m.bank.counts or {}) do n = n + 1 end return n end)()
+        "; bank items kept: " .. (function() local n = 0 for _ in pairs(m.bank.counts or {}) do n = n + 1 end return n end)() ..
+        "; open keys: " .. (function()
+            local k = {}
+            for name, i in pairs(openKeys) do k[#k + 1] = name .. " " .. tostring(ns.ActionKeys[i]) end
+            return #k > 0 and table.concat(k, ", ") or "none"
+        end)() ..
+        "; Make keys: " .. (makeBound and "on" or "off") ..
+        "; window open: " .. (openWindow or "none")
 end
