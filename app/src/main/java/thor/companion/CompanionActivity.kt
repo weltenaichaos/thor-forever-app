@@ -43,6 +43,8 @@ import thor.companion.strip.ItemUse
 import thor.companion.strip.IconPicture
 import thor.companion.strip.ItemNames
 import thor.companion.strip.MapPicture
+import thor.companion.strip.AreaMask
+import thor.companion.strip.AreaPicture
 import thor.companion.strip.LevelPlan
 import thor.companion.strip.PartAssembler
 import thor.companion.strip.Pixels
@@ -583,7 +585,7 @@ class CompanionActivity : Activity() {
                             runOnUiThread { loadingSince = SystemClock.uptimeMillis() }
                             while (held.isNotEmpty()) handle(held.removeFirst(), -1)
                         }
-                    } else if (!message.startsWith("TW1|") && !message.startsWith("TI1|")) {
+                    } else if (!message.startsWith("TW1|") && !message.startsWith("TI1|") && !message.startsWith("TA1|")) {
                         // Until the status says which character this is, nothing is kept or shown:
                         // it could be another character's bags than the ones the app holds.
                         held.addLast(message)
@@ -836,6 +838,7 @@ class CompanionActivity : Activity() {
             message.startsWith("TQ1|") -> Gear.parse(message)?.let { runOnUiThread { onCharacter(character, it) } }
             message.startsWith("TW1|") -> MapPicture.parse(message)?.let { takeMapPicture(it, message) }
             message.startsWith("TI1|") -> IconPicture.parse(message)?.let { if (seq >= 0) takeIcons(it, seq) }
+            message.startsWith("TA1|") -> AreaPicture.parse(message)?.let { if (seq >= 0) takeAreas(it, seq) }
             message.startsWith("TE1|") -> message.split('|').let { f ->
                 f.getOrNull(1)?.toIntOrNull()?.let { n ->
                     chatBox = ChatBox(n, f.getOrNull(2) == "open", f.getOrNull(3).orEmpty(), f.getOrNull(4)?.toIntOrNull())
@@ -990,6 +993,74 @@ class CompanionActivity : Activity() {
             taken++
         }
         done(if (taken == 0) "Item icons not taken: they were outside the screen" else "Took $taken item icons")
+    }
+
+    private fun areaFile(id: Int) = java.io.File(java.io.File(filesDir, "areas").apply { mkdirs() }, "$id.txt")
+
+    /** Quest areas taken so far, per map: the quest's name in its q places, and its area (main thread only). */
+    private val areas = HashMap<Int, LinkedHashMap<String, AreaMask>>()
+
+    private fun areasOf(id: Int): LinkedHashMap<String, AreaMask> = areas.getOrPut(id) {
+        val out = LinkedHashMap<String, AreaMask>()
+        runCatching {
+            areaFile(id).takeIf { it.exists() }?.forEachLine { line ->
+                AreaMask.load(line.substringAfter('\t', ""))?.let { out[line.substringBefore('\t')] = it }
+            }
+        }
+        out
+    }
+
+    /**
+     * The addon shows the quests' areas in small copies of the zone map for a few seconds:
+     * one full screenshot, each copy cut out of it and kept as that quest's area. Only when
+     * the same screenshot still shows that message ([seq]), so copies that went away in
+     * between are not taken. Runs on the reader thread.
+     */
+    private fun takeAreas(pic: AreaPicture, seq: Int) {
+        fun done(note: String) = runOnUiThread {
+            pictureNote = note
+            if (panel == Panel.MAP) updateMap()
+        }
+        val px = screen.capture(rows = 4000) ?: return done("Quest areas not taken: the screenshot failed")
+        val frame = dataFrame(px)
+        if (frame == null || frame.seq != seq) return done("Quest areas not taken: they went away before the screenshot")
+        // The copies sit on black: if the gaps around them aren't black, the grid had gone.
+        fun dark(x: Int, y: Int) = x !in 0 until px.width || y !in 0 until px.height ||
+            px.rgb(x, y).let { Color.red(it) < 48 && Color.green(it) < 48 && Color.blue(it) < 48 }
+        var light = 0
+        for (i in pic.titles.indices) {
+            val r = pic.onScreen(frame, i)
+            if (!dark(r[0] - 3, (r[1] + r[3]) / 2) || !dark((r[0] + r[2]) / 2, r[1] - 3)) light++
+        }
+        if (light * 5 > pic.titles.size) return done("Quest areas not taken: they went away before the screenshot")
+        val taken = LinkedHashMap<String, AreaMask>()
+        for ((i, title) in pic.titles.withIndex()) {
+            val r = pic.onScreen(frame, i)
+            val l = r[0]; val t = r[1]; val w = r[2] - r[0]; val h = r[3] - r[1]
+            if (w < 16 || h < 16 || l < 0 || t < 0 || l + w > px.width || t + h > px.height) continue
+            taken[title] = AreaMask.fromPixels(IntArray(w * h) { k -> px.rgb(l + k % w, t + k / w) }, w, h)
+        }
+        if (taken.isEmpty()) return done("Quest areas not taken: they were outside the screen")
+        val shaped = taken.values.count { !it.empty }
+        runOnUiThread {
+            val kept = areasOf(pic.mapId)
+            for ((title, m) in taken) { kept.remove(title); kept[title] = m }
+            while (kept.size > 60) kept.remove(kept.keys.first())
+            runCatching { areaFile(pic.mapId).writeText(kept.entries.joinToString("\n") { "${it.key}\t${it.value.save()}" }) }
+            pictureNote = "Took the areas of ${taken.size} quest${if (taken.size == 1) "" else "s"}" +
+                if (shaped < taken.size) " (${taken.size - shaped} without a shape in the game)" else ""
+            if (panel == Panel.MAP) updateMap()
+        }
+    }
+
+    /** How much longer a unit across [map] is than one down (the zone maps are about 3:2). */
+    private fun aspect(map: ZoneMap) = if (map.width > 0 && map.height > 0) map.width.toDouble() / map.height else 1.5
+
+    /** A quest area's place moved to the point of its real shape nearest to [x], [y] (where you are when inside). */
+    private fun nearPoint(map: ZoneMap, p: MapPlace, x: Double, y: Double): MapPlace {
+        if (p.kind != 'q') return p
+        val near = areasOf(map.mapId)[p.label]?.takeIf { !it.empty }?.nearest(x, y, aspect(map)) ?: return p
+        return p.copy(x = near[0], y = near[1])
     }
 
     /** What happened to the last map picture, shown under the map (the status line changes too often). */
@@ -1566,7 +1637,7 @@ class CompanionActivity : Activity() {
         val x = s?.x ?: return null
         val y = s.y ?: return null
         if (x <= 0) return null
-        val h = Compass.toPlace(map, p, x, y)
+        val h = Compass.toPlace(map, nearPoint(map, p, x, y), x, y)
         val yd = h.yards
         return when {
             yd == null -> Compass.direction(h.bearing)
@@ -1634,6 +1705,7 @@ class CompanionActivity : Activity() {
         view.glideTo(s?.x?.takeIf { it > 0 }, s?.y?.takeIf { it > 0 }, s?.facing)
         view.trail = s?.mapId?.let { trail.paths[it] }.orEmpty()
         view.picture = s?.mapId?.let { picture(it) }
+        view.areas = s?.mapId?.let { areasOf(it) } ?: emptyMap()
         val where = if (s?.x != null && s.y != null && s.x!! > 0) String.format(Locale.US, "   %.1f, %.1f", s.x!! * 100, s.y!! * 100) else ""
         mapTitle?.text = (map?.zone?.ifEmpty { null } ?: "Map ${s?.mapId ?: "unknown"}") + where
         // Without a picture yet, the button that takes one is the thing to tap.
@@ -2477,7 +2549,10 @@ class CompanionActivity : Activity() {
         val map = zoneMap?.takeIf { it.mapId == s?.mapId } ?: return null
         val x = s?.x ?: return null
         val y = s.y ?: return null
-        return if (x > 0) Compass.toQuest(map, q.title, x, y, q.waypoint) else null
+        if (x <= 0) return null
+        // To a quest area's nearest edge (you're there once inside it), not its middle.
+        val near = map.places.map { if (Compass.matches(it.label, q.title)) nearPoint(map, it, x, y) else it }
+        return Compass.toQuest(map.copy(places = near), q.title, x, y, q.waypoint)
     }
 
     /** The quest with this title in the log, or null. */
