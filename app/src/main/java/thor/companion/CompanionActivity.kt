@@ -269,10 +269,16 @@ class CompanionActivity : Activity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         android.util.Log.i("ThorCompanion", "window focus $hasFocus")
-        // A tap on the game while typing here: the box and its keyboard close (they stayed open,
-        // and closing them later left this screen with the key focus and no window to take it).
+        // A tap on the game (or anything else) while typing here: the box and its keyboard
+        // close and the key focus goes back to the game. This used to wait until the game had
+        // the focus; with the login box still open on the character screen the box then stayed,
+        // and the next controller button found no focused window and Android closed the app
+        // as not responding (Jesse's app-exits.txt, 2026-10-17 19:11 and 19:12).
         if (!hasFocus && composing != null) content.postDelayed({
-            if (composing != null && !hasWindowFocus() && CompanionBridge.gameHasFocus()) closeCompose()
+            if (composing != null && !hasWindowFocus() && !askingMic) {
+                android.util.Log.i("ThorCompanion", "focus left while typing (game has it: ${CompanionBridge.gameHasFocus()}): closing the box")
+                closeCompose()
+            }
         }, 300)
     }
 
@@ -285,6 +291,7 @@ class CompanionActivity : Activity() {
     private fun giveFocusToGame() {
         val id = CompanionBridge.gameTaskId
         if (id < 0 || CompanionBridge.gameHasFocus()) return
+        android.util.Log.i("ThorCompanion", "giving the key focus back to the game")
         runCatching { getSystemService(android.app.ActivityManager::class.java).moveTaskToFront(id, 0) }
             .onFailure { android.util.Log.w("ThorCompanion", "focus back to the game failed", it) }
     }
@@ -2793,6 +2800,7 @@ class CompanionActivity : Activity() {
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             micFor = field to mic
             micAlts = alts
+            askingMic = true  // its window takes the focus: the box stays open meanwhile
             requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), MIC_PERMISSION)
             return
         }
@@ -2945,10 +2953,14 @@ class CompanionActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, results)
         if (requestCode != MIC_PERMISSION) return
+        askingMic = false
         val (field, mic) = micFor ?: return
         if (results.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED && composing != null) micAlts?.let { listen(field, mic, it) }
         else say("Without the microphone, speech to text can't work")
     }
+
+    /** While Android asks for the microphone (its window has the focus then). */
+    private var askingMic = false
 
     private fun closeCompose(giveBack: Boolean = true) {
         stopListening()
