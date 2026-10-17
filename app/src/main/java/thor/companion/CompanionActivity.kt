@@ -1604,9 +1604,9 @@ class CompanionActivity : Activity() {
     private fun renderCraft(s: GameState) {
         val p = professions
         // Recipes kept under a name the skill list doesn't use (the window's own) count as a profession too.
-        val list = p?.list.orEmpty().toMutableList()
+        val list = p?.list.orEmpty().filter { it.name.isNotBlank() }.toMutableList()
         for (page in recipePages.values) {
-            if (list.none { it.name == page.profession }) list += thor.companion.strip.Profession(page.profession, page.level, page.max)
+            if (page.profession.isNotBlank() && list.none { it.name == page.profession }) list += thor.companion.strip.Profession(page.profession, page.level, page.max)
         }
         if (list.isEmpty()) {
             content.addView(empty(if (p == null) "Professions are coming in…" else "No professions yet",
@@ -1614,34 +1614,48 @@ class CompanionActivity : Activity() {
                 else "This character hasn't learned a profession yet."))
             return
         }
-        // The main professions first, then the secondary ones (each row shares its width).
+        // The main professions first; then the secondary ones, small, Cooking and First Aid also when not learned.
         val (minor, major) = list.partition { it.name in SECONDARY_PROFESSIONS }
         val selected = list.firstOrNull { it.name == craftProfession } ?: (major + minor).first()
         craftProfession = selected.name
+        val missing = listOf("First Aid", "Cooking").filter { name -> minor.none { it.name == name } }
 
         // Fixed above the recipes: the professions, then one row for the list.
-        for ((row, small) in listOf(major to false, minor to true)) {
-            if (row.isEmpty()) continue
-            val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
-            for (prof in row) {
-                val on = prof.name == selected.name
-                val box = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    background = Theme.box(context, if (on) RAISED else SURFACE, 12, if (on) ACCENT else STROKE, if (on) 2f else 1f)
-                    setPadding(dp(8), dp(if (small) 4 else 6), dp(8), dp(if (small) 4 else 6))
-                    setOnClickListener { craftProfession = prof.name; craftRecipe = null; scroll.scrollTo(0, 0); render() }
+        fun profBox(prof: thor.companion.strip.Profession?, name: String, compact: Boolean): View {
+            val on = prof != null && prof.name == selected.name
+            val box = LinearLayout(this).apply {
+                orientation = if (compact) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = Theme.box(context, if (on) RAISED else SURFACE, 12, if (on) ACCENT else STROKE, if (on) 2f else 1f)
+                setPadding(dp(10), dp(if (compact) 5 else 6), dp(10), dp(if (compact) 5 else 6))
+                setOnClickListener {
+                    if (prof == null) say("$name isn't learned yet: a $name trainer in any city teaches it")
+                    else { craftProfession = prof.name; craftRecipe = null; scroll.scrollTo(0, 0); render() }
                 }
-                val level = if (prof.max > 0) "${prof.level}/${prof.max}" else "${prof.level}"
-                box.addView(line(prof.name, if (on) ACCENT else TEXT, if (small) 13f else 14f, bold = true).apply {
-                    setPadding(0, 0, 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-                })
-                box.addView(line(level, DIM, 12f).apply { setPadding(0, 0, 0, dp(2)) })
-                if (prof.max > 0 && !small) box.addView(Bar(this).apply { value = prof.level.toFloat() / prof.max; colour = ACCENT }, LinearLayout.LayoutParams(-1, dp(4)))
-                bar.addView(box, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
             }
+            val level = when {
+                prof == null -> "not learned"
+                prof.max > 0 -> "${prof.level}/${prof.max}"
+                else -> "${prof.level}"
+            }
+            box.addView(line(name, if (on) ACCENT else if (prof == null) DIM else TEXT, if (compact) 13f else 14f, bold = prof != null).apply {
+                setPadding(0, 0, 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            }, if (compact) LinearLayout.LayoutParams(0, -2, 1f) else LinearLayout.LayoutParams(-2, -2))
+            box.addView(line(level, DIM, 12f).apply { setPadding(if (compact) dp(6) else 0, 0, 0, if (compact) 0 else dp(2)) })
+            if (!compact && prof != null && prof.max > 0) box.addView(Bar(this).apply { value = prof.level.toFloat() / prof.max; colour = ACCENT }, LinearLayout.LayoutParams(-1, dp(4)))
+            return box
+        }
+        fun rowOf(views: List<View>) {
+            val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
+            for (v in views) bar.addView(v, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
+            // An odd one keeps its half: a row is two wide (three when there are three main ones).
+            val wide = maxOf(2, major.size)
+            repeat((wide - views.size % wide) % wide) { bar.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f).apply { setMargins(dp(2), 0, dp(2), 0) }) }
             toolbar.addView(bar)
         }
+        if (major.isNotEmpty()) rowOf(major.map { profBox(it, it.name, false) })
+        val minorViews = minor.map { profBox(it, it.name, true) } + missing.map { profBox(null, it, true) }
+        if (minorViews.isNotEmpty()) minorViews.chunked(maxOf(2, major.size)).forEach { rowOf(it) }
 
         // The list row: Make next (or Make again), and the list and what you made lately on a tap.
         val queue = craftList()
@@ -1775,6 +1789,32 @@ class CompanionActivity : Activity() {
         }
     }
 
+    /**
+     * What the bags allow for each entry still on the list, in order: the materials an
+     * earlier entry uses are gone for the later ones. Null where it can be made in full,
+     * else a short note ("only 1 of 2", "no Copper Bar left").
+     */
+    private fun listShortfalls(queue: List<CraftJob>): List<String?> {
+        val left = HashMap<Int, Int>()
+        for (i in state?.items.orEmpty()) left[i.itemId] = (left[i.itemId] ?: 0) + i.count
+        return queue.map { job ->
+            val r = recipeOf(job) ?: return@map "not in the recipes now"
+            val n = r.canMake { left[it] ?: 0 } ?: return@map null
+            val want = if (job.count == ALL) n else job.count
+            val made = minOf(n, want)
+            for (m in r.materials) left[m.itemId] = (left[m.itemId] ?: 0) - made * m.count
+            when {
+                n <= 0 -> {
+                    val short = r.materials.firstOrNull { (left[it.itemId] ?: 0) < it.count }
+                    val what = short?.let { names[it.itemId]?.name ?: it.name.ifEmpty { "materials" } } ?: "materials"
+                    "no $what left"
+                }
+                job.count != ALL && n < want -> "only $n of $want"
+                else -> null
+            }
+        }
+    }
+
     /** The crafting list as a pop-up: what was made already (✓), the next one marked, the rest, and the start button. */
     private fun craftListSheet(queue: List<CraftJob>) = sheet(when {
         queue.isEmpty() && craftDone.isNotEmpty() -> "Crafting list: all made ✓"
@@ -1790,16 +1830,18 @@ class CompanionActivity : Activity() {
             n++
             addView(line("✓  $n.  ${job.label()}", DIM, 13f).apply { setPadding(0, dp(2), 0, dp(2)) })
         }
+        val short = listShortfalls(queue)
         for ((i, job) in queue.withIndex()) {
             n++
             val next = i == 0
+            val note = short.getOrNull(i)
             val row = LinearLayout(this@CompanionActivity).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(if (next) 8 else 0), dp(3), 0, dp(3))
                 if (next) background = Theme.box(context, RAISED, 10, ACCENT, 1f)
             }
             row.addView(line("$n.  ${job.label()}", if (next) ACCENT else TEXT, 14f, bold = next).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
-            row.addView(line(if (next) "next" else job.profession, if (next) ACCENT else DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
+            row.addView(line(note ?: if (next) "next" else job.profession, if (note != null) Theme.BAD else if (next) ACCENT else DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
             row.addView(chip("✕") { saveCraftList(craftList().also { if (i < it.size) it.removeAt(i) }); render() }.apply { setPadding(dp(10), dp(4), dp(10), dp(4)) })
             addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
         }
@@ -1809,6 +1851,7 @@ class CompanionActivity : Activity() {
                 setPadding(dp(12), dp(10), dp(12), dp(10))
                 maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            if (short.any { it != null }) addView(line("Red: not enough materials left once the entries before it are made.", Theme.BAD, 12f).apply { gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER })
             addView(line("One tap makes one entry.", DIM, 12f).apply { gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER })
         }
         addView(chip("Clear the list") { saveCraftList(emptyList()); craftDone.clear(); render() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })

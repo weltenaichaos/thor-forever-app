@@ -202,7 +202,7 @@ local bindOpenKeys  -- the open keys (below), bound again when a new profession 
 
 local function store(read)
     local ok, profession, rank, max, rows = pcall(read)
-    if not ok or not profession or not rows or #rows == 0 then return end
+    if not ok or not profession or profession == "" or not rows or #rows == 0 then return end
     local m = mine()
     local new = m.recipes[profession] == nil
     m.recipes[profession] = { rank = rank, max = max, at = time(), rows = rows }
@@ -341,7 +341,7 @@ bindOpenKeys = function()
     openKeys = {}
     if ns.TapsEnabled and ns.TapsEnabled() then
         local names = {}
-        for name in pairs(mine().recipes) do names[#names + 1] = name end
+        for name in pairs(mine().recipes) do if name ~= "" then names[#names + 1] = name end end
         table.sort(names)
         for n, name in ipairs(names) do
             if not OPEN_KEYS[n] then break end
@@ -392,7 +392,7 @@ local function makeNow()
     local n, row, count = text:match("^(%d+)%*(%d+)%*(%d+)$")
     n, row, count = tonumber(n), tonumber(row), tonumber(count)
     local names = {}
-    for name in pairs(mine().recipes) do names[#names + 1] = name end
+    for name in pairs(mine().recipes) do if name ~= "" then names[#names + 1] = name end end
     table.sort(names)
     local p = n and names[n] and mine().recipes[names[n]]
     local r = p and p.rows[row]
@@ -438,6 +438,7 @@ local function build()
     if not changed then return end
     changed = false
     local m = mine()
+    m.recipes[""] = nil  -- a window without a name (kept by 0.28.1 and older)
     local now = time()
     local list = levels()
     -- (Recipes are kept under the name the profession window gives, which may not be the
