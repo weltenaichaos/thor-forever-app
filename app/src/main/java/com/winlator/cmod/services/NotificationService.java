@@ -3,11 +3,13 @@ package com.winlator.cmod.services;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -57,8 +59,24 @@ public class NotificationService extends Service {
         return START_NOT_STICKY;
     }
 
+    /** The Forever Companion, which runs in a task of its own on the other screen. */
+    static final String COMPANION_ACTIVITY = "thor.companion.CompanionActivity";
+
+    /**
+     * Whether removing the task that started with this activity ends the app (and the game with it).
+     * Closing the companion removes only its own task: the game keeps running in its task then.
+     */
+    static boolean endsTheApp(String rootActivity) {
+        return !COMPANION_ACTIVITY.equals(rootActivity);
+    }
+
     @Override
     public void onTaskRemoved(Intent rootIntent) {
+        ComponentName root = rootIntent != null ? rootIntent.getComponent() : null;
+        if (!endsTheApp(root != null ? root.getClassName() : null)) {
+            Log.i("NotificationService", "The companion was closed: the game keeps running");
+            return;
+        }
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
         isRunning = false;
