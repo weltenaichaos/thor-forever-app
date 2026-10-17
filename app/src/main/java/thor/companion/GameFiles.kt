@@ -5,7 +5,7 @@ import java.io.File
 import java.io.Writer
 
 /**
- * Runs in [InputHelper] (as root): follows the game through the files it touches,
+ * Runs in the app (see [KeySender.open]): follows the game through the files it touches,
  * with the kernel's file events instead of looking on a timer, and tells the app.
  * What WoW does (seen on the Thor):
  *  - it opens its Logs/ files the moment it starts;

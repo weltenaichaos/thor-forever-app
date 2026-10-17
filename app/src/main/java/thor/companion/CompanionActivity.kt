@@ -243,20 +243,27 @@ class CompanionActivity : Activity() {
 
     private var closeAskedAt = -10_000L
 
-    /** Exits: saves what it shows, stops reading the screen, ends the key helper and removes the app from the recent apps. */
+    /** Exits: saves what it shows, stops reading the screen and removes the app from the recent apps (after any key still on its way). */
     private fun quit() {
         say("Closing…")
-        keys.execute {
-            KeySender.quit()
-            runOnUiThread { finishAndRemoveTask() }
-        }
+        keys.execute { runOnUiThread { finishAndRemoveTask() } }
     }
+
+    /** Set in onStop: onStart then starts the redraw timers again. */
+    private var wasStopped = false
 
     override fun onStart() {
         super.onStart()
         android.util.Log.i("ThorCompanion", "onStart")
         CompanionBridge.setShown(true)
         worker = Thread(::readSafely, "strip-reader").apply { isDaemon = true; start() }
+        // Back on screen: the redraw timers stopped in onStop go on (each ends by itself when not needed).
+        if (wasStopped) {
+            wasStopped = false
+            scroll.post(loadingTick)
+            content.post(craftTick)
+            content.post(cooldownTick)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -289,6 +296,11 @@ class CompanionActivity : Activity() {
         worker = null
         watcher = null
         runCatching { watchSocket?.close() }
+        // Nothing is shown: no redrawing every second for the loading card or a craft in progress.
+        scroll.removeCallbacks(loadingTick)
+        content.removeCallbacks(craftTick)
+        content.removeCallbacks(cooldownTick)
+        wasStopped = true
         saveTrail()
         saveLast()
         super.onStop()
@@ -671,9 +683,9 @@ class CompanionActivity : Activity() {
     }
 
     /**
-     * What the game is doing, as its files tell it (see [GameFiles], run by the root
-     * helper): no timer, the kernel says when a file is opened or written. UNKNOWN when
-     * that can't be followed (no game folder, the helper not running, or the game was
+     * What the game is doing, as its files tell it (see [GameFiles], run in this app
+     * through [KeySender.open]): no timer, the kernel says when a file is opened or
+     * written. UNKNOWN when that can't be followed (no game folder, or the game was
      * already running when the app started): then the screen alone tells, as before.
      */
     enum class Game { UNKNOWN, CLOSED, STARTING, LOADING, IN_WORLD, OUT }
@@ -700,7 +712,7 @@ class CompanionActivity : Activity() {
         }
     }
 
-    /** Follows the game through the root helper's file events, for as long as the app is shown. */
+    /** Follows the game through its file events ([GameFiles]), for as long as the app is shown. */
     private fun watchGame() {
         while (watcher === Thread.currentThread()) {
             val socket = KeySender.open(this)
@@ -714,7 +726,7 @@ class CompanionActivity : Activity() {
                     if (watcher === Thread.currentThread()) onGameEvent(line)
                 }
             } catch (e: java.io.IOException) {
-                // The helper went away (or the app stops): start again below.
+                // The watching ended (or the app stops): start again below.
             }
             runCatching { socket.close() }
             game = Game.UNKNOWN

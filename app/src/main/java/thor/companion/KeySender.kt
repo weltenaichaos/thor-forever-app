@@ -67,9 +67,9 @@ object KeySender {
     @Volatile private var server: LocalServerSocket? = null
 
     /**
-     * A connection that reports what the game does, line by line ([GameFiles]), like the
-     * standalone app's root helper after its "W" command. Here [GameFiles] runs in the app
-     * itself: the game's files and processes are this app's own, so no root is needed.
+     * A connection that reports what the game does, line by line ([GameFiles]), after a
+     * "W" command. [GameFiles] runs in the app itself: the game's files and processes are
+     * this app's own, so no root is needed.
      */
     fun open(context: Context): LocalSocket? {
         val name = context.packageName + WATCH_SOCKET
@@ -111,7 +111,4 @@ object KeySender {
             }.apply { isDaemon = true }.start()
         }
     }
-
-    /** Nothing to end: no helper runs. */
-    fun quit() {}
 }
