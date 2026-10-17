@@ -49,4 +49,23 @@ class CompassTest {
     fun cutLabelsStillMatch() {
         assertEquals(true, Compass.matches("A very long quest…", "A very long quest title"))
     }
+
+    @Test
+    fun anyPlaceHasAWayAndDistance() {
+        val h = Compass.toPlace(zone, MapPlace('f', 0.8, 0.8, "Brill"), 0.5, 0.5)
+        assertEquals(3 * PI / 4, h.bearing, 1e-9)   // south-east
+        assertEquals(424, h.yards)
+        assertEquals("south-east", Compass.direction(h.bearing))
+    }
+
+    @Test
+    fun directionsInWords() {
+        assertEquals("north", Compass.direction(0.0))
+        assertEquals("north", Compass.direction(-0.3))
+        assertEquals("east", Compass.direction(PI / 2))
+        assertEquals("south", Compass.direction(PI))
+        assertEquals("south", Compass.direction(-PI))
+        assertEquals("west", Compass.direction(-PI / 2))
+        assertEquals("north-west", Compass.direction(-PI / 4))
+    }
 }
