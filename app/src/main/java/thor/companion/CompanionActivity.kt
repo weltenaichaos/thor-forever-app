@@ -119,6 +119,7 @@ class CompanionActivity : Activity() {
     private var craftProfession: String? = null
     private var craftRecipe: Recipe? = null
     private var craftOnlyMakeable = false
+    private val craftDone = mutableListOf<CraftJob>()  // made from the crafting list since it was started (this session)
     private var craftSheet: String? = null  // the Craft tab's pop-up: "list", "lately" or none
     private var chatTab = ChatTab.ALL
     /** Per chat tab, the number of the last line seen there (see ChatLog.total). */
@@ -362,7 +363,7 @@ class CompanionActivity : Activity() {
     private fun applyKept() {
         state = null; character = null; gear = emptyList(); zoneMap = null; spells = null
         questFirst = null; quests = null; bagsFresh = false
-        professions = null; recipePages.clear(); bank = null; craftRecipe = null
+        professions = null; recipePages.clear(); bank = null; craftRecipe = null; craftDone.clear()
         val pages = QuestPages()
         for ((key, m) in lastMessages) {
             when {
@@ -1646,14 +1647,13 @@ class CompanionActivity : Activity() {
         val queue = craftList()
         val again = lastJob()
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, dp(2)) }
-        val main = queue.firstOrNull()?.let { "Make next: ${it.label()}" } ?: again?.let { "Make again: ${it.label()}" }
+        val main = when {
+            queue.isNotEmpty() && craftDone.isEmpty() -> "▶  Start the list (${queue.size})"
+            queue.isNotEmpty() -> "▶  Next (${craftDone.size + 1} of ${craftDone.size + queue.size}): ${queue.first().label()}"
+            else -> again?.let { "↻  Make again: ${it.label()}" }
+        }
         if (main != null) {
-            actions.addView(chip(main) {
-                val now = craftList()
-                val job = now.firstOrNull()
-                if (job != null) { if (runJob(job)) { now.removeAt(0); saveCraftList(now); render() } }
-                else lastJob()?.let { runJob(it) }
-            }.apply {
+            actions.addView(chip(main) { makeNextFromList() }.apply {
                 background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK)
                 maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
@@ -1762,20 +1762,56 @@ class CompanionActivity : Activity() {
         footer.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
     }
 
-    /** The crafting list as a pop-up: each entry with its ✕, and Clear. */
-    private fun craftListSheet(queue: List<CraftJob>) = sheet("Crafting list", { craftSheet = null; render() }) {
-        if (queue.isEmpty()) {
-            addView(line("Empty. Tap a recipe, then + 1, + 5 or + all under \"To the list\". Make next makes the first one; each tap makes one entry.", DIM, 13f))
+    /** Make next: the list's first entry (moved to the made ones), or the last thing made again when the list is empty. */
+    private fun makeNextFromList() {
+        val now = craftList()
+        val job = now.firstOrNull()
+        if (job == null) { lastJob()?.let { runJob(it) }; return }
+        if (runJob(job)) {
+            now.removeAt(0); saveCraftList(now)
+            craftDone += job
+            if (now.isEmpty()) say("Making ${job.label()}: the last one on the list")
+            render()
+        }
+    }
+
+    /** The crafting list as a pop-up: what was made already (✓), the next one marked, the rest, and the start button. */
+    private fun craftListSheet(queue: List<CraftJob>) = sheet(when {
+        queue.isEmpty() && craftDone.isNotEmpty() -> "Crafting list: all made ✓"
+        craftDone.isNotEmpty() -> "Crafting list: ${craftDone.size} of ${craftDone.size + queue.size} made"
+        else -> "Crafting list"
+    }, { craftSheet = null; render() }) {
+        if (queue.isEmpty() && craftDone.isEmpty()) {
+            addView(line("Empty. Tap a recipe, then +1, +5 or + all under \"To the list\". Then Start makes them one by one: one tap for each entry.", DIM, 13f))
             return@sheet
         }
-        for ((i, job) in queue.withIndex()) {
-            val row = LinearLayout(this@CompanionActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(3), 0, dp(3)) }
-            row.addView(line("${i + 1}.  ${job.label()}", if (i == 0) TEXT else DIM, 14f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
-            row.addView(line(job.profession, DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
-            row.addView(chip("✕") { saveCraftList(craftList().also { if (i < it.size) it.removeAt(i) }); render() }.apply { setPadding(dp(10), dp(4), dp(10), dp(4)) })
-            addView(row)
+        var n = 0
+        for (job in craftDone) {
+            n++
+            addView(line("✓  $n.  ${job.label()}", DIM, 13f).apply { setPadding(0, dp(2), 0, dp(2)) })
         }
-        addView(chip("Clear the list") { saveCraftList(emptyList()); render() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        for ((i, job) in queue.withIndex()) {
+            n++
+            val next = i == 0
+            val row = LinearLayout(this@CompanionActivity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(if (next) 8 else 0), dp(3), 0, dp(3))
+                if (next) background = Theme.box(context, RAISED, 10, ACCENT, 1f)
+            }
+            row.addView(line("$n.  ${job.label()}", if (next) ACCENT else TEXT, 14f, bold = next).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(line(if (next) "next" else job.profession, if (next) ACCENT else DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
+            row.addView(chip("✕") { saveCraftList(craftList().also { if (i < it.size) it.removeAt(i) }); render() }.apply { setPadding(dp(10), dp(4), dp(10), dp(4)) })
+            addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+        }
+        if (queue.isNotEmpty()) {
+            addView(chip(if (craftDone.isEmpty()) "▶  Start: ${queue.first().label()}" else "▶  Make next: ${queue.first().label()}") { makeNextFromList() }.apply {
+                background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK); textSize = 14f
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            addView(line("One tap makes one entry.", DIM, 12f).apply { gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER })
+        }
+        addView(chip("Clear the list") { saveCraftList(emptyList()); craftDone.clear(); render() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
     }
 
     /** What the game said lately (things made, skill points), as a pop-up. */
@@ -1888,6 +1924,7 @@ class CompanionActivity : Activity() {
 
     private fun addToList(job: CraftJob) {
         val list = craftList()
+        if (list.isEmpty()) craftDone.clear()  // the last list was done: this starts a new one
         // The same recipe again: one entry with both counts.
         val i = list.indexOfFirst { it.profession == job.profession && it.row == job.row && it.name == job.name }
         if (i >= 0) {
