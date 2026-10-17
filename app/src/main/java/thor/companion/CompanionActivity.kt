@@ -1633,20 +1633,20 @@ class CompanionActivity : Activity() {
 
         // The crafting list: what you want to make, one tap on Make next each (the game wants a
         // press per recipe). And the last thing made, to make it again.
-        val list = craftList()
+        val queue = craftList()
         val again = lastJob()
-        if (list.isNotEmpty() || again != null) {
+        if (queue.isNotEmpty() || again != null) {
             val box = card()
-            if (list.isNotEmpty()) {
+            if (queue.isNotEmpty()) {
                 box.addView(line("Crafting list", DIM, 12f).apply { setPadding(0, 0, 0, dp(2)) })
-                for ((i, job) in list.withIndex()) {
+                for ((i, job) in queue.withIndex()) {
                     val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(2)) }
                     row.addView(line(job.label(), if (i == 0) TEXT else DIM, 14f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
                     row.addView(line(job.profession, DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
                     row.addView(chip("✕") { saveCraftList(craftList().also { if (i < it.size) it.removeAt(i) }); render() })
                     box.addView(row)
                 }
-                val next = list.first()
+                val next = queue.first()
                 box.addView(chip("Make next: ${next.label()}") {
                     val now = craftList()
                     val job = now.firstOrNull() ?: return@chip
@@ -1657,9 +1657,9 @@ class CompanionActivity : Activity() {
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             }
             if (again != null) {
-                box.addView(chip("Make again: ${again.label()}") { runJob(again) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(if (list.isEmpty()) 0 else 6) })
+                box.addView(chip("Make again: ${again.label()}") { runJob(again) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(if (queue.isEmpty()) 0 else 6) })
             }
-            if (list.isNotEmpty()) box.addView(chip("Clear the list") { saveCraftList(emptyList()); render() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            if (queue.isNotEmpty()) box.addView(chip("Clear the list") { saveCraftList(emptyList()); render() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             content.addView(box, cardParams())
         }
 
