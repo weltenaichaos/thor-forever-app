@@ -1783,12 +1783,20 @@ class CompanionActivity : Activity() {
     }
 
     /**
-     * Make: the game crafts only in the open profession window, so when the addon says it
-     * isn't open, the app first types /cast with the profession's spell (as you would), waits
-     * for the addon to say the window is open, and then types /thor make.
+     * Make: the game crafts only in the open profession window. When the addon says it isn't
+     * open, the app first presses the profession's open key (the addon's secure button with
+     * the profession's spell: one key press, like a click in the spellbook) and types
+     * /thor make right after; the addon makes it as soon as the window is there. With no key
+     * (an older addon, /thor taps off) it types /cast instead and waits for the window.
      */
     private fun make(name: String, profession: String, count: String, what: String) {
         if (professions?.open == profession) { sendChat("Make $name", "", "/thor make $count $what"); return }
+        val key = professions?.openKeys?.get(profession)?.let { ActionKeys.forIndex(it) }
+        if (key != null) {
+            pressKey(key) { err -> say("Couldn't open the $profession window: $err") }
+            sendChat("Make $name", "", "/thor make $count $what")
+            return
+        }
         val spell = Professions.windowSpell(profession)
         sendChat("Open $profession", "", "/cast $spell")
         keys.execute {

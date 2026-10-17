@@ -14,6 +14,7 @@ class ProfessionsTest {
         assertEquals("You create: [Copper Chain Belt].", p.results.single().text)
         assertNull(p.open)
         assertEquals("Blacksmithing", Professions.parse("TF1|5\nw\tBlacksmithing")!!.open)
+        assertEquals(mapOf("First Aid" to 48), Professions.parse("TF1|5\nk\tFirst Aid\t48")!!.openKeys)
         assertEquals("Smelting", Professions.windowSpell("Mining"))
         assertEquals(0, Professions.parse("TF1|5")!!.list.size)
         assertNull(Professions.parse("TV1|5"))

@@ -4,6 +4,8 @@
 --   p<tab><profession><tab><level><tab><max>           one row per profession
 --   e<tab><time><tab><text>                            what you made and skill points, newest last
 --   w<tab><profession>                                 the profession window open now (no row: none)
+--   k<tab><profession><tab><key>                       the key that opens that profession's window (an
+--                                                      index into ns.ActionKeys, see the open keys below)
 --   TR1|<profession>|<level>|<max>|<page>|<pages>|<read at>
 --   <kind><tab><itemID><tab><made min><tab><made max><tab><ready at><tab><materials><tab><name>
 --                                                      the recipes, in the profession window's order
@@ -195,12 +197,16 @@ local function readModern()
     return clean(info.professionName, MAX_NAME), number(info.skillLevel) or 0, number(info.maxSkillLevel) or 0, rows
 end
 
+local bindOpenKeys  -- the open keys (below), bound again when a new profession comes
+
 local function store(read)
     local ok, profession, rank, max, rows = pcall(read)
     if not ok or not profession or not rows or #rows == 0 then return end
     local m = mine()
+    local new = m.recipes[profession] == nil
     m.recipes[profession] = { rank = rank, max = max, at = time(), rows = rows }
     changed = true
+    if new then pcall(bindOpenKeys) end
     recipesVersion = recipesVersion + 1
 end
 
@@ -237,6 +243,9 @@ local function addResult(text)
     changed = true
 end
 
+-- A Make that came while its window was still opening (the app presses the open key and
+-- types the command right after): made once the window is there, if that is soon.
+local pendingMake
 local reading = false
 local function readSoon(read)
     -- The window sends many updates at once: read once, a moment after the last.
@@ -245,6 +254,11 @@ local function readSoon(read)
     C_Timer.After(0.3, function()
         reading = false
         store(read)
+        local p = pendingMake
+        if p and GetTime() < p.before then
+            pendingMake = nil
+            print("|cff66ccffForever Companion|r " .. ns.Make(p.args, true))
+        end
     end)
 end
 
@@ -298,6 +312,60 @@ local bagEvents = CreateFrame("Frame")
 bagEvents:RegisterEvent("BAG_UPDATE_DELAYED")
 bagEvents:SetScript("OnEvent", function() if bankOpen then pcall(readBank) end end)
 
+-- The open keys: one per profession whose recipes are kept (so one with a window), the
+-- game's own profession spell on a secure button, as if you clicked it in the spellbook.
+-- ALT-SHIFT-F1 to F5 (kept free in Actions.lua). Bound out of combat, like the bag keys.
+local OPEN_KEYS = {}
+for i, key in ipairs(ns.ActionKeys) do
+    local n = tonumber(key:match("^ALT%-SHIFT%-F(%d+)$"))
+    if n and n <= 5 then OPEN_KEYS[n] = i end
+end
+local openOwner = CreateFrame("Frame")
+local openButtons = {}
+local openKeys = {}      -- profession -> key index, as bound
+local openPending = false
+
+local function windowSpell(profession)
+    if profession == "Mining" then return "Smelting" end
+    return profession
+end
+
+bindOpenKeys = function()
+    if InCombatLockdown() then openPending = true return end
+    openPending = false
+    ClearOverrideBindings(openOwner)
+    local was = openKeys
+    openKeys = {}
+    if ns.TapsEnabled and ns.TapsEnabled() then
+        local names = {}
+        for name in pairs(mine().recipes) do names[#names + 1] = name end
+        table.sort(names)
+        for n, name in ipairs(names) do
+            if not OPEN_KEYS[n] then break end
+            local b = openButtons[n]
+            if not b then
+                b = CreateFrame("Button", "ThorCompanionOpen" .. n, UIParent, "SecureActionButtonTemplate")
+                b:SetAttribute("type", "spell")
+                b:SetAttribute("useOnKeyDown", false)  -- on release, as the bag keys (Actions.lua)
+                b:RegisterForClicks("AnyUp", "AnyDown")
+                openButtons[n] = b
+            end
+            b:SetAttribute("spell", windowSpell(name))
+            SetOverrideBindingClick(openOwner, true, ns.ActionKeys[OPEN_KEYS[n]], b:GetName())
+            openKeys[name] = OPEN_KEYS[n]
+        end
+    end
+    for k, v in pairs(openKeys) do if was[k] ~= v then changed = true end end
+    for k in pairs(was) do if not openKeys[k] then changed = true end end
+end
+ns.BindProfessionKeys = bindOpenKeys
+
+openOwner:RegisterEvent("PLAYER_LOGIN")
+openOwner:RegisterEvent("PLAYER_REGEN_ENABLED")
+openOwner:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" or openPending then pcall(bindOpenKeys) end
+end)
+
 -- Built again only when something changed.
 local head, pages, bankPayload = nil, {}, nil
 local function build()
@@ -312,6 +380,7 @@ local function build()
     for _, l in ipairs(list) do out[#out + 1] = table.concat({ "p", l.name, l.rank, l.max }, "\t") end
     for _, r in ipairs(m.results) do out[#out + 1] = table.concat({ "e", r.at, r.text }, "\t") end
     if openWindow then out[#out + 1] = "w\t" .. openWindow end
+    for name, key in pairs(openKeys) do out[#out + 1] = "k\t" .. name .. "\t" .. key end
     head = table.concat(out, "\n")
     -- The recipes, a profession at a time, cut into pages that fit the square.
     pages = {}
@@ -458,7 +527,7 @@ local function findModern(want)
     end
 end
 
-function ns.Make(args)
+function ns.Make(args, again)
     local count, want = (args or ""):match("^(%S+)%s+(.+)$")
     want = want and want:lower():gsub("^%s+", ""):gsub("%s+$", "")
     if not want then return "use: /thor make <count|all> <item id or recipe name>" end
@@ -511,6 +580,11 @@ function ns.Make(args)
             end
             return said
         end
+    end
+    if not again then
+        -- Its window may be opening right now (the app's open key): made as soon as it is.
+        pendingMake = { args = args, before = GetTime() + 5 }
+        return "waiting for the profession window to open"
     end
     addResult("Open the profession window in the game to make things")
     return "open the profession window that has this recipe first"

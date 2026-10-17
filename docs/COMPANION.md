@@ -36,7 +36,7 @@ These are written for Thor Forever instead:
   installs the addon (`core/CompanionAddon.java`).
 - `CompanionBridge.kt` connects the companion to the game screen and opens it on the other
   screen.
-- The addon (0.26.3 here) splits what it sends over four small colour squares in the corners
+- The addon (0.27.0 here) splits what it sends over four small colour squares in the corners
   of the screen (`Corners.lua`, the default `/thor shape corners`), each only there while it
   sends: your position (`TP2`) top left, the chat, chat box and tap answers bottom left, the
   status bottom right, everything else top right (the data square, 20 x 16 cells). The app
@@ -64,8 +64,9 @@ These are written for Thor Forever instead:
   its materials as have / need, and Make one / Make 5 / Make all. Those type
   `/thor make <count|all> <item>` into the game's chat box, one tap one command, and the
   addon starts the game's own crafting in the open profession window. When the addon says
-  that window isn't open, the app first types `/cast <profession>` (Smelting for Mining) and
-  waits for it to open. Item details now
+  that window isn't open, the app first presses that profession's open key (ALT-SHIFT-F1 to F5:
+  a secure button with the profession's spell, Smelting for Mining) and types the command right
+  after; the addon makes it as soon as the window is there. Item details now
   compare something you can wear with what you wear in that slot (`ItemCompare.kt`).
   `/thor prof` says what the addon found.
 

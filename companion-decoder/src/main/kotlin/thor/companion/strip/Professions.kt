@@ -11,8 +11,10 @@ data class CraftResult(val at: Long, val text: String)
  * `TF1|<now>\np\t<profession>\t<level>\t<max>\n...e\t<time>\t<text>\n...` (see addon/ThorCompanion/Professions.lua).
  * [now] is the game's clock when it was sent, the same clock as the results' and the cooldowns' times.
  * [open] is the profession window open in the game (`w\t<profession>`), null when none is.
+ * [openKeys]: the key (an index into [ActionKeys]) that opens each profession's window (`k\t<profession>\t<key>`).
  */
-data class Professions(val now: Long, val list: List<Profession>, val results: List<CraftResult>, val open: String? = null) {
+data class Professions(val now: Long, val list: List<Profession>, val results: List<CraftResult>, val open: String? = null,
+    val openKeys: Map<String, Int> = emptyMap()) {
     companion object {
         fun parse(payload: String): Professions? {
             if (!payload.startsWith("TF1|")) return null
@@ -21,15 +23,17 @@ data class Professions(val now: Long, val list: List<Profession>, val results: L
             val list = mutableListOf<Profession>()
             val results = mutableListOf<CraftResult>()
             var open: String? = null
+            val keys = mutableMapOf<String, Int>()
             for (row in rows.drop(1)) {
                 val f = row.split('\t')
                 when {
                     f[0] == "p" && f.size >= 4 -> list += Profession(f[1], f[2].toIntOrNull() ?: 0, f[3].toIntOrNull() ?: 0)
                     f[0] == "e" && f.size >= 3 -> results += CraftResult(f[1].toLongOrNull() ?: 0, f.drop(2).joinToString("\t"))
                     f[0] == "w" && f.size >= 2 -> open = f[1]
+                    f[0] == "k" && f.size >= 3 -> f[2].toIntOrNull()?.let { keys[f[1]] = it }
                 }
             }
-            return Professions(now, list, results, open)
+            return Professions(now, list, results, open, keys)
         }
 
         /** The spell that opens a profession's window (for /cast): Mining's is Smelting. */
