@@ -54,6 +54,7 @@ import thor.companion.strip.SpellToLearn
 import thor.companion.strip.StripDecoder
 import thor.companion.strip.StripFrame
 import thor.companion.strip.Trail
+import thor.companion.strip.MapPlace
 import thor.companion.strip.ZoneMap
 import thor.companion.Theme.ACCENT
 import thor.companion.Theme.BG
@@ -104,6 +105,8 @@ class CompanionActivity : Activity() {
     private val trail = Trail()
     private var trailUnsaved = 0
     private var mapView: MapView? = null
+    /** Where the map was dragged to, and on which map (the tab is drawn anew on every change). */
+    private var mapPan: Pair<Int, DoubleArray>? = null
     private var mapTitle: TextView? = null
     private lateinit var scroll: ScrollView
     private var quests: QuestLog? = null
@@ -1113,6 +1116,7 @@ class CompanionActivity : Activity() {
         // While you type a chat message, the box below stays as it is.
         if (composing == null) footer.removeAllViews()
         mapView = null
+        placeCard = null
         questLine = null
         updateLoadButton()
         updateBadges()
@@ -1395,26 +1399,37 @@ class CompanionActivity : Activity() {
     /** The zone drawn from the addon's places, with the path walked and an arrow for you. */
     private fun renderMap() {
         val prefs = getPreferences(MODE_PRIVATE)
-        val title = line("", TEXT, 17f, bold = true).apply { setPadding(dp(4), 0, 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
-        content.addView(title)
+        // The zone and where you are, on the map itself (bottom left), so the map gets the room.
+        val title = line("", TEXT, 15f, bold = true).apply { setPadding(0, 0, 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
         val view = MapView(this).apply {
             close = prefs.getBoolean("mapClose", false)
             span = prefs.getFloat("mapSpan", 0.4f).toDouble()
             questAreas = prefs.getBoolean("mapQuests", true)
+            panned = mapPan?.takeIf { it.first == state?.mapId }?.second?.clone()
+            turns = prefs.getBoolean("mapTurns", false)
             highlight = tracked
-            onPlace = { p ->
-                say(MapView.kindName(p.kind) + (if (p.label.isEmpty()) "" else ": ${p.label}") +
-                    String.format(Locale.US, " (%.1f, %.1f)", p.x * 100, p.y * 100))
-            }
+            onPlaces = ::showPlaces
+            // A tap on nothing in particular puts the card away.
+            setOnClickListener { hidePlaceCard() }
         }
         val whole = chip("") {}
         fun zoomed() {
             prefs.edit().putBoolean("mapClose", view.close).putFloat("mapSpan", view.span.toFloat()).apply()
-            whole.text = if (view.close) "Whole zone" else "Around me"
+            mapPan = view.panned?.let { (state?.mapId ?: -1) to it.clone() }
+            // Dragged away from you: back to you first.
+            whole.text = when {
+                view.panned != null -> "Back to me"
+                view.close -> "Whole zone"
+                else -> "Around me"
+            }
             view.invalidate()
         }
         view.onZoom = ::zoomed
-        whole.setOnClickListener { view.close = !view.close; zoomed() }
+        view.onPan = ::zoomed
+        whole.setOnClickListener {
+            if (view.panned != null) view.panned = null else view.close = !view.close
+            zoomed()
+        }
         // Zoom in steps, like the minimap's + and −; a pinch on the map works too.
         fun zoom(by: Double) {
             val now = if (view.close) view.span else 1.0
@@ -1423,12 +1438,28 @@ class CompanionActivity : Activity() {
             if (view.close) view.span = next
             zoomed()
         }
-        val quests = chip(if (view.questAreas) "Quest areas on" else "Quest areas off") {}
+        // Switches, lit while on.
+        fun lit(c: TextView, on: Boolean) {
+            c.background = Theme.box(this, if (on) ACCENT else RAISED, 18)
+            c.setTextColor(if (on) Color.BLACK else TEXT)
+        }
+        val quests = chip("Quest areas") {}
+        lit(quests, view.questAreas)
         quests.setOnClickListener {
             view.questAreas = !view.questAreas
             prefs.edit().putBoolean("mapQuests", view.questAreas).apply()
-            quests.text = if (view.questAreas) "Quest areas on" else "Quest areas off"
+            lit(quests, view.questAreas)
             view.invalidate()
+        }
+        // The map turns with you, like the minimap: around you, where you face is up.
+        val turning = chip("Turn with me") {}
+        lit(turning, view.turns)
+        turning.setOnClickListener {
+            view.turns = !view.turns
+            prefs.edit().putBoolean("mapTurns", view.turns).apply()
+            if (view.turns) { view.panned = null; view.close = true }
+            lit(turning, view.turns)
+            zoomed()
         }
         val take = chip("Get zone picture") {
             // One key: the addon shows the zone's map art for a few seconds and the app takes it.
@@ -1437,13 +1468,12 @@ class CompanionActivity : Activity() {
             pressKey(ActionKeys.PICTURE) { err -> pictureNote = "Map picture not taken: $err"; updateMap() }
         }
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        controls.addView(chip("−") { zoom(1.4) }, LinearLayout.LayoutParams(dp(48), -2).apply { marginEnd = dp(6) })
-        controls.addView(chip("+") { zoom(1 / 1.4) }, LinearLayout.LayoutParams(dp(48), -2).apply { marginEnd = dp(6) })
         controls.addView(whole, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
         controls.addView(quests, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+        controls.addView(turning, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
         controls.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
         controls.addView(take)
-        content.addView(controls, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4); bottomMargin = dp(6) })
+        content.addView(controls, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2); bottomMargin = dp(6) })
         // The selected quest: how far, and ✕ to clear it. It lies over the top of the map,
         // so following a quest doesn't push the map down off the screen.
         val questRow = LinearLayout(this).apply {
@@ -1456,17 +1486,52 @@ class CompanionActivity : Activity() {
         questRow.addView(questText, LinearLayout.LayoutParams(0, -2, 1f))
         questRow.addView(chip("✕") {
             tracked = null
+            ledTo = null
             getPreferences(MODE_PRIVATE).edit().remove("tracked").apply()
             view.highlight = null
             updateCompass()
         }, LinearLayout.LayoutParams(dp(44), -2))
         questLine = questText
+        // What a tap on the map hit, under the line above: what it is, how far, and Lead me there.
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Theme.box(context, Theme.withAlpha(SURFACE, 235), 12, Theme.withAlpha(Color.WHITE, 90))
+            setPadding(dp(12), dp(4), dp(4), dp(8))
+            visibility = View.GONE
+        }
+        placeCard = card
+        val topBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        topBox.addView(questRow, LinearLayout.LayoutParams(-1, -2))
+        topBox.addView(card, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         val mapBox = android.widget.FrameLayout(this)
         mapBox.addView(view, android.widget.FrameLayout.LayoutParams(-1, -1))
-        mapBox.addView(questRow, android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply { setMargins(dp(6), dp(6), dp(6), 0) })
-        content.addView(mapBox, LinearLayout.LayoutParams(-1, maxOf(dp(240), scroll.height - dp(110))))
-        val note = line("", DIM, 12f).apply { setPadding(dp(4), dp(4), 0, 0) }
-        content.addView(note)
+        mapBox.addView(topBox, android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply { setMargins(dp(6), dp(6), dp(6), 0) })
+        // Bottom left: what happened to the last picture (only after a try), the zone and where you are.
+        val note = line("", TEXT, 12f).apply { setPadding(0, 0, 0, dp(2)) }
+        val label = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Theme.box(context, Theme.withAlpha(SURFACE, 200), 10)
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+            addView(note)
+            addView(title)
+        }
+        mapBox.addView(label, android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
+            setMargins(dp(6), 0, dp(120), dp(6))
+        })
+        // Bottom right: zoom in steps, like the minimap's + and −; a pinch on the map works too.
+        val zoomButtons = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        for ((text, by) in listOf("+" to 1 / 1.4, "−" to 1.4)) {
+            zoomButtons.addView(chip(text) { zoom(by) }.apply {
+                textSize = 20f
+                background = Theme.box(context, Theme.withAlpha(RAISED, 230), 24, Theme.withAlpha(Color.WHITE, 60))
+                setPadding(0, 0, 0, 0)
+            }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { topMargin = dp(6) })
+        }
+        mapBox.addView(zoomButtons, android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply {
+            setMargins(0, 0, dp(6), dp(6))
+        })
+        // All the room below the buttons row (the whole tab, not scrolled).
+        content.addView(mapBox, LinearLayout.LayoutParams(-1, maxOf(dp(240), scroll.height - dp(50))))
         pictureLine = note
         pictureButton = take
         mapView = view
@@ -1477,6 +1542,83 @@ class CompanionActivity : Activity() {
     }
 
     private var pictureButton: TextView? = null
+
+    /** The card for what was tapped on the map (null while the Map tab isn't shown). */
+    private var placeCard: LinearLayout? = null
+
+    /** A place you asked to be led to (not a quest), and on which map. */
+    private var ledTo: Pair<Int, MapPlace>? = null
+
+    private fun hidePlaceCard() {
+        placeCard?.let { it.removeAllViews(); it.visibility = View.GONE }
+    }
+
+    /** "240 yd north-east", "you're there", or only the way while the zone's size is unknown. */
+    private fun wayTo(p: MapPlace): String? {
+        val s = state
+        val map = zoneMap?.takeIf { it.mapId == s?.mapId } ?: return null
+        val x = s?.x ?: return null
+        val y = s.y ?: return null
+        if (x <= 0) return null
+        val h = Compass.toPlace(map, p, x, y)
+        val yd = h.yards
+        return when {
+            yd == null -> Compass.direction(h.bearing)
+            yd < 15 -> "you're there"
+            else -> "$yd yd ${Compass.direction(h.bearing)}"
+        }
+    }
+
+    /** The quest in the log a map label (maybe cut short) belongs to, or the label itself. */
+    private fun questTitle(label: String) = quests?.quests?.firstOrNull { Compass.matches(label, it.title) }?.title ?: label
+
+    /** The card for a tap on the map: a pin, or the quests whose areas are under the finger. */
+    private fun showPlaces(list: List<MapPlace>) {
+        val card = placeCard ?: return
+        val first = list.firstOrNull() ?: return
+        card.removeAllViews()
+        card.visibility = View.VISIBLE
+        val coords = String.format(Locale.US, "%.1f, %.1f", first.x * 100, first.y * 100)
+        val where = listOfNotNull(wayTo(first), coords).joinToString("  ·  ")
+        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val kind = when {
+            first.kind != 'q' -> MapView.kindName(first.kind)
+            list.size == 1 -> "Quest area"
+            else -> "${list.size} quest areas here"
+        }
+        head.addView(line("$kind  ·  $where", DIM, 12f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+        head.addView(chip("✕") { hidePlaceCard() }, LinearLayout.LayoutParams(dp(44), -2))
+        card.addView(head)
+        fun row(name: String, go: () -> Unit) {
+            val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            r.addView(line(name, TEXT, 14f, bold = true).apply { setPadding(0, dp(2), dp(6), dp(2)) }, LinearLayout.LayoutParams(0, -2, 1f))
+            r.addView(chip("Lead me there") { go() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(4) })
+            card.addView(r, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        }
+        if (first.kind != 'q') {
+            row(first.label.ifEmpty { MapView.kindName(first.kind) }) { leadTo(first) }
+        } else {
+            // A quest is followed like one tapped in the Quests tab.
+            for (title in list.map { questTitle(it.label) }.distinct().take(6)) {
+                row(title) {
+                    val q = questOf(title)
+                    if (q != null) selectQuest(q) else { ledTo = null; tracked = title; getPreferences(MODE_PRIVATE).edit().putString("tracked", title).apply(); render() }
+                }
+            }
+        }
+    }
+
+    /** Leads you to a pin on the map: the line on top says how far and which way, until ✕. */
+    private fun leadTo(p: MapPlace) {
+        val id = state?.mapId ?: return
+        ledTo = id to p
+        tracked = null
+        getPreferences(MODE_PRIVATE).edit().remove("tracked").apply()
+        mapView?.highlight = null
+        hidePlaceCard()
+        updateCompass()
+        say("Leading you to ${p.label.ifEmpty { MapView.kindName(p.kind) }}")
+    }
 
     private fun updateMap() {
         val view = mapView ?: return
@@ -2228,6 +2370,7 @@ class CompanionActivity : Activity() {
     private fun selectQuest(q: Quest) {
         run {
             tracked = q.title
+            ledTo = null
             getPreferences(MODE_PRIVATE).edit().putString("tracked", q.title).apply()
             val h = heading(q)
             val x = state?.x; val y = state?.y
@@ -2334,13 +2477,13 @@ class CompanionActivity : Activity() {
     /** The quest with this title in the log, or null. */
     private fun questOf(title: String?) = quests?.quests?.firstOrNull { it.title == title }
 
-    /** "120 yd to the objective" for a quest, or null when it isn't on this map. */
+    /** "120 yd north-east to the objective" for a quest, or null when it isn't on this map. */
     private fun distance(h: Compass.Heading): String {
         val what = when (h.place.kind) { 'Q' -> "to turn it in"; 'a' -> "to where it starts"; else -> "to the objective" }
         return when (val yd = h.yards) {
             null -> "On the map ($what); walk a bit and the yards appear"
             in 0..14 -> "You're there"
-            else -> "$yd yd $what"
+            else -> "$yd yd ${Compass.direction(h.bearing)} $what"
         }
     }
 
@@ -2349,6 +2492,17 @@ class CompanionActivity : Activity() {
         val line = questLine ?: return
         val title = tracked
         val row = line.parent as? View
+        val led = ledTo?.takeIf { it.first == state?.mapId }?.second
+        if (title == null && led != null) {
+            // A pin you asked to be led to.
+            row?.visibility = View.VISIBLE
+            val name = led.label.ifEmpty { MapView.kindName(led.kind) }
+            line.text = "$name  ·  " + (wayTo(led)?.let { if (it == "you're there") "You're there" else it } ?: "walk a bit and the yards appear")
+            mapView?.targetNote = led to ""
+            mapView?.highlight = null
+            mapView?.invalidate()
+            return
+        }
         if (title == null) { row?.visibility = View.GONE; mapView?.targetNote = null; return }
         row?.visibility = View.VISIBLE
         val q = questOf(title)

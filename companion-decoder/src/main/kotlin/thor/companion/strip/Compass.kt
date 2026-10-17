@@ -26,9 +26,25 @@ object Compass {
         val w = if (zone.width > 0) zone.width.toDouble() else 1.5
         val h = if (zone.height > 0) zone.height.toDouble() else 1.0
         val near = pick.minByOrNull { hypot((it.x - x) * w, (it.y - y) * h) } ?: return null
-        val dx = (near.x - x) * w
-        val dy = (near.y - y) * h
+        return toPlace(zone, near, x, y)
+    }
+
+    /** Which way and how far [place] on [zone] is from [x], [y]. */
+    fun toPlace(zone: ZoneMap, place: MapPlace, x: Double, y: Double): Heading {
+        // Without the size, the zone maps are about 3:2.
+        val w = if (zone.width > 0) zone.width.toDouble() else 1.5
+        val h = if (zone.height > 0) zone.height.toDouble() else 1.0
+        val dx = (place.x - x) * w
+        val dy = (place.y - y) * h
         val yards = if (zone.width > 0 && zone.height > 0) hypot(dx, dy).toInt() else null
-        return Heading(near, atan2(dx, -dy), yards)
+        return Heading(place, atan2(dx, -dy), yards)
+    }
+
+    private val WAYS = listOf("north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west")
+
+    /** The [bearing] (clockwise from north, radians) as one of eight words, like "north-east". */
+    fun direction(bearing: Double): String {
+        val eighth = Math.floorMod(Math.round(bearing / (Math.PI / 4)).toInt(), 8)
+        return WAYS[eighth]
     }
 }
