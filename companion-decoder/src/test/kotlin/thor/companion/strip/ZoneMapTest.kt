@@ -28,6 +28,23 @@ class ZoneMapTest {
     }
 
     @Test
+    fun knowsYourCorpseWhileYouAreAGhost() {
+        val here = ZoneMap.parse("TM1|1420|Tirisfal Glades|Eastern Kingdoms|4500|3000|1\nc,0.300,0.600,Your corpse\nf,0.6,0.5,Brill")!!
+        assertTrue(here.ghost)
+        assertEquals(MapPlace('c', 0.3, 0.6, "Your corpse"), here.corpse)
+        // In the zone next door: off this map's edge, with that zone's name.
+        val next = ZoneMap.parse("TM1|1420|Tirisfal Glades|Eastern Kingdoms|4500|3000|1\nc,-0.200,0.700,Your corpse in Silverpine Forest")!!
+        assertEquals(-0.2, next.corpse!!.x)
+        val h = Compass.toPlace(next, next.corpse!!, 0.1, 0.7)
+        assertEquals("west", Compass.direction(h.bearing))
+        assertEquals(1350, h.yards)
+        // A ghost whose corpse the game doesn't place, and someone alive (an older addon sent no flag).
+        assertNull(ZoneMap.parse("TM1|1420|Tirisfal Glades|Eastern Kingdoms|4500|3000|1\n")!!.corpse)
+        assertFalse(ZoneMap.parse("TM1|1420|Tirisfal Glades|Eastern Kingdoms|4500|3000|0\nc,0.3,0.6,Your corpse")!!.ghost)
+        assertNull(ZoneMap.parse("TM1|1420|Tirisfal Glades|Eastern Kingdoms|4500|3000\nc,0.3,0.6,Your corpse")!!.corpse)
+    }
+
+    @Test
     fun parsesAnEmptyMap() {
         assertEquals(ZoneMap(85, "Orgrimmar", "", emptyList()), ZoneMap.parse("TM1|85|Orgrimmar|\n"))
         assertNull(ZoneMap.parse("TS1|x|1|0|0|0|0"))

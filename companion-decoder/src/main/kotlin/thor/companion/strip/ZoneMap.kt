@@ -5,14 +5,19 @@ data class MapPlace(val kind: Char, val x: Double, val y: Double, val label: Str
 
 /**
  * The places on the zone map, from the addon's
- * `TM1|mapID|zone|parent<newline><kind>,<x>,<y>,<label><newline>...` message
+ * `TM1|mapID|zone|parent|width|height|ghost<newline><kind>,<x>,<y>,<label><newline>...` message
  * (see addon/ThorCompanion/Map.lua for the kinds).
  */
 data class ZoneMap(
     val mapId: Int, val zone: String, val parent: String, val places: List<MapPlace>,
     /** The zone's size in yards (0 when the game didn't say). */
     val width: Int = 0, val height: Int = 0,
+    /** You are a ghost (released your spirit): the c place, when there is one, is your corpse, maybe off the map's edge. */
+    val ghost: Boolean = false,
 ) {
+    /** Your corpse while you are a ghost: on this map, or in a zone next to it off the map's edge; null when the game doesn't say. */
+    val corpse: MapPlace? get() = if (ghost) places.firstOrNull { it.kind == 'c' } else null
+
     companion object {
         /** Null when [payload] is not a TM1 message. */
         fun parse(payload: String): ZoneMap? {
@@ -28,7 +33,7 @@ data class ZoneMap(
                 MapPlace(f[0][0], x, y, f[3])
             }
             return ZoneMap(mapId, head.getOrElse(1) { "" }, head.getOrElse(2) { "" }, places,
-                head.getOrNull(3)?.toIntOrNull() ?: 0, head.getOrNull(4)?.toIntOrNull() ?: 0)
+                head.getOrNull(3)?.toIntOrNull() ?: 0, head.getOrNull(4)?.toIntOrNull() ?: 0, head.getOrNull(5) == "1")
         }
     }
 }
