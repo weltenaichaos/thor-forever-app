@@ -1818,15 +1818,22 @@ class CompanionActivity : Activity() {
         var lastAt = started
         fun game(): CraftProgress? = professions?.progress?.takeIf { it.seq > seqBefore }
         fun total(): Int = game()?.wanted?.takeIf { it > 0 } ?: count
-        fun made(): Int {
-            val g = game()
-            if (g != null) {
-                if (g.made != lastMade) { lastMade = g.made; lastAt = SystemClock.uptimeMillis() }
-                return g.made.coerceIn(0, total())
-            }
+        /** The bags' count: what they got since the start (often the first to know, but wrong once they are full). */
+        fun inBags(): Int {
+            if (job.itemId <= 0) return 0
             val now = haveOf(job.itemId)
             if (now != last) { last = now; lastAt = SystemClock.uptimeMillis() }
             return ((now - before) / each).coerceIn(0, count)
+        }
+        fun made(): Int {
+            val bags = inBags()
+            val g = game()
+            if (g != null) {
+                if (g.made != lastMade) { lastMade = g.made; lastAt = SystemClock.uptimeMillis() }
+                // Whichever message came first: the game's count or the bags.
+                return maxOf(g.made, if (g.running) bags else 0).coerceIn(0, total())
+            }
+            return bags
         }
         fun finished(): Boolean {
             val m = made()

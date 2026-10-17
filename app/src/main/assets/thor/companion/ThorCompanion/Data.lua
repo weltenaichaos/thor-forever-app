@@ -364,12 +364,13 @@ local function nextMessage()
     elseif chatUrgent and chatNow() and not corners then
         turn = 3  -- the chat (4) is next
         chatUrgent = false
+    elseif professionsUrgent then
+        -- Before the bags: while crafting both change at every craft, and the app's count waits for this one.
+        turn = 11  -- the professions (12) are next
+        professionsUrgent = false
     elseif bagsUrgent then
         turn = 1  -- the bags (2) are next
         bagsUrgent = false
-    elseif professionsUrgent then
-        turn = 11  -- the professions (12) are next
-        professionsUrgent = false
     elseif mapUrgent or (id and tostring(id) ~= mapID) then
         turn = 4  -- the map (5) is next
         mapForce = mapUrgent
