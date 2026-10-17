@@ -20,6 +20,7 @@
 --   TP1|... and TQ1|...                                       (character and gear, see Character.lua)
 --   TL1|... and TL2|...                                       (quest log and last kill, see Quests.lua)
 --   TV1|...                                                   (spells to learn soon, see Spells.lua)
+--   TF1|..., TR1|... and TK1|...                              (professions, recipes and bank, see Professions.lua)
 --   TT1|...                                                   (item tooltips, when nothing else is waiting, see Tooltips.lua)
 --   TD1|...                                                   (a small change to TB1, TM1, TP1, TQ1 or TL1, see below)
 -- and, for a few seconds after their keys, TW1 (zone picture, Map.lua) and TI1 (item icons, Icons.lua).
@@ -145,6 +146,7 @@ local function namesPayload(peek)
     local all = {}
     for _, id in ipairs(bagIDs) do all[#all + 1] = id end
     for _, id in ipairs(ns.EquippedIDs()) do all[#all + 1] = id end
+    for _, id in ipairs(ns.ProfessionItemIDs()) do all[#all + 1] = id end
     -- Every name once before any goes the second time, so all are in soon after a login.
     local limit = SENDS
     for _, id in ipairs(all) do
@@ -232,8 +234,9 @@ local function cooldowns()
     return cooldownPayload
 end
 
-local KIND_NAMES = { "status", "bags", "item names", "chat", "map", "character", "gear", "quests", "cooldowns", "spells", "quest pages" }
-local kinds = { status, bags, namesPayload, chat, map, ns.CharacterPayload, ns.GearPayload, ns.QuestsPayload, cooldowns, ns.SpellsPayload, ns.QuestPagesPayload }
+local KIND_NAMES = { "status", "bags", "item names", "chat", "map", "character", "gear", "quests", "cooldowns", "spells", "quest pages", "professions", "recipes", "bank" }
+local kinds = { status, bags, namesPayload, chat, map, ns.CharacterPayload, ns.GearPayload, ns.QuestsPayload, cooldowns, ns.SpellsPayload, ns.QuestPagesPayload,
+    ns.ProfessionsPayload, ns.RecipePagesPayload, ns.BankPayload }
 -- Small changes to a long message (a looted item, a quest objective) go out as
 --   TD1|<kind>|<checksum before>|<checksum after>|<at>|<cut>|<new bytes>
 -- in one part instead of the whole message in several: the app takes its copy of
@@ -319,6 +322,9 @@ local statusHold
 -- app that missed the first one keeps what it reads apart until it knows who is playing.
 local loadedAt = 0
 function ns.ChatUrgent() chatUrgent = true end
+-- The profession window opened or closed: the professions (12) go next (the app's Make waits for it).
+local professionsUrgent = false
+function ns.ProfessionsUrgent() professionsUrgent = true end
 local bagEvents = CreateFrame("Frame")
 bagEvents:RegisterEvent("BAG_UPDATE_DELAYED")
 bagEvents:SetScript("OnEvent", function() bagsUrgent = true end)
@@ -334,7 +340,7 @@ local function chatNow() return caughtUp or not namesWait or GetTime() > caughtU
 
 -- The kinds sent only when they change (the chat, names and quest pages go twice
 -- by themselves, the status comes every few seconds).
-local COPY_AGAIN = { [2] = true, [5] = true, [6] = true, [7] = true, [8] = true, [9] = true, [10] = true }
+local COPY_AGAIN = { [2] = true, [5] = true, [6] = true, [7] = true, [8] = true, [9] = true, [10] = true, [12] = true, [14] = true }
 local copyAgain = {}
 
 local function nextMessage()
@@ -358,6 +364,10 @@ local function nextMessage()
     elseif chatUrgent and chatNow() and not corners then
         turn = 3  -- the chat (4) is next
         chatUrgent = false
+    elseif professionsUrgent then
+        -- Before the bags: while crafting both change at every craft, and the app's count waits for this one.
+        turn = 11  -- the professions (12) are next
+        professionsUrgent = false
     elseif bagsUrgent then
         turn = 1  -- the bags (2) are next
         bagsUrgent = false
@@ -391,7 +401,7 @@ local function nextMessage()
         end
         -- The chat and the quest pages say themselves when they have something to send
         -- (each goes out twice, and the second time can look just like the first).
-        if p and (p ~= lastSent[turn] or turn == 4 or turn == 11 or (turn == 1 and GetTime() - statusAt > STATUS_AGAIN)) then
+        if p and (p ~= lastSent[turn] or turn == 4 or turn == 11 or turn == 13 or (turn == 1 and GetTime() - statusAt > STATUS_AGAIN)) then
             local e = encode(turn, p)
             if #picked > 0 then
                 local together = "Y" .. table.concat(picked, "\30") .. "\30" .. ns.Short(e)
@@ -449,6 +459,7 @@ function ns.SendAllAgain()
     caughtUp, caughtUpBy = false, GetTime() + CATCH_UP_SECONDS
     ns.TooltipsAgain()
     ns.QuestPagesAgain()
+    ns.RecipePagesAgain()
 end
 
 local refreshOwner = CreateFrame("Frame")
@@ -649,7 +660,7 @@ f:SetScript("OnEvent", function()
         sub = sub + 1
         if sub % 5 == 0 then
             ticks = ticks + 1
-            if ticks % REFRESH_TICKS == 0 then lastSent, chatAgain, known = {}, true, {} ns.QuestPagesAgain() end
+            if ticks % REFRESH_TICKS == 0 then lastSent, chatAgain, known = {}, true, {} ns.QuestPagesAgain() ns.RecipePagesAgain() end
             if ticks % MAP_REFRESH_TICKS == 0 then lastSent[5], known[5] = nil, nil end
         end
         if ns.CornersOn() then ns.Measured("corners: what to send", corners) end
@@ -776,6 +787,10 @@ SlashCmdList.THORCOMPANION = function(msg)
     elseif msg == "info" then
         print("|cff66ccffForever Companion|r " .. ns.StripInfo())
         if ns.CornersOn() then print("|cff66ccffForever Companion|r corners: " .. ns.CornersInfo()) end
+    elseif msg:match("^make ") then
+        print("|cff66ccffForever Companion|r " .. ns.Make(msg:sub(6)))
+    elseif msg == "prof" then
+        print("|cff66ccffForever Companion|r " .. ns.ProfessionsInfo())
     elseif msg == "taps" then
         print("|cff66ccffForever Companion|r " .. ns.TapsInfo())
     elseif msg == "taps on" or msg == "taps off" then

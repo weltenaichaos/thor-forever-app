@@ -36,7 +36,7 @@ These are written for Thor Forever instead:
   installs the addon (`core/CompanionAddon.java`).
 - `CompanionBridge.kt` connects the companion to the game screen and opens it on the other
   screen.
-- The addon (0.25.0 here) splits what it sends over four small colour squares in the corners
+- The addon (0.29.1 here) splits what it sends over four small colour squares in the corners
   of the screen (`Corners.lua`, the default `/thor shape corners`), each only there while it
   sends: your position (`TP2`) top left, the chat, chat box and tap answers bottom left, the
   status bottom right, everything else top right (the data square, 20 x 16 cells). The app
@@ -55,6 +55,23 @@ These are written for Thor Forever instead:
   it skips its idle wait for urgent changes; and it shows the first part of a message after a
   quiet spell for 0.6 s, since the reading loop here looks every 0.4 s where the bar was.
   `/thor mem` says which parts of the addon make the most memory (per second since the last `/thor mem`).
+
+- A **Craft** tab (only here, not in thor-companion): your professions and their levels
+  (`TF1`), each profession's recipes (`TR1`, a page at a time, read while its window is open
+  in the game and kept per character in the addon's saved settings), and the bank's count of
+  the materials (`TK1`, read while the bank is open). See `Professions.lua` and
+  `Professions.kt`. A recipe shows what you can make from your bags (grey when nothing),
+  its materials as have / need, and Make one / Make 5 / Make all. Those type
+  `/thor make <count|all> <item>` into the game's chat box, one tap one command, and the
+  addon starts the game's own crafting in the open profession window. When the addon says
+  that window isn't open, the app first presses that profession's open key (ALT-SHIFT-F1 to F5:
+  a secure button with the profession's spell, Smelting for Mining) and then the Make keys: the
+  profession's number, the recipe's row and the count as ALT-CTRL-NUMPAD digits, ALT-CTRL-F1
+  between them and ALT-CTRL-F2, which crafts (nothing typed; an older addon gets `/thor make`).
+  A crafting list holds what to make next (Make next, one tap per recipe, as the game wants),
+  and Make again repeats the last one. Item details now
+  compare something you can wear with what you wear in that slot (`ItemCompare.kt`).
+  `/thor prof` says what the addon found.
 
 To take a newer companion over, copy the files in the first table again and keep the
 replacements above.

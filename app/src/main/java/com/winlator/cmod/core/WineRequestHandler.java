@@ -101,17 +101,17 @@ public class WineRequestHandler {
 
     private void setWineClipboard(DataInputStream inputStream, DataOutputStream outputStream) throws IOException {
         int format = 13;
+        String clipText;
         ClipboardManager clipboardManager = (ClipboardManager)context.getSystemService(Context.CLIPBOARD_SERVICE);
         ClipData clipData = clipboardManager.getPrimaryClip();
-        String clipText;
-        if (clipData != null) {
-            ClipData.Item item = clipData.getItemAt(0);
-            clipText = item.getText().toString();
+        if (clipData != null && clipData.getItemCount() > 0 && clipData.getItemAt(0).getText() != null) {
+            clipText = clipData.getItemAt(0).getText().toString();
         }
         else {
             clipText = "";
         }
-        Log.d("WineRequestHandler", "Received request code SET_WINE_CLIPBOARD for clipboard " + clipText);
+        // (Only the length: what is pasted can be a chat line or a password.)
+        Log.d("WineRequestHandler", "Received request code SET_WINE_CLIPBOARD, " + clipText.length() + " characters");
         clipText = clipText + "\0";
         byte[] dataByte = clipText.getBytes(StandardCharsets.UTF_16LE);
         int size = dataByte.length;
