@@ -76,4 +76,12 @@ class ProfessionsTest {
         assertEquals(11 to null, ItemCompare.wornFor(ring, emptyList()))
         assertNull(ItemCompare.wornFor(ItemStats.parse(listOf("Trade Goods")), gear))
     }
+
+    @Test fun craftProgress() {
+        val p = Professions.parse("TF1|1000\nc\t3\t1\t5\tstopped\tInventory is full.\tBolt of Linen Cloth\np\tTailoring\t50\t75")!!
+        assertEquals(CraftProgress(3, 1, 5, "stopped", "Inventory is full.", "Bolt of Linen Cloth"), p.progress)
+        assertEquals(false, p.progress!!.running)
+        assertEquals(1, p.list.size)
+        assertEquals(null, Professions.parse("TF1|1000\np\tTailoring\t50\t75")!!.progress)
+    }
 }

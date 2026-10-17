@@ -204,7 +204,15 @@ local function store(read)
     local ok, profession, rank, max, rows = pcall(read)
     if not ok or not profession or profession == "" or not rows or #rows == 0 then return end
     local m = mine()
-    local new = m.recipes[profession] == nil
+    local old = m.recipes[profession]
+    local new = old == nil
+    -- The window sends updates all the time while it is open (every craft, every bag
+    -- change): the same recipes again keep their time, so the app keeps its copy.
+    if old and old.rank == rank and old.max == max and #old.rows == #rows then
+        local same = true
+        for i = 1, #rows do if old.rows[i] ~= rows[i] then same = false break end end
+        if same then return end
+    end
     m.recipes[profession] = { rank = rank, max = max, at = time(), rows = rows }
     changed = true
     if new then pcall(bindOpenKeys) end
@@ -244,6 +252,47 @@ local function addResult(text)
     changed = true
 end
 
+-- What is being made now (a Make): how many of how many, and whether the game stopped.
+-- Sent as c\t<seq>\t<made>\t<wanted>\t<status>\t<reason>\t<name>; status making, done or stopped.
+local run
+local runSeq = 0
+local function runChanged()
+    changed = true
+    if ns.ProfessionsUrgent then ns.ProfessionsUrgent() end
+end
+local function startRun(name, itemId, want)
+    runSeq = runSeq + 1
+    run = { seq = runSeq, name = clean(name, MAX_NAME), id = itemId, want = want, made = 0, status = "making", reason = "", at = GetTime() }
+    runChanged()
+end
+local function stopRun(reason)
+    if not run or run.status ~= "making" then return end
+    run.status, run.reason = "stopped", clean(reason or "", 40)
+    runChanged()
+end
+local function runMade(text)
+    if not run or run.status ~= "making" then return end
+    local id = tonumber(text:match("item:(%d+)"))
+    if (run.id and run.id > 0 and id == run.id) or text:find("[" .. run.name .. "]", 1, true) then
+        run.made = run.made + 1
+        if run.made >= run.want then run.status = "done" end
+        runChanged()
+    end
+end
+local runEvents = CreateFrame("Frame")
+for _, e in ipairs({ "UNIT_SPELLCAST_INTERRUPTED", "UI_ERROR_MESSAGE" }) do pcall(runEvents.RegisterEvent, runEvents, e) end
+runEvents:SetScript("OnEvent", function(_, event, a, b)
+    if not run or run.status ~= "making" then return end
+    if event == "UNIT_SPELLCAST_INTERRUPTED" then
+        if a == "player" then stopRun("interrupted") end
+    else
+        -- (message type, message), or just the message in older games
+        local message = type(b) == "string" and b or a
+        if type(message) ~= "string" or secret(message) then return end
+        if message == ERR_INV_FULL or message:lower():find("full", 1, true) then stopRun(message) end
+    end
+end)
+
 -- A Make that came while its window was still opening (the app presses the open key and
 -- types the command right after): made once the window is there, if that is soon.
 local pendingMake
@@ -273,7 +322,11 @@ events:RegisterEvent("BANKFRAME_CLOSED")
 -- Which profession window is open (for the app's Make: it opens the window first when not).
 local openWindow = nil
 -- The app waits for it (Make), so it goes out next, not in its turn.
-local function urgent() if ns.ProfessionsUrgent then ns.ProfessionsUrgent() end end
+local syncOpenKeys  -- (below, with the open keys)
+local function urgent()
+    if ns.ProfessionsUrgent then ns.ProfessionsUrgent() end
+    if syncOpenKeys then pcall(syncOpenKeys) end
+end
 for _, e in ipairs({ "TRADE_SKILL_CLOSE", "CRAFT_CLOSE" }) do pcall(events.RegisterEvent, events, e) end
 events:SetScript("OnEvent", function(_, event, text)
     if event == "TRADE_SKILL_SHOW" or event == "TRADE_SKILL_UPDATE" or event == "TRADE_SKILL_LIST_UPDATE" then
@@ -303,7 +356,7 @@ events:SetScript("OnEvent", function(_, event, text)
     elseif event == "CHAT_MSG_LOOT" then
         if type(text) == "string" and not secret(text) then
             for _, p in ipairs(CREATED) do
-                if text:match(p) then addResult(text) break end
+                if text:match(p) then addResult(text) runMade(text) break end
             end
         end
     else
@@ -354,6 +407,8 @@ bindOpenKeys = function()
                 openButtons[n] = b
             end
             b:SetAttribute("spell", windowSpell(name))
+            b:SetAttribute("type", name == openWindow and "" or "spell")  -- only opens (the spell would close it)
+            b.profession = name
             SetOverrideBindingClick(openOwner, true, ns.ActionKeys[OPEN_KEYS[n]], b:GetName())
             openKeys[name] = OPEN_KEYS[n]
         end
@@ -362,6 +417,15 @@ bindOpenKeys = function()
     for k in pairs(was) do if not openKeys[k] then changed = true end end
 end
 ns.BindProfessionKeys = bindOpenKeys
+
+-- When a window opens or closes: its open key does nothing while it is open, so a press
+-- from the app (which may not know yet) never closes it.
+syncOpenKeys = function()
+    if InCombatLockdown() then openPending = true return end
+    for _, b in pairs(openButtons) do
+        if b.profession then b:SetAttribute("type", b.profession == openWindow and "" or "spell") end
+    end
+end
 
 -- The Make keys: the app's Make without typing in the chat. It presses, one after another,
 --   <profession n> SEP <row> SEP <count> MAKE
@@ -448,6 +512,7 @@ local function build()
     if openWindow then out[#out + 1] = "w\t" .. openWindow end
     for name, key in pairs(openKeys) do out[#out + 1] = "k\t" .. name .. "\t" .. key end
     if makeBound then out[#out + 1] = "f\t1" end
+    if run then out[#out + 1] = table.concat({ "c", run.seq, run.made, run.want, run.status, run.reason, run.name }, "\t") end
     for _, l in ipairs(list) do out[#out + 1] = table.concat({ "p", l.name, l.rank, l.max }, "\t") end
     for _, r in ipairs(m.results) do out[#out + 1] = table.concat({ "e", r.at, r.text }, "\t") end
     head = table.concat(out, "\n")
@@ -623,7 +688,8 @@ function ns.Make(args, again)
             local make, said = plan(name, available, own)
             if make then
                 local ok, err = pcall(DoTradeSkill, i, make)
-                if not ok then said = "couldn't make it: " .. tostring(err) end
+                if not ok then said = "couldn't make it: " .. tostring(err)
+                else startRun(name, GetTradeSkillItemLink and itemID(GetTradeSkillItemLink(i)), make) end
             end
             return said
         end
@@ -634,7 +700,8 @@ function ns.Make(args, again)
             local make, said = plan(name, available, own, 1)
             if make then
                 local ok, err = pcall(DoCraft, i)
-                if not ok then said = "couldn't make it: " .. tostring(err) end
+                if not ok then said = "couldn't make it: " .. tostring(err)
+                else startRun(name, GetCraftItemLink and itemID(GetCraftItemLink(i)), 1) end
             end
             return said
         end
@@ -645,7 +712,8 @@ function ns.Make(args, again)
             local make, said = plan(name, available, nil)
             if make then
                 local ok, err = pcall(C_TradeSkillUI.CraftRecipe, id, make)
-                if not ok then said = "couldn't make it: " .. tostring(err) end
+                if not ok then said = "couldn't make it: " .. tostring(err)
+                else startRun(name, nil, make) end
             end
             return said
         end

@@ -21,6 +21,7 @@ import thor.companion.strip.CharacterInfo
 import thor.companion.strip.ChatLine
 import thor.companion.strip.Gear
 import thor.companion.strip.BankCounts
+import thor.companion.strip.CraftProgress
 import thor.companion.strip.ItemCompare
 import thor.companion.strip.ItemStats
 import thor.companion.strip.Professions
@@ -120,6 +121,7 @@ class CompanionActivity : Activity() {
     private var craftRecipe: Recipe? = null
     private var craftOnlyMakeable = false
     private var craftRunning: CraftRun? = null
+    private val completeRecipes = HashMap<String, List<Recipe>>()  // per profession, the last complete reading
     private val craftDone = mutableListOf<CraftJob>()  // made from the crafting list since it was started (this session)
     private var craftSheet: String? = null  // the Craft tab's pop-up: "list", "lately" or none
     private var chatTab = ChatTab.ALL
@@ -1663,10 +1665,11 @@ class CompanionActivity : Activity() {
         val again = lastJob()
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, dp(2)) }
         val run = craftRunning?.takeIf { !it.finished() }
+        craftShown = craftRunning?.let { "${it.made()}|${it.finished()}" } ?: ""
         content.removeCallbacks(craftTick)
         if (run != null) content.postDelayed(craftTick, 1000)
         val main = when {
-            run != null -> "⏳  Making ${run.job.name}: ${run.made()} of ${run.count}"
+            run != null -> "⏳  Making ${run.job.name}: ${run.made()} of ${run.total()}"
             queue.isNotEmpty() && craftDone.isEmpty() -> "▶  Start the list (${queue.size})"
             queue.isNotEmpty() -> "▶  Next (${craftDone.size + 1} of ${craftDone.size + queue.size}): ${queue.first().label()}"
             else -> again?.let { "↻  Make again: ${it.label()}" }
@@ -1699,7 +1702,7 @@ class CompanionActivity : Activity() {
         val pages = recipePages.values.filter { it.profession == selected.name }
         val newest = pages.maxOfOrNull { it.readAt }
         val shown = pages.filter { it.readAt == newest }.sortedBy { it.page }
-        val recipes = shown.flatMap { it.recipes }
+        val recipes = recipesOf(selected.name)
 
         // Below the recipes, like a small pop-up: the recipe tapped, the list, or what you made lately.
         val open = craftRecipe
@@ -1715,12 +1718,12 @@ class CompanionActivity : Activity() {
                 "The game shows the recipes only while the profession window is open (for Mining that is Smelting). Open it once and they stay here, also after a restart."))
             return
         }
-        val first = shown.first()
+        val first = shown.firstOrNull() ?: RecipePage(selected.name, 0, 0, 1, 1, 0, emptyList())
         val age = newest?.let { System.currentTimeMillis() / 1000 - it }
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(6), 0, dp(4)) }
         head.addView(line("Recipes" +
             (age?.takeIf { it > 3600 }?.let { "  ·  read ${duration(it)} ago" } ?: "") +
-            (if (shown.size < first.pages) "  ·  more coming (${shown.size} of ${first.pages})" else ""), DIM, 13f).apply { setPadding(0, 0, 0, 0) },
+            (if (shown.size < first.pages) "  ·  updating (${shown.size} of ${first.pages})" else ""), DIM, 13f).apply { setPadding(0, 0, 0, 0) },
             LinearLayout.LayoutParams(0, -2, 1f))
         head.addView(chip(if (craftOnlyMakeable) "✓ Can make now" else "Can make now") { craftOnlyMakeable = !craftOnlyMakeable; render() }.apply {
             if (craftOnlyMakeable) { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) }
@@ -1787,13 +1790,15 @@ class CompanionActivity : Activity() {
         val now = craftList()
         val job = now.firstOrNull()
         if (job == null) { lastJob()?.let { runJob(it) }; return }
-        craftRunning?.let { if (!it.finished()) { say("Still making ${it.job.name} (${it.made()} of ${it.count}): Next works once it is done"); return } }
+        craftRunning?.let { if (!it.finished()) { say("Still making ${it.job.name} (${it.made()} of ${it.total()}): Next works once it is done"); return } }
+        val seqBefore = professions?.progress?.seq ?: 0
         val count = runJob(job)
         if (count > 0) {
             now.removeAt(0); saveCraftList(now)
             craftDone += job
             val r = recipeOf(job)
-            craftRunning = if (job.itemId > 0) CraftRun(job, count, maxOf(1, r?.made ?: 1), haveOf(job.itemId)) else null
+            craftRunning = if (job.itemId > 0 || professions?.makeKeys == true)
+                CraftRun(job, count, maxOf(1, r?.made ?: 1), haveOf(job.itemId), seqBefore) else null
             render()
         }
     }
@@ -1801,28 +1806,50 @@ class CompanionActivity : Activity() {
     private fun haveOf(itemId: Int) = state?.items.orEmpty().filter { it.itemId == itemId }.sumOf { it.count }
 
     /**
-     * An entry of the list the game is making now: done when the bags hold what it makes
-     * ([count] crafts of [each]), or when nothing new came for a while (the crafting stopped:
-     * moved, or out of materials).
+     * An entry of the list the game is making now. The addon (0.29) counts the crafts and
+     * says when the game stopped ([CraftProgress], newer than [seqBefore]); with an older
+     * one the bags tell: done when they hold [count] crafts of [each], stopped when nothing
+     * new came for a while.
      */
-    private inner class CraftRun(val job: CraftJob, val count: Int, val each: Int, val before: Int) {
+    private inner class CraftRun(val job: CraftJob, val count: Int, val each: Int, val before: Int, val seqBefore: Int) {
         val started = SystemClock.uptimeMillis()
         var last = before
+        var lastMade = -1
         var lastAt = started
+        fun game(): CraftProgress? = professions?.progress?.takeIf { it.seq > seqBefore }
+        fun total(): Int = game()?.wanted?.takeIf { it > 0 } ?: count
         fun made(): Int {
+            val g = game()
+            if (g != null) {
+                if (g.made != lastMade) { lastMade = g.made; lastAt = SystemClock.uptimeMillis() }
+                return g.made.coerceIn(0, total())
+            }
             val now = haveOf(job.itemId)
             if (now != last) { last = now; lastAt = SystemClock.uptimeMillis() }
             return ((now - before) / each).coerceIn(0, count)
         }
         fun finished(): Boolean {
             val m = made()
+            val g = game()
+            if (g != null) return !g.running || SystemClock.uptimeMillis() - lastAt > 60_000
             return m >= count || SystemClock.uptimeMillis() - lastAt > STALL_MS
+        }
+        /** What the game said when it stopped early (as "Inventory is full."), or null. */
+        fun stopped(): String? {
+            val g = game()
+            if (g != null) return if (g.status == "stopped" || (finished() && g.made < g.wanted)) g.reason.ifEmpty { "stopped" } else null
+            return if (finished() && made() < count) "stopped" else null
         }
     }
 
     /** Redraws the Craft tab while an entry of the list is being made, for its progress. */
+    private var craftShown = ""
     private val craftTick = Runnable {
-        if (panel == Panel.CRAFT) render()
+        val r = craftRunning ?: return@Runnable
+        // Drawn again only when something changed: a redraw every second would make the list jump.
+        val now = "${r.made()}|${r.finished()}"
+        if (panel == Panel.CRAFT && now != craftShown) render()
+        else if (panel == Panel.CRAFT && !r.finished()) content.postDelayed(craftTick, 1000)
     }
 
     /**
@@ -1867,10 +1894,10 @@ class CompanionActivity : Activity() {
         for ((i, job) in craftDone.withIndex()) {
             n++
             val making = run != null && i == craftDone.size - 1 && !run.finished()
-            if (making) addView(line("⏳  $n.  ${job.name}: ${run!!.made()} of ${run.count} made, the game is on it", ACCENT, 13f, bold = true).apply { setPadding(0, dp(2), 0, dp(2)) })
+            if (making) addView(line("⏳  $n.  ${job.name}: ${run!!.made()} of ${run.total()} made, the game is on it", ACCENT, 13f, bold = true).apply { setPadding(0, dp(2), 0, dp(2)) })
             else {
-                val stopped = run != null && i == craftDone.size - 1 && run.made() < run.count
-                addView(line("✓  $n.  ${job.label()}" + if (stopped) "  (stopped at ${run!!.made()} of ${run.count})" else "", if (stopped) Theme.WARN else DIM, 13f).apply { setPadding(0, dp(2), 0, dp(2)) })
+                val why = if (run != null && i == craftDone.size - 1) run.stopped() else null
+                addView(line("✓  $n.  ${job.label()}" + if (why != null) "  (stopped at ${run!!.made()} of ${run.total()}: $why)" else "", if (why != null) Theme.WARN else DIM, 13f).apply { setPadding(0, dp(2), 0, dp(2)) })
             }
         }
         val short = listShortfalls(queue)
@@ -1974,6 +2001,7 @@ class CompanionActivity : Activity() {
                 when {
                     waiting -> say("${r.name} isn't ready yet: its cooldown is still running")
                     n <= 0 -> say("Not enough materials for ${r.name} in your bags")
+                    craftRunning?.finished() == false -> say("Still making ${craftRunning!!.job.name}: wait until it is done (or put this on the list)")
                     else -> runJob(CraftJob(profession, row, r.itemId, r.name, count))
                 }
             }.apply {
@@ -2027,13 +2055,33 @@ class CompanionActivity : Activity() {
         render()
     }
 
-    /** The recipe [job] stands for in the recipes kept now, or null when they changed since. */
-    private fun recipeOf(job: CraftJob): Recipe? {
-        val pages = recipePages.values.filter { it.profession == job.profession }
-        val newest = pages.maxOfOrNull { it.readAt }
-        val recipes = pages.filter { it.readAt == newest }.sortedBy { it.page }.flatMap { it.recipes }
-        return recipes.getOrNull(job.row - 1)?.takeIf { it.name == job.name }
+    /**
+     * A profession's recipes: all its pages from the last time the window was read, or,
+     * while a newer reading is still coming in page by page, the last complete one (so the
+     * list doesn't shrink to a page and grow again).
+     */
+    private fun recipesOf(profession: String): List<Recipe> {
+        val joined = RecipePage.join(recipePages.values.filter { it.profession == profession })
+        if (joined != null) { completeRecipes[profession] = joined; return joined }
+        return completeRecipes[profession] ?: run {
+            val pages = recipePages.values.filter { it.profession == profession }
+            val newest = pages.maxOfOrNull { it.readAt }
+            pages.filter { it.readAt == newest }.sortedBy { it.page }.flatMap { it.recipes }
+        }
     }
+
+    /**
+     * Where [job]'s recipe is in the recipes now (1 first) and the recipe, or null when it
+     * isn't there any more. Looked up by name when a recipe learned since moved the rows.
+     */
+    private fun findJob(job: CraftJob): Pair<Int, Recipe>? {
+        val recipes = recipesOf(job.profession)
+        recipes.getOrNull(job.row - 1)?.takeIf { it.name == job.name }?.let { return job.row to it }
+        val i = recipes.indexOfFirst { !it.heading && it.name == job.name && (job.itemId == 0 || it.itemId == job.itemId) }
+        return if (i >= 0) (i + 1) to recipes[i] else null
+    }
+
+    private fun recipeOf(job: CraftJob): Recipe? = findJob(job)?.second
 
     /**
      * Makes [job]: with the addon's Make keys, one key press says it all and crafts (see
@@ -2041,8 +2089,9 @@ class CompanionActivity : Activity() {
      * nothing is typed; with an older addon, through the chat (see make). True when it went out.
      */
     private fun runJob(job: CraftJob): Int {
-        val r = recipeOf(job)
-        if (r == null) { say("${job.name} isn't in the ${job.profession} recipes any more: open that window in the game once"); return 0 }
+        val found = findJob(job)
+        if (found == null) { say("${job.name} isn't in the ${job.profession} recipes any more: open that window in the game once"); return 0 }
+        val (row, r) = found
         val have = state?.items.orEmpty().groupBy { it.itemId }.mapValues { e -> e.value.sumOf { it.count } }
         val can = r.canMake { have[it] ?: 0 } ?: 0
         if (can <= 0) { say("Not enough materials for ${job.name} in your bags"); return 0 }
@@ -2052,8 +2101,10 @@ class CompanionActivity : Activity() {
         val openKey = p?.openKeys?.get(job.profession)?.let { ActionKeys.forIndex(it) }
         val n = openKey?.substringAfterLast("-F")?.toIntOrNull()
         if (p != null && p.makeKeys && openKey != null && n != null) {
-            val press = Professions.makeKeys(n, job.row, count)
-            val opening = p.open != job.profession
+            val press = Professions.makeKeys(n, row, count)
+            // The addon this app brought (0.29) makes the open key do nothing while the window
+            // is open, so it is pressed every time: what the app last heard about the window can be old.
+            val opening = p.open != job.profession || gameAddon == null
             val target = gameDisplay()
             lastKeyAt = SystemClock.uptimeMillis()
             say("Making $count × ${job.name}")

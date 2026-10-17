@@ -1,5 +1,13 @@
 package thor.companion.strip
 
+/**
+ * What the game is making after a Make (`c\t<seq>\t<made>\t<wanted>\t<status>\t<reason>\t<name>`):
+ * [seq] counts the Makes, [status] is making, done or stopped ([reason]: what the game said, as "Inventory is full.").
+ */
+data class CraftProgress(val seq: Int, val made: Int, val wanted: Int, val status: String, val reason: String, val name: String) {
+    val running: Boolean get() = status == "making"
+}
+
 /** A profession and its level, as the game's skill list says. */
 data class Profession(val name: String, val level: Int, val max: Int)
 
@@ -15,7 +23,7 @@ data class CraftResult(val at: Long, val text: String)
  * [openKeys]: the key (an index into [ActionKeys]) that opens each profession's window (`k\t<profession>\t<key>`).
  */
 data class Professions(val now: Long, val list: List<Profession>, val results: List<CraftResult>, val open: String? = null,
-    val openKeys: Map<String, Int> = emptyMap(), val makeKeys: Boolean = false) {
+    val openKeys: Map<String, Int> = emptyMap(), val makeKeys: Boolean = false, val progress: CraftProgress? = null) {
     companion object {
         fun parse(payload: String): Professions? {
             if (!payload.startsWith("TF1|")) return null
@@ -26,6 +34,7 @@ data class Professions(val now: Long, val list: List<Profession>, val results: L
             var open: String? = null
             val keys = mutableMapOf<String, Int>()
             var makeKeys = false
+            var progress: CraftProgress? = null
             for (row in rows.drop(1)) {
                 val f = row.split('\t')
                 when {
@@ -34,9 +43,11 @@ data class Professions(val now: Long, val list: List<Profession>, val results: L
                     f[0] == "w" && f.size >= 2 -> open = f[1]
                     f[0] == "k" && f.size >= 3 -> f[2].toIntOrNull()?.let { keys[f[1]] = it }
                     f[0] == "f" -> makeKeys = true
+                    f[0] == "c" && f.size >= 7 -> progress = CraftProgress(f[1].toIntOrNull() ?: 0, f[2].toIntOrNull() ?: 0,
+                        f[3].toIntOrNull() ?: 0, f[4], f[5], f.drop(6).joinToString("\t"))
                 }
             }
-            return Professions(now, list, results, open, keys, makeKeys)
+            return Professions(now, list, results, open, keys, makeKeys, progress)
         }
 
         /**
