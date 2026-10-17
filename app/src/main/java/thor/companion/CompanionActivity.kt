@@ -3006,8 +3006,9 @@ class CompanionActivity : Activity() {
             }
             // Enter, and make sure it took: the addon says when the box closes. Still open
             // with the text after a while: that Enter got lost (the game had just come back
-            // to the front), so once more. Open and empty: closed with Escape (only on the
-            // addon's word that it is open; with the box closed, Escape opens the menu).
+            // to the front), so once more. Open and empty: the line went out but the game
+            // kept the box open, so it is closed with Escape as soon as the addon says so
+            // (only on its word that the box is open; with the box closed, Escape opens the menu).
             var enters = 0
             while (enters < 2) {
                 val beforeEnter = chatBox
@@ -3018,7 +3019,11 @@ class CompanionActivity : Activity() {
                 var left: ChatBox? = null
                 while (SystemClock.uptimeMillis() < until) {
                     val now = chatBox
-                    if (now !== beforeEnter) { left = now; if (now == null || !now.open) break }
+                    if (now !== beforeEnter) {
+                        left = now
+                        // Closed, or open and empty (the box held the line until this Enter): no need to wait on.
+                        if (now == null || !now.open || (now.n == box.n && now.length == 0)) break
+                    }
                     lastKeyAt = SystemClock.uptimeMillis()
                     SystemClock.sleep(50)
                 }
