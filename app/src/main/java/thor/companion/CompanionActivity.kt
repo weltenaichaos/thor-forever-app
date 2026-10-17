@@ -2967,6 +2967,7 @@ class CompanionActivity : Activity() {
         lastKeyAt = SystemClock.uptimeMillis()
         say("$label: sending…")
         keys.execute {
+            val t0 = SystemClock.uptimeMillis()
             val err = KeySender.send(this, target, ActionKeys.OPEN_CHAT)
             if (err != null && !err.startsWith("(focus")) return@execute runOnUiThread { say("$label not sent: $err") }
             // Wait for the addon to see the box open; never type into the game without it.
@@ -2976,6 +2977,7 @@ class CompanionActivity : Activity() {
                 SystemClock.sleep(50)
             }
             val box = chatBox
+            android.util.Log.i("ThorCompanion", "chat: box ${if (box == null || box.n == before) "not seen" else if (box.open) "open" else "closed"} after ${SystemClock.uptimeMillis() - t0} ms")
             if (box == null || box.n == before || !box.open) {
                 return@execute runOnUiThread { say("$label not sent: the game's chat box didn't open (a game menu open, or the addon older than v41?)") }
             }
@@ -3009,6 +3011,7 @@ class CompanionActivity : Activity() {
             var enters = 0
             while (enters < 2) {
                 val beforeEnter = chatBox
+                val enterAt = SystemClock.uptimeMillis()
                 KeySender.send(this, target, "ENTER")
                 enters++
                 val until = SystemClock.uptimeMillis() + 3000
@@ -3019,7 +3022,9 @@ class CompanionActivity : Activity() {
                     lastKeyAt = SystemClock.uptimeMillis()
                     SystemClock.sleep(50)
                 }
-                // Only on the addon's word after this Enter (it says so every second while the box is open).
+                android.util.Log.i("ThorCompanion", "chat: Enter $enters at ${enterAt - t0} ms, ${SystemClock.uptimeMillis() - enterAt} ms later " +
+                    (left?.let { "the box ${if (it.open) "open" else "closed"} (${it.length} bytes, ${if (it.n == box.n) "same" else "another"} opening)" } ?: "no word from the addon"))
+                // Only on the addon's word after this Enter.
                 val last = left ?: break
                 if (!last.open || last.n != box.n) break
                 if (last.length == 0) {
