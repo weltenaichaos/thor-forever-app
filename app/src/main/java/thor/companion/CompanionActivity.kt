@@ -245,6 +245,7 @@ class CompanionActivity : Activity() {
 
     /** Exits: saves what it shows, stops reading the screen and removes the app from the recent apps (after any key still on its way). */
     private fun quit() {
+        android.util.Log.i("ThorCompanion", "Exit: closing the companion (the game keeps running)")
         say("Closing…")
         keys.execute { runOnUiThread { finishAndRemoveTask() } }
     }
@@ -255,7 +256,6 @@ class CompanionActivity : Activity() {
     override fun onStart() {
         super.onStart()
         android.util.Log.i("ThorCompanion", "onStart")
-        CompanionBridge.setShown(true)
         worker = Thread(::readSafely, "strip-reader").apply { isDaemon = true; start() }
         // Back on screen: the redraw timers stopped in onStop go on (each ends by itself when not needed).
         if (wasStopped) {
@@ -291,7 +291,6 @@ class CompanionActivity : Activity() {
 
     override fun onStop() {
         android.util.Log.i("ThorCompanion", "onStop")
-        CompanionBridge.setShown(false)
         closeCompose(giveBack = false)  // going away (Home, Exit): don't bring the game back over it
         worker = null
         watcher = null
