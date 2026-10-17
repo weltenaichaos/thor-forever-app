@@ -2958,6 +2958,9 @@ class CompanionActivity : Activity() {
 
     @Volatile private var chatBox: ChatBox? = null
 
+    /** False once a paste didn't reach the game (it started without the paste way in): then lines are typed. */
+    @Volatile private var pasteWorks = true
+
     private fun sendChat(label: String, command: String, text: String) {
         val target = gameDisplay()
         val before = chatBox?.n
@@ -2982,10 +2985,39 @@ class CompanionActivity : Activity() {
                 command == GROUP -> box.group.ifEmpty { "/p " }
                 else -> command
             }
-            // Typed key by key. (A paste through Android's clipboard was quicker, but Android
-            // then shows its "copied" pop-up over the game, right where the chat's corner square is.)
-            val typed = KeySender.type(this, target, prefix + text)
-            if (typed != null && !typed.startsWith("(focus")) return@execute runOnUiThread { say("$label not sent: $typed") }
+            // The whole line goes in with one paste (CTRL-V): the app hands it to the game
+            // directly (WineRequestHandler), not through Android's clipboard, so no "copied"
+            // pop-up. The box opens empty, so text the addon then reports came from the paste.
+            // If none shows up (the game started before this app had the paste way in), the
+            // line is typed key by key, and from then on too until the game starts again.
+            val line = prefix + text
+            var pasted = false
+            val tried = pasteWorks && box.length == 0
+            if (tried) {
+                com.winlator.cmod.core.WineRequestHandler.offerPaste(line, 3000)
+                KeySender.send(this, target, "CTRL-V")
+                // The game may turn "/w Name " into the box's whisper mode: then only your text is left.
+                val bytes = text.toByteArray(Charsets.UTF_8).size
+                val wait = SystemClock.uptimeMillis() + 2500
+                while (SystemClock.uptimeMillis() < wait) {
+                    val now = chatBox
+                    if (now != null && now.n == box.n && (now.length ?: 0) >= bytes) { pasted = true; break }
+                    lastKeyAt = SystemClock.uptimeMillis()
+                    SystemClock.sleep(30)
+                }
+                com.winlator.cmod.core.WineRequestHandler.endPaste()
+                if (!pasted) {
+                    pasteWorks = false
+                    android.util.Log.i("ThorCompanion", "paste didn't reach the chat box: typing from now on")
+                    // Whatever went in partly: cleared before typing (the box was empty).
+                    val partly = chatBox?.length ?: 0
+                    if (partly > 0) repeat(partly) { KeySender.send(this, target, "BACKSPACE"); SystemClock.sleep(5) }
+                }
+            }
+            if (!pasted) {
+                val typed = KeySender.type(this, target, line)
+                if (typed != null && !typed.startsWith("(focus")) return@execute runOnUiThread { say("$label not sent: $typed") }
+            }
             // Enter, and make sure it took: the addon says when the box closes. Still open
             // with the text after a while: that Enter got lost (the game had just come back
             // to the front), so once more. Open and empty: closed with Escape (only on the
@@ -3013,7 +3045,7 @@ class CompanionActivity : Activity() {
                 }
                 android.util.Log.i("ThorCompanion", "chat box still holds the text after Enter: once more")
             }
-            runOnUiThread { say("$label: sent") }
+            runOnUiThread { say(if (pasted) "$label: sent" else if (tried) "$label: sent (typed; restart the game once for pasting)" else "$label: sent") }
         }
     }
 
