@@ -1188,6 +1188,9 @@ class CompanionActivity : Activity() {
     }
 
     private fun render() {
+        // On the Map tab the tab is stretched to the bottom of the screen, and the map takes
+        // what the buttons above it leave (the other tabs scroll as before).
+        scroll.isFillViewport = panel == Panel.MAP
         content.removeAllViews()
         toolbar.removeAllViews()
         // While you type a chat message, the box below stays as it is.
@@ -1607,8 +1610,13 @@ class CompanionActivity : Activity() {
         mapBox.addView(zoomButtons, android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply {
             setMargins(0, 0, dp(6), dp(6))
         })
-        // All the room below the buttons row (the whole tab, not scrolled).
-        content.addView(mapBox, LinearLayout.LayoutParams(-1, maxOf(dp(240), scroll.height - dp(50))))
+        // All the room below the buttons row, down to the bottom of the screen, now and
+        // whenever the window changes size (the tab fills the screen, see render()). Its
+        // height used to be worked out once when the tab was drawn, from a height that
+        // could be 0 or out of date then: the map stopped at 240 dp, the rest empty
+        // (Jesse's screenshot, 2026-10-17). On a very small window it stays 240 dp and the tab scrolls.
+        mapBox.minimumHeight = dp(240)
+        content.addView(mapBox, LinearLayout.LayoutParams(-1, 0, 1f))
         pictureLine = note
         pictureButton = take
         mapView = view

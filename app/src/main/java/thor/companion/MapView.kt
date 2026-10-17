@@ -18,9 +18,11 @@ import kotlin.math.sin
 /**
  * The zone drawn from what the addon sends: the places on it, the path you walked
  * and an arrow for you, over the zone's picture once the app has taken one (a grid
- * until then). Shows the whole zone, or with [close] the area around you, [span]
- * of the zone wide across the view (it fills the view, whatever its shape); pinch to
- * change it, like the minimap's zoom, and drag to look elsewhere ([panned]). With
+ * until then). The map fills the view at every zoom, with no empty bars: the whole
+ * zone as wide as the view (or as tall, in a tall view; the bit cut off at the edges
+ * is a drag away), or with [close] the area around you, [span] of the zone wide
+ * across the view; pinch to change it, like the minimap's zoom, and drag to look
+ * elsewhere ([panned]). With
  * [turns], the area around you turns with you like the minimap (where you face is up).
  * Names make room for each other: one that would cover another name or a pin is left
  * out, and a tap there says what it is. Quest areas have their real shape once the app
@@ -129,9 +131,11 @@ class MapView(context: Context) : View(context) {
     /** Where the view shows the zone, for the frame of [width] by [height] pixels. */
     private fun place() {
         val vw = width.toFloat(); val vh = height.toFloat()
-        // The whole zone just fits; closer, [span] of it across the view, which it fills.
-        val fit = minOf(vw, vh * 1.5f)
-        ux = if (close) maxOf(fit, (vw / span.coerceIn(MIN_SPAN, 1.0)).toFloat()) else fit
+        // The zone covers the whole view, whatever its shape (no empty bars at the sides):
+        // the whole zone is as wide as the view, or as tall when the view is the taller,
+        // and a drag shows the rest; closer, [span] of it across the view.
+        val cover = maxOf(vw, vh * 1.5f)
+        ux = if (close) maxOf(cover, (vw / span.coerceIn(MIN_SPAN, 1.0)).toFloat()) else cover
         uy = ux / 1.5f
         shown = (vw / ux).toDouble()
         val down = (vh / uy).toDouble()
@@ -145,9 +149,10 @@ class MapView(context: Context) : View(context) {
             return
         }
         turn = 0f
-        val centre = panned ?: if (close && px != null && py != null) doubleArrayOf(px, py) else doubleArrayOf(0.5, 0.5)
-        // Centred there, but not past the zone's edge, where there is nothing to see
-        // (a zone smaller than the view sits in its middle).
+        // On you (the whole zone too, so the bit cut off is never where you are), else the
+        // middle (0, 0: the game gave no position, in a dungeon say).
+        val centre = panned ?: if (px != null && py != null && (px > 0 || py > 0)) doubleArrayOf(px, py) else doubleArrayOf(0.5, 0.5)
+        // Centred there, but not past the zone's edge, where there is nothing to see.
         left = if (shown >= 1) 0.5 - shown / 2 else (centre[0] - shown / 2).coerceIn(0.0, 1 - shown)
         top = if (down >= 1) 0.5 - down / 2 else (centre[1] - down / 2).coerceIn(0.0, 1 - down)
     }
