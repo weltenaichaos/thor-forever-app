@@ -72,6 +72,13 @@ object Theme {
         if (bold) bodyBold ?: Typeface.create(body(context), Typeface.BOLD).also { bodyBold = it }
         else body ?: font(context, R.font.wine_tahoma, Typeface.SANS_SERIF).also { body = it }
 
+    /** For the screenshot test, where the app's own fonts may not load: the font files instead. */
+    internal fun useFonts(heading: Typeface, body: Typeface) {
+        this.heading = heading
+        this.body = body
+        bodyBold = null
+    }
+
     private fun font(context: Context, id: Int, fallback: Typeface) =
         runCatching { context.resources.getFont(id) }.getOrNull() ?: fallback
 

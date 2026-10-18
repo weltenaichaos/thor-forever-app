@@ -2,6 +2,7 @@ package thor.companion
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Typeface
 import android.os.Looper
 import android.view.View
 import org.junit.Test
@@ -14,13 +15,14 @@ import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
 /**
- * Pictures of the companion's tabs as they look on the Thor's bottom screen (1240 x 1080),
- * filled with the sample messages in companion-sample.txt, so a change to the look can be
- * seen without the device. Only runs when asked: -PcompanionScreens=<folder> (see app/build.gradle).
+ * Pictures of the companion's tabs as they look on the Thor's bottom screen (1240 x 1080, at
+ * the density Jesse's own screenshot shows), filled with the sample messages in
+ * companion-sample.txt, so a change to the look can be seen without the device.
+ * Only runs when asked: -PcompanionScreens=<folder> (see app/build.gradle).
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [33], qualifiers = "w472dp-h411dp-land-420dpi")
+@Config(sdk = [33], qualifiers = "w564dp-h491dp-land-352dpi")
 class CompanionScreensTest {
 
     private val dir = File(System.getProperty("companion.screens.dir") ?: "build/companion-screens").apply { mkdirs() }
@@ -34,7 +36,13 @@ class CompanionScreensTest {
     }
 
     private fun shoot(name: String, tab: String, loaded: Boolean = true, upTo: Int = messages.size) {
-        val controller = Robolectric.buildActivity(CompanionActivity::class.java).create()
+        // Run outside Gradle (no app resources): the fonts from their files.
+        System.getProperty("companion.fonts.dir")?.let { fonts ->
+            Theme.useFonts(Typeface.createFromFile(File(fonts, "cinzel_bold.ttf")), Typeface.createFromFile(File(fonts, "wine_tahoma.ttf")))
+        }
+        val controller = Robolectric.buildActivity(CompanionActivity::class.java)
+        controller.get().setTheme(android.R.style.Theme_DeviceDefault_NoActionBar)  // as in the manifest
+        controller.create()
         val activity = controller.get()
         activity.preview(messages.take(upTo), tab, loaded)
         shadowOf(Looper.getMainLooper()).idle()
@@ -46,6 +54,7 @@ class CompanionScreensTest {
         val picture = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         root.draw(Canvas(picture))
         File(dir, "$name.png").outputStream().use { picture.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        controller.destroy()
     }
 
     @Test fun bags() = shoot("1-bags", "BAGS")
