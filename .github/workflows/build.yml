@@ -240,3 +240,17 @@ jobs:
           else
             echo "::warning::Release $TAG is already published, so it was not changed. The APK is in the build's artifacts."
           fi
+
+      # Pictures of the Forever Companion's tabs (CompanionScreensTest, filled with sample data),
+      # so a change to its look can be seen without the Thor. Never holds up the APK.
+      - name: Companion screenshots
+        continue-on-error: true
+        run: ./gradlew testReleaseUnitTest --tests thor.companion.CompanionScreensTest -PcompanionScreens="$GITHUB_WORKSPACE/companion-screens"
+
+      - name: Upload companion screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Companion-Screens-${{ github.run_number }}
+          path: companion-screens/
+          if-no-files-found: warn

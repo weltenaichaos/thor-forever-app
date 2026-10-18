@@ -59,7 +59,6 @@ import thor.companion.strip.Trail
 import thor.companion.strip.MapPlace
 import thor.companion.strip.ZoneMap
 import thor.companion.Theme.ACCENT
-import thor.companion.Theme.BG
 import thor.companion.Theme.DIM
 import thor.companion.Theme.GOLD
 import thor.companion.Theme.PRESSED
@@ -168,25 +167,26 @@ class CompanionActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(BG)
+            background = ScreenFrame(dp(150), Theme.px(context))
             setPadding(dp(12), dp(10), dp(12), dp(6))
         }
-        // The tabs: one bar, the open one in gold.
+        // The tabs: a row of buttons like the start screen's, the open one in teal.
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = Theme.box(context, SURFACE, 14)
-            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
         for (p in Panel.entries) {
             val b = TextView(this).apply {
                 text = p.title
-                textSize = 14f
+                textSize = 13f
                 gravity = Gravity.CENTER
-                typeface = Typeface.DEFAULT_BOLD
+                typeface = Theme.heading(context)
+                maxLines = 1
                 setOnClickListener { show(p) }
             }
             tabs[p] = b
-            header.addView(b, LinearLayout.LayoutParams(0, dp(44), if (p == Panel.CHARACTER) 1.25f else 1f))
+            header.addView(b, LinearLayout.LayoutParams(0, dp(44), if (p == Panel.CHARACTER) 1.3f else 1f).apply {
+                if (p != Panel.entries.first()) marginStart = dp(4)
+            })
         }
         // The status line: a dot that says whether the game's data is coming in, what happened
         // last, and the one key that asks the game for everything when something is missing.
@@ -201,6 +201,7 @@ class CompanionActivity : Activity() {
         status = TextView(this).apply {
             setTextColor(DIM)
             textSize = 13f
+            typeface = Theme.body(context)
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(dp(8), 0, dp(8), 0)
@@ -820,6 +821,29 @@ class CompanionActivity : Activity() {
     private val held = ArrayDeque<String>()
 
     /** One whole message from the addon (runs on the reading thread); [seq] is its frame's, -1 for one that was held back. */
+    /**
+     * For the screenshot test (CompanionScreensTest): shows [messages] as if the game had just
+     * sent them, without reading the top screen, on the tab named [tab] ("BAGS", "MAP"...).
+     * With [loaded] false the start-up card stays, ticking off what the messages brought.
+     */
+    internal fun preview(messages: List<String>, tab: String, loaded: Boolean = true) {
+        frameAt = SystemClock.uptimeMillis()
+        seenAt = frameAt
+        game = Game.IN_WORLD
+        for (m in messages) {
+            handle(m, -1)
+            if (m.startsWith("TS1|")) { awaitStatus = false; gameCharacter = m.split('|').getOrNull(1) }
+        }
+        if (loaded) {
+            bagsFresh = true
+            finishLoading()
+            for ((_, b) in tabs) b.alpha = 1f
+        }
+        show(Panel.valueOf(tab))
+        saidAt = 0L
+        connected()
+    }
+
     private fun handle(raw: String, seq: Int) {
         // A small change (TD1) becomes the whole message again, from the last one the app kept.
         val message = if (raw.startsWith("TD1|")) Delta.apply(raw) { lastMessages[it] } ?: return else raw
@@ -1222,8 +1246,8 @@ class CompanionActivity : Activity() {
         if (p != Panel.CHAT) closeCompose()
         panel = p
         for ((key, b) in tabs) {
-            b.background = if (key == p) Theme.box(this, ACCENT, 10) else null
-            b.setTextColor(if (key == p) Color.BLACK else DIM)
+            b.background = Theme.button(this, primary = key == p)
+            b.setTextColor(if (key == p) Color.WHITE else Theme.GOLD_TEXT)
         }
         scroll.scrollTo(0, 0)
         render()
@@ -1309,7 +1333,7 @@ class CompanionActivity : Activity() {
         }
         scroll.removeCallbacks(loadingTick)
         scroll.postDelayed(loadingTick, 1000)
-        val box = card().apply { background = Theme.box(context, SURFACE, 14, ACCENT); setPadding(dp(18), dp(16), dp(18), dp(16)) }
+        val box = card().apply { background = Theme.panel(context, gold = true); setPadding(dp(18), dp(16), dp(18), dp(16)) }
         val seen = seenAt != 0L
         val who = s?.name?.takeIf { known && it != "?" }
         val g = game
@@ -1324,7 +1348,7 @@ class CompanionActivity : Activity() {
             who != null -> "Getting $who ready"
             seen -> "Checking who is playing…"
             else -> "Looking for the game…"
-        }, TEXT, 18f, bold = true).apply { setPadding(0, 0, 0, 0) })
+        }, Theme.GOLD_TEXT, 18f).apply { typeface = Theme.heading(context); setPadding(0, 0, 0, 0) })
         val c = character
         val sub = when {
             g == Game.CLOSED -> "Start WoW Forever; the app follows it from there."
@@ -1354,7 +1378,7 @@ class CompanionActivity : Activity() {
         // keyboard down here, and fix typos before they go in.
         if ((g == Game.STARTING || g == Game.OUT) && composing == null) {
             box.addView(chip("⌨  Type in the game (password, names)") { typeInGame() }.apply {
-                background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK)
+                primary()
             }, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(10) })
         }
         val rows = parts ?: if (seen && !away || g == Game.LOADING) PLACEHOLDER.map { Readiness.Part(it, Readiness.Status.MISSING, "waiting") } else emptyList()
@@ -1397,7 +1421,7 @@ class CompanionActivity : Activity() {
             val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(12), 0, 0) }
             buttons.addView(chip("Load from the game") {
                 pressKey(ActionKeys.REFRESH, onDone = { say("Asked the game for everything again…") }) { err -> say("Couldn't ask the game: $err") }
-            }.apply { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) })
+            }.apply { primary() })
             buttons.addView(chip("Open anyway") {
                 finishLoading()
                 for ((_, b) in tabs) b.alpha = 1f
@@ -1445,7 +1469,7 @@ class CompanionActivity : Activity() {
         val c = character
         val classColour = c?.classFile?.let { classColour(it) } ?: TEXT
         val head = card()
-        head.addView(line(s.name, classColour, 24f, bold = true).apply { setPadding(0, 0, 0, 0) })
+        head.addView(line(s.name, classColour, 24f).apply { typeface = Theme.heading(context); setPadding(0, 0, 0, 0) })
         head.addView(line(listOfNotNull("Level ${s.level ?: "?"}", c?.race, c?.className).joinToString(" "), TEXT, 15f).apply { setPadding(0, dp(2), 0, 0) })
         c?.guild?.let { head.addView(line("<$it>", Theme.GOOD, 13f).apply { setPadding(0, dp(2), 0, 0) }) }
         content.addView(head, cardParams())
@@ -1480,7 +1504,7 @@ class CompanionActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(6), dp(5), dp(8), dp(5))
-                background = Theme.box(context, SURFACE, 10, quality?.let { Theme.withAlpha(it, 110) } ?: STROKE)
+                background = Theme.panel(context, edge = quality?.let { Theme.withAlpha(it, 130) } ?: STROKE)
             }
             tile.addView(icon(g?.itemId, quality, 36), LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginEnd = dp(8) })
             if (g != null) {
@@ -1562,8 +1586,8 @@ class CompanionActivity : Activity() {
         }
         // Switches, lit while on.
         fun lit(c: TextView, on: Boolean) {
-            c.background = Theme.box(this, if (on) ACCENT else RAISED, 18)
-            c.setTextColor(if (on) Color.BLACK else TEXT)
+            c.background = Theme.button(this, primary = on)
+            c.setTextColor(if (on) Color.WHITE else TEXT)
         }
         val quests = chip("Quest areas") {}
         lit(quests, view.questAreas)
@@ -1601,7 +1625,7 @@ class CompanionActivity : Activity() {
         val questRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = Theme.box(context, Theme.withAlpha(SURFACE, 225), 12, Theme.withAlpha(Color.WHITE, 90))
+            background = Theme.panel(context, Theme.withAlpha(SURFACE, 225), Theme.EDGE)
             setPadding(dp(12), dp(4), dp(4), dp(4))
         }
         val questText = line("", TEXT, 14f).apply { setPadding(0, 0, 0, 0) }
@@ -1621,7 +1645,7 @@ class CompanionActivity : Activity() {
         // What a tap on the map hit, under the line above: what it is, how far, and Lead me there.
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = Theme.box(context, Theme.withAlpha(SURFACE, 235), 12, Theme.withAlpha(Color.WHITE, 90))
+            background = Theme.panel(context, Theme.withAlpha(SURFACE, 235), Theme.EDGE)
             setPadding(dp(12), dp(4), dp(4), dp(8))
             visibility = View.GONE
         }
@@ -1636,7 +1660,7 @@ class CompanionActivity : Activity() {
         val note = line("", TEXT, 12f).apply { setPadding(0, 0, 0, dp(2)) }
         val label = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = Theme.box(context, Theme.withAlpha(SURFACE, 200), 10)
+            background = Theme.panel(context, Theme.withAlpha(SURFACE, 205), Theme.withAlpha(Theme.EDGE, 160))
             setPadding(dp(10), dp(5), dp(10), dp(5))
             addView(note)
             addView(title)
@@ -1649,7 +1673,7 @@ class CompanionActivity : Activity() {
         for ((text, by) in listOf("+" to 1 / 1.4, "−" to 1.4)) {
             zoomButtons.addView(chip(text) { zoom(by) }.apply {
                 textSize = 20f
-                background = Theme.box(context, Theme.withAlpha(RAISED, 230), 24, Theme.withAlpha(Color.WHITE, 60))
+                typeface = Theme.body(context, bold = true)
                 setPadding(0, 0, 0, 0)
             }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { topMargin = dp(6) })
         }
@@ -1766,8 +1790,8 @@ class CompanionActivity : Activity() {
         pictureButton?.let { b ->
             val none = s?.mapId != null && view.picture == null
             b.text = if (none) "Get zone picture" else "New picture"
-            b.background = Theme.box(this, if (none) ACCENT else RAISED, 18)
-            b.setTextColor(if (none) Color.BLACK else TEXT)
+            b.background = Theme.button(this, primary = none)
+            b.setTextColor(if (none) Color.WHITE else TEXT)
         }
         pictureLine?.text = pictureNote
         pictureLine?.visibility = if (pictureNote.isEmpty()) View.GONE else View.VISIBLE
@@ -1785,7 +1809,7 @@ class CompanionActivity : Activity() {
             val unread = if (t == chatTab) 0 else unread(t)
             val label = t.title + if (unread > 0) "  $unread" else ""
             val chip = chip(label) { chatTab = t; render() }
-            if (t == chatTab) { chip.background = Theme.box(this, ACCENT, 18); chip.setTextColor(Color.BLACK) }
+            if (t == chatTab) chip.primary()
             tabsRow.addView(chip, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
         }
         toolbar.addView(tabsRow)
@@ -1853,7 +1877,7 @@ class CompanionActivity : Activity() {
             fun badge(mark: String, colour: Int) {
                 val start = text.length
                 text.append("  ").append(mark)
-                text.setSpan(android.text.style.ForegroundColorSpan(if (p == panel) Color.BLACK else colour), start, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                text.setSpan(android.text.style.ForegroundColorSpan(if (p == panel) Color.WHITE else colour), start, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             when (p) {
                 Panel.CHAT -> if (chatNew > 0) badge(chatNew.toString(), Color.rgb(255, 128, 255))
@@ -1915,7 +1939,7 @@ class CompanionActivity : Activity() {
             val box = LinearLayout(this).apply {
                 orientation = if (compact) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_VERTICAL
-                background = Theme.box(context, if (on) RAISED else SURFACE, 12, if (on) ACCENT else STROKE, if (on) 2f else 1f)
+                background = Theme.panel(context, if (on) RAISED else SURFACE, gold = on)
                 setPadding(dp(10), dp(if (compact) 5 else 6), dp(10), dp(if (compact) 5 else 6))
                 setOnClickListener {
                     if (prof == null) say("$name isn't learned yet: a $name trainer in any city teaches it")
@@ -1962,8 +1986,8 @@ class CompanionActivity : Activity() {
         }
         if (main != null) {
             actions.addView(chip(main) { makeNextFromList() }.apply {
-                if (run != null) { background = Theme.box(context, RAISED, 18, ACCENT, 1f); setTextColor(ACCENT) }
-                else { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) }
+                if (run != null) { background = Theme.framed(context, Theme.BUTTON_TOP, Theme.BUTTON_BOTTOM, ACCENT); setTextColor(Theme.GOLD_TEXT) }
+                else primary()
                 maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
         } else {
@@ -1973,7 +1997,7 @@ class CompanionActivity : Activity() {
             craftSheet = if (craftSheet == which) null else which
             craftRecipe = null
             render()
-        }.apply { if (craftSheet == which) { background = Theme.box(context, RAISED, 18, ACCENT, 2f) } }
+        }.apply { if (craftSheet == which) primary() }
         actions.addView(sheetChip(if (queue.isEmpty()) "List" else "List (${queue.size})", "list"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(4) })
         if (!p?.results.isNullOrEmpty()) actions.addView(sheetChip("Lately", "lately"))
         toolbar.addView(actions)
@@ -2012,7 +2036,7 @@ class CompanionActivity : Activity() {
             (if (shown.size < first.pages) "  ·  updating (${shown.size} of ${first.pages})" else ""), DIM, 13f).apply { setPadding(0, 0, 0, 0) },
             LinearLayout.LayoutParams(0, -2, 1f))
         head.addView(chip(if (craftOnlyMakeable) "✓ Can make now" else "Can make now") { craftOnlyMakeable = !craftOnlyMakeable; render() }.apply {
-            if (craftOnlyMakeable) { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) }
+            if (craftOnlyMakeable) primary()
             setPadding(dp(10), dp(5), dp(10), dp(5))
         })
         content.addView(head)
@@ -2031,7 +2055,7 @@ class CompanionActivity : Activity() {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                background = Theme.box(context, if (r == craftRecipe) RAISED else SURFACE, 10, if (r == craftRecipe) ACCENT else STROKE)
+                background = Theme.panel(context, if (r == craftRecipe) RAISED else SURFACE, gold = r == craftRecipe)
                 setPadding(dp(10), dp(6), dp(10), dp(6))
                 setOnClickListener { craftRecipe = if (craftRecipe == r) null else r; craftSheet = null; render() }
                 setOnLongClickListener { if (r.itemId > 0) showDetails(r.itemId); true }
@@ -2057,7 +2081,7 @@ class CompanionActivity : Activity() {
 
     /** A small pop-up at the bottom (the footer): a title with a close button over [body], kept short with its own scrolling. */
     private fun sheet(title: String, onClose: () -> Unit, body: LinearLayout.() -> Unit) {
-        val box = card().apply { background = Theme.box(context, SURFACE, 14, ACCENT, 1f); setPadding(dp(12), dp(8), dp(12), dp(10)) }
+        val box = card().apply { background = Theme.panel(context, gold = true); setPadding(dp(12), dp(8), dp(12), dp(10)) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         top.addView(line(title, TEXT, 14f, bold = true).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
         top.addView(chip("✕") { onClose() }.apply { setPadding(dp(12), dp(4), dp(12), dp(4)) })
@@ -2201,7 +2225,7 @@ class CompanionActivity : Activity() {
             val row = LinearLayout(this@CompanionActivity).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(if (next) 8 else 0), dp(3), 0, dp(3))
-                if (next) background = Theme.box(context, RAISED, 10, ACCENT, 1f)
+                if (next) background = Theme.panel(context, RAISED, ACCENT)
             }
             row.addView(line("$n.  ${job.label()}", if (next) ACCENT else TEXT, 14f, bold = next).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
             row.addView(line(note ?: if (next) "next" else job.profession, if (note != null) Theme.BAD else if (next) ACCENT else DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
@@ -2215,7 +2239,7 @@ class CompanionActivity : Activity() {
                 craftDone.isEmpty() -> "▶  Start: ${queue.first().label()}"
                 else -> "▶  Make next: ${queue.first().label()}"
             }) { makeNextFromList() }.apply {
-                background = Theme.box(context, if (busy) RAISED else ACCENT, 18); setTextColor(if (busy) DIM else Color.BLACK); textSize = 14f
+                background = Theme.button(context, primary = !busy, enabled = !busy); setTextColor(if (busy) Theme.OFF_INK else Color.WHITE); textSize = 14f
                 setPadding(dp(12), dp(10), dp(12), dp(10))
                 maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
@@ -2466,7 +2490,7 @@ class CompanionActivity : Activity() {
         val selected = q.title == tracked
         val box = card().apply {
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            if (selected) background = Theme.box(context, SURFACE, 14, Color.WHITE)
+            if (selected) background = Theme.panel(context, Theme.RAISED, gold = true)
         }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         // The title in the game's quest colours: red too hard, yellow right, green easy, grey trivial.
@@ -2561,7 +2585,7 @@ class CompanionActivity : Activity() {
         for (stop in ordered) {
             val s = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                background = Theme.box(context, RAISED, 10, if (stop == best) Theme.withAlpha(ACCENT, 150) else STROKE)
+                background = Theme.panel(context, RAISED, if (stop == best) ACCENT else STROKE)
                 setPadding(dp(10), dp(6), dp(10), dp(7))
             }
             val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -2689,7 +2713,7 @@ class CompanionActivity : Activity() {
         val level = state?.level
         val box = card()
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        top.addView(line(if (level != null) "Level $level → ${level + 1}" else "Next level", TEXT, 17f, bold = true).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+        top.addView(line(if (level != null) "Level $level → ${level + 1}" else "Next level", Theme.GOLD_TEXT, 17f).apply { typeface = Theme.heading(context); setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
         top.addView(line(String.format(Locale.US, "%.1f%%", plan.percent), ACCENT, 17f, bold = true).apply { setPadding(0, 0, 0, 0) })
         box.addView(top)
         box.addView(Bar(this).apply {
@@ -2728,8 +2752,8 @@ class CompanionActivity : Activity() {
             parts += if (parts.isEmpty()) "${count(list.size)} at level $level" else "${list.size} at level $level"
         }
         return chip("✦ " + parts.joinToString(" · ")) { showSpells() }.apply {
-            setTextColor(ACCENT)
-            background = Theme.box(context, RAISED, 18, ACCENT)
+            setTextColor(Theme.GOLD_TEXT)
+            background = Theme.framed(context, Theme.BUTTON_TOP, Theme.BUTTON_BOTTOM, ACCENT)
         }
     }
 
@@ -2737,7 +2761,7 @@ class CompanionActivity : Activity() {
     private fun showSpells() {
         val plan = spells ?: return
         footer.removeAllViews()
-        val box = card().apply { background = Theme.box(context, RAISED, 14, ACCENT) }
+        val box = card().apply { background = Theme.panel(context, RAISED, gold = true) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         top.addView(line("Spells to learn", TEXT, 16f, bold = true).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
         top.addView(line("✕", DIM, 18f).apply { setPadding(dp(12), 0, 0, 0) })
@@ -2786,7 +2810,7 @@ class CompanionActivity : Activity() {
     private fun showDetails(itemId: Int, count: Int = 1, usable: Boolean = false) {
         footer.removeAllViews()
         val known = names[itemId]
-        val box = card().apply { background = Theme.box(context, RAISED, 14, known?.let { Theme.withAlpha(qualityColour(it.quality), 150) } ?: STROKE) }
+        val box = card().apply { background = Theme.panel(context, RAISED, known?.let { Theme.withAlpha(qualityColour(it.quality), 170) } ?: STROKE) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         top.addView(icon(itemId, known?.let { qualityColour(it.quality) }, 40), LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(10) })
         val words = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -2923,9 +2947,10 @@ class CompanionActivity : Activity() {
             setHintTextColor(DIM)
             setTextColor(TEXT)
             textSize = 15f
+            typeface = Theme.body(context)
             isSingleLine = true
             imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEND
-            background = Theme.box(context, SURFACE, 12, ACCENT)
+            background = Theme.panel(context, gold = true)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             filters = arrayOf(android.text.InputFilter.LengthFilter(255))  // the game's limit
         }
@@ -2962,7 +2987,7 @@ class CompanionActivity : Activity() {
                     else -> { saveQuickReplies(quickReplies() + text); say("Saved \"$text\" as a quick reply"); fillQuick() }
                 }
             }.apply {
-                background = Theme.box(context, Color.TRANSPARENT, 18, DIM)
+                background = Theme.panel(context, Color.TRANSPARENT, Theme.EDGE)
                 setTextColor(DIM)
             })
         }
@@ -2984,7 +3009,7 @@ class CompanionActivity : Activity() {
             true
         }
         row.addView(mic, LinearLayout.LayoutParams(dp(48), -2).apply { marginEnd = dp(6) })
-        row.addView(chip("Send") { send() }.apply { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) })
+        row.addView(chip("Send") { send() }.apply { primary() })
         row.addView(chip("✕") { closeCompose() }, LinearLayout.LayoutParams(dp(44), -2).apply { marginStart = dp(4) })
         footer.addView(row)
         // The keyboard needs a window that can take focus; the app's normally can't (so the game keeps the controller).
@@ -3009,11 +3034,12 @@ class CompanionActivity : Activity() {
             setHintTextColor(DIM)
             setTextColor(TEXT)
             textSize = 15f
+            typeface = Theme.body(context)
             isSingleLine = true
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
             imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE or
                 android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
-            background = Theme.box(context, SURFACE, 12, ACCENT)
+            background = Theme.panel(context, gold = true)
             setPadding(dp(12), dp(10), dp(12), dp(10))
         }
         val target = gameDisplay()
@@ -3050,7 +3076,7 @@ class CompanionActivity : Activity() {
         footer.addView(row)
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(6), 0, 0) }
         fun button(label: String, accent: Boolean = false, onTap: () -> Unit) =
-            buttons.addView(chip(label, onTap).apply { if (accent) { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) } },
+            buttons.addView(chip(label, onTap).apply { if (accent) primary() },
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
         button("Type it + Enter", accent = true) { typeIt(true) }
         button("Type it") { typeIt(false) }
@@ -3128,7 +3154,7 @@ class CompanionActivity : Activity() {
         listening = recognizer
         micFor = field to mic
         micAlts = alts
-        mic.background = Theme.box(this, Theme.BAD, 18)
+        mic.background = Theme.framed(this, Theme.BAD, Color.rgb(170, 40, 40), ACCENT)
         say("Listening… speak your message")
         fun guesses(b: android.os.Bundle?) =
             b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().filter { it.isNotBlank() }
@@ -3144,7 +3170,7 @@ class CompanionActivity : Activity() {
                 val others = all.drop(1).map { it.trim() }.distinct().filter { !it.equals(w.trim(), true) }.take(3)
                 alts.removeAllViews()
                 for (o in others) alts.addView(chip(o) { show(o); alts.removeAllViews(); alts.visibility = View.GONE }.apply {
-                    background = Theme.box(context, Color.TRANSPARENT, 18, DIM)
+                    background = Theme.panel(context, Color.TRANSPARENT, Theme.EDGE)
                 })
                 alts.visibility = if (others.isEmpty()) View.GONE else View.VISIBLE
                 stopListening()
@@ -3171,7 +3197,7 @@ class CompanionActivity : Activity() {
             override fun onBeginningOfSpeech() {}
             override fun onRmsChanged(rms: Float) {}
             override fun onBufferReceived(b: ByteArray?) {}
-            override fun onEndOfSpeech() { mic.background = Theme.box(this@CompanionActivity, RAISED, 18) }
+            override fun onEndOfSpeech() { mic.background = Theme.button(this@CompanionActivity) }
             override fun onEvent(type: Int, p: android.os.Bundle?) {}
         })
         fun start(language: String?) {
@@ -3246,7 +3272,7 @@ class CompanionActivity : Activity() {
         // Destroyed after the callback that stopped it has returned, not inside it.
         listening?.let { r -> runCatching { r.cancel() }; footer.post { runCatching { r.destroy() } } }
         listening = null
-        micFor?.second?.background = Theme.box(this, RAISED, 18)
+        micFor?.second?.background = Theme.button(this)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
@@ -3528,7 +3554,7 @@ class CompanionActivity : Activity() {
         val sortRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
         for ((i, label) in sorts.withIndex()) {
             sortRow.addView(chip(label) { bagSort = i; getPreferences(MODE_PRIVATE).edit().putInt("bagSort", i).apply(); render() }.apply {
-                if (i == bagSort) { background = Theme.box(context, ACCENT, 18); setTextColor(Color.BLACK) }
+                if (i == bagSort) primary()
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
         }
         content.addView(sortRow)
@@ -3550,14 +3576,14 @@ class CompanionActivity : Activity() {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
                 setPadding(dp(3), dp(6), dp(3), dp(4))
-                background = Theme.box(context, SURFACE, 10, known?.takeIf { it.quality >= 2 }?.let { Theme.withAlpha(qualityColour(it.quality), 150) } ?: STROKE)
+                background = Theme.panel(context, edge = known?.takeIf { it.quality >= 2 }?.let { Theme.withAlpha(qualityColour(it.quality), 170) } ?: STROKE)
             }
             val pic = FrameLayout(this)
             pic.addView(icon(item.itemId, quality, 40), FrameLayout.LayoutParams(dp(40), dp(40)))
             if (item.count > 1) pic.addView(TextView(this).apply {
                 text = item.count.toString()
                 textSize = 11f
-                typeface = Typeface.DEFAULT_BOLD
+                typeface = Theme.body(context, bold = true)
                 setTextColor(Color.WHITE)
                 setShadowLayer(3f, 0f, 0f, Color.BLACK)
             }, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { marginEnd = dp(1) })
@@ -3567,7 +3593,7 @@ class CompanionActivity : Activity() {
                 pic.addView(TextView(this).apply {
                     text = Cooldowns.left(wait).replace(" min", "m").replace(" h", "h").replace(" s", "s").substringBefore(' ')
                     textSize = 11f
-                    typeface = Typeface.DEFAULT_BOLD
+                    typeface = Theme.body(context, bold = true)
                     gravity = Gravity.CENTER
                     setTextColor(Color.WHITE)
                     background = Theme.box(context, Color.argb(170, 0, 0, 0), 6)
@@ -3580,6 +3606,7 @@ class CompanionActivity : Activity() {
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 textSize = 10.5f
+                typeface = Theme.body(context)
                 setTextColor(quality ?: DIM)
                 setPadding(0, dp(3), 0, 0)
             })
@@ -3649,14 +3676,15 @@ class CompanionActivity : Activity() {
             setImageBitmap(bitmap)
             scaleType = ImageView.ScaleType.FIT_XY
             clipToOutline = true
-            background = Theme.box(context, RAISED, 6)
+            background = Theme.panel(context, RAISED, Theme.INNER)
         }
         return TextView(this).apply {
             text = if (itemId == null) "" else "?"
             gravity = Gravity.CENTER
             textSize = sizeDp / 2.6f
+            typeface = Theme.heading(context)
             setTextColor(quality?.let { Theme.withAlpha(it, 160) } ?: DIM)
-            background = Theme.box(context, RAISED, 6)
+            background = Theme.panel(context, RAISED, Theme.INNER)
         }
     }
 
@@ -3669,15 +3697,15 @@ class CompanionActivity : Activity() {
     /** A title over a group, with a "Get icons" tap when some icons are missing. */
     private fun section(title: String): View {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(12), 0, dp(4)) }
-        row.addView(line(title, DIM, 13f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(line(title, Theme.SKY, 12.5f).apply { typeface = Theme.heading(context); setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
         if (title.contains("without icon")) row.addView(chip("Get icons") { askForIcons() })
         return row
     }
 
-    /** A rounded box to group things in. */
+    /** A panel to group things in. */
     private fun card() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        background = Theme.box(context, SURFACE, 14, STROKE)
+        background = Theme.panel(context)
         setPadding(dp(14), dp(12), dp(14), dp(12))
     }
 
@@ -3688,22 +3716,28 @@ class CompanionActivity : Activity() {
     /** A small labelled value, like "Item level 24.5". */
     private fun fact(label: String, value: String, colour: Int) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        background = Theme.box(context, SURFACE, 10, STROKE)
+        background = Theme.panel(context)
         setPadding(dp(10), dp(6), dp(10), dp(7))
-        addView(line(label, DIM, 11f).apply { setPadding(0, 0, 0, 0) })
+        addView(line(label, Theme.SKY, 10.5f).apply { typeface = Theme.heading(context); setPadding(0, 0, 0, 0) })
         addView(line(value, colour, 16f, bold = true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
     }
 
-    /** A rounded button for the few things to tap that are not items. */
+    /** A button for the few things to tap that are not items, like the start screen's. */
     private fun chip(text: String, onClick: () -> Unit) = TextView(this).apply {
         this.text = text
-        textSize = 13f
+        textSize = 12.5f
         gravity = Gravity.CENTER
-        typeface = Typeface.DEFAULT_BOLD
+        typeface = Theme.heading(context)
         setTextColor(TEXT)
-        background = Theme.box(context, RAISED, 18)
-        setPadding(dp(12), dp(8), dp(12), dp(8))
+        background = Theme.button(context)
+        setPadding(dp(12), dp(9), dp(12), dp(9))
         setOnClickListener { onClick() }
+    }
+
+    /** The main button (and the switch that is on): teal in a gold edge, as Play on the start screen. */
+    private fun TextView.primary() = apply {
+        background = Theme.button(context, primary = true)
+        setTextColor(Color.WHITE)
     }
 
     /** What a tab shows while it has nothing yet. */
@@ -3711,7 +3745,7 @@ class CompanionActivity : Activity() {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         setPadding(dp(16), dp(28), dp(16), dp(28))
-        addView(line(title, TEXT, 16f, bold = true).apply { gravity = Gravity.CENTER })
+        addView(line(title, Theme.GOLD_TEXT, 16f).apply { typeface = Theme.heading(context); gravity = Gravity.CENTER })
         if (detail.isNotEmpty()) addView(line(detail, DIM, 13f).apply { gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER })
     }
 
@@ -3749,7 +3783,7 @@ class CompanionActivity : Activity() {
         this.text = text
         setTextColor(colour)
         textSize = size
-        if (bold) typeface = Typeface.DEFAULT_BOLD
+        typeface = Theme.body(context, bold)
         setPadding(0, dp(4), 0, dp(4))
         textAlignment = View.TEXT_ALIGNMENT_VIEW_START
     }

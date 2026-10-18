@@ -59,8 +59,8 @@ class MapView(context: Context) : View(context) {
     var onPan: () -> Unit = {}
 
     private val d = resources.displayMetrics.density
-    private val grid = Paint().apply { color = Color.rgb(40, 46, 56); strokeWidth = d }
-    private val edge = Paint().apply { color = Color.rgb(70, 78, 92); style = Paint.Style.STROKE; strokeWidth = 1.5f * d }
+    private val grid = Paint().apply { color = Color.rgb(27, 53, 79); strokeWidth = d }
+    private val edge = Paint().apply { color = Theme.EDGE; style = Paint.Style.STROKE; strokeWidth = 1.5f * d }
     private val path = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(120, 255, 196, 64); style = Paint.Style.STROKE; strokeWidth = 2.5f * d
         strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND
@@ -222,7 +222,7 @@ class MapView(context: Context) : View(context) {
         val zoomed = shown <= 0.45
         val places = zone?.places.orEmpty()
         val title = highlight
-        canvas.drawColor(Color.rgb(16, 19, 24))
+        canvas.drawColor(Color.rgb(8, 22, 35))
 
         // The map itself, turned with you when [turns] is on: picture, areas, path and rings.
         canvas.save()
@@ -230,7 +230,7 @@ class MapView(context: Context) : View(context) {
         val zl = sx(0.0); val zt = sy(0.0); val zr = sx(1.0); val zb = sy(1.0)
         canvas.save()
         canvas.clipRect(zl, zt, zr, zb)
-        canvas.drawColor(Color.rgb(22, 26, 32))
+        canvas.drawColor(Theme.SURFACE)
         val pic = picture
         if (pic != null) {
             bounds.set(zl, zt, zr, zb)
