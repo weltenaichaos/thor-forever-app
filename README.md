@@ -101,7 +101,11 @@ Thor Forever is its own app (`com.thorforever.app`). It installs next to any Win
   - Install an add-on from a `.zip` you downloaded in your browser.
   - Uninstall an add-on with one tap.
 - **Companion:** turn the [Forever Companion](#forever-companion) on or off.
-- **Updates:** Settings > **Check for updates** lists the published releases and installs the one you tap.
+- **Updates:**
+  - When a new release is out, a small **New version** button shows at the top right of the start screen. Nothing opens by itself. Tap it to see what's new, then **Update now**: it downloads the release and opens Android's installer. Press **Update**, then **Open**. Your setup, the game and your add-ons stay.
+  - While it downloads you can go back: the button at the top right shows how far it is, and then says **Install**. **Stop download** on the update's page stops it.
+  - The first time, Android asks whether Thor Forever may install apps. Switch on **Allow from this source** and go back: the installer opens by itself.
+  - Settings > **Check for updates** lists all published releases and installs the one you tap.
 - **Crash reports:** WoW's crash reports are copied to `Winlator/logs/wow-errors`, where you can open them.
 - **More:** opens the normal Winlator screens, for all other settings.
 - The app closes the game session by itself when WoW quits.
@@ -112,6 +116,14 @@ The Forever Companion shows the game on the Thor's other screen, and lets you do
 It is built into the app. Turn it on with the **Companion** button on the start screen.
 The app then puts the companion's add-on into the game and opens the companion on the other screen when WoW starts.
 Turned off, the companion stays closed and its add-on is removed.
+
+How it looks on the bottom screen (with sample data):
+
+| Bags | Character | Quests |
+| --- | --- | --- |
+| ![The Bags tab](docs/images/companion/bags.png) | ![The Character tab](docs/images/companion/character.png) | ![The Quests tab](docs/images/companion/quests.png) |
+| **Craft** | **Map** | **Chat** |
+| ![The Craft tab](docs/images/companion/craft.png) | ![The Map tab](docs/images/companion/map.png) | ![The Chat tab](docs/images/companion/chat.png) |
 
 Its tabs:
 

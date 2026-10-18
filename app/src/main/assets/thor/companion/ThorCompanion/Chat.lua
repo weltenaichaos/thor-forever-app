@@ -1,9 +1,11 @@
 -- Chat.lua
 -- Keeps the recent chat lines so the app's Chat tab can show them. Sent as
---   TH1|<session><tab><whisper names><tab><channels><newline><id><tab><kind><tab><sender><tab><channel><tab><text><newline>...
+--   TH1|<session><tab><whisper names><tab><channels><newline><id><tab><kind><tab><sender><tab><channel><tab><text>[<tab><class>]<newline>...
 -- with only the lines the app has not been sent yet (after a refresh, the last
 -- few again). <session> changes with every login or /reload, so the app knows
 -- when the line numbers start over. <sender> is Name-Realm as the game gives it.
+-- <class> is the sender's class number (1 warrior ... 8 mage, 9 warlock, 11 druid),
+-- so the app colours names like the chat frame does; left out when the game doesn't say.
 --
 -- <whisper names> lists the last people who wrote, comma separated. Colour codes, links and icons are reduced to
 -- plain text. During chat lockdown (boss fights) the game hides lines from
@@ -36,7 +38,7 @@ local KINDS = {
 
 local WHISPER_SLOTS = 10
 
-local lines = {}         -- { id, kind, sender, channel, text }
+local lines = {}         -- { id, kind, sender, channel, text[, class] }
 local sends = {}         -- id -> how often it went out
 local mine = {}          -- id -> true for your own lines in a public channel (sent twice, like the others)
 local nextId = 1
@@ -44,6 +46,20 @@ local session = tostring(time())
 
 local function secret(v)
     return issecretvalue and issecretvalue(v)
+end
+
+-- The game's class numbers (as in its class list), by the names GetPlayerInfoByGUID gives.
+local CLASS_IDS = {
+    WARRIOR = 1, PALADIN = 2, HUNTER = 3, ROGUE = 4, PRIEST = 5, DEATHKNIGHT = 6, SHAMAN = 7,
+    MAGE = 8, WARLOCK = 9, MONK = 10, DRUID = 11, DEMONHUNTER = 12, EVOKER = 13,
+}
+
+-- The class number of whoever wrote a line, from the line's GUID; nil when the game doesn't say.
+local function classOf(guid)
+    if guid == nil or secret(guid) or guid == "" or not GetPlayerInfoByGUID then return nil end
+    local ok, _, file = pcall(GetPlayerInfoByGUID, guid)
+    if not ok or file == nil or secret(file) then return nil end
+    return CLASS_IDS[file]
 end
 
 -- Colour codes, links and icons as plain text; one line, no tabs.
@@ -177,14 +193,15 @@ chatOwner:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" or chatPending then ns.BindWhispers() end
 end)
 
-local function add(kind, sender, channel, text)
+local function add(kind, sender, channel, text, class)
     if kind == "channel" and ThorCompanionDB and ThorCompanionDB.chatChannels == false then return end
     if secret(text) then text = "(hidden by the game during combat)" else text = plain(tostring(text or "")) end
     if secret(sender) then sender = "?" else sender = plain(tostring(sender or "")) end
     -- "2. Trade - City" is shown as "Trade", like the chat frame does.
     channel = (not secret(channel) and channel) and plain(tostring(channel)):gsub("^%d+%.%s*", ""):gsub("%s+%-%s+.*$", "") or ""
     if kind ~= "system" and kind ~= "bnwhisper" then remember(sender) end
-    lines[#lines + 1] = { nextId, kind, sender, channel, text }
+    -- The class goes last, so an older app shows the line as before.
+    lines[#lines + 1] = { nextId, kind, sender, channel, text, kind ~= "system" and class or nil }
     if kind == "channel" and isMe(sender) then mine[nextId] = true end
     nextId = nextId + 1
     -- Busy public channels make room among themselves, never by pushing out your
@@ -208,14 +225,14 @@ end
 
 local f = CreateFrame("Frame")
 for event in pairs(KINDS) do f:RegisterEvent(event) end
-f:SetScript("OnEvent", function(_, event, text, sender, _, channelName)
+f:SetScript("OnEvent", function(_, event, text, sender, _, channelName, _, _, _, _, _, _, _, guid)
     local kind = KINDS[event]
     -- Battle.net whispers carry a protected name that /w cannot use.
     if event == "CHAT_MSG_BN_WHISPER" or event == "CHAT_MSG_BN_WHISPER_INFORM" then
         kind = kind == "whisper" and "bnwhisper" or "bnwhisper_to"
-        sender = ""
+        sender, guid = "", nil
     end
-    ns.Measured("chat lines", add, kind, sender, kind == "channel" and channelName or "", text)
+    ns.Measured("chat lines", add, kind, sender, kind == "channel" and channelName or "", text, classOf(guid))
 end)
 
 -- The public channels you are in: "1 General,2 Trade,...".

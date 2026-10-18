@@ -82,10 +82,18 @@ object TestBuildUpdater {
 
     data class CiBuild(val runId: Long, val buildNumber: Int, val branch: String, val title: String, val finishedAt: String)
 
-    data class Release(val tag: String, val apkUrl: String, val apkSize: Long, val publishedAt: String, val prerelease: Boolean)
+    data class Release(val tag: String, val apkUrl: String, val apkSize: Long, val publishedAt: String, val prerelease: Boolean, val notes: String = "")
+
+    /** One line of "what's new": a version's heading, a group ("The Forever Companion:"), a point, a sub-point or a paragraph. */
+    data class Note(val text: String, val kind: Kind) {
+        enum class Kind { VERSION, GROUP, POINT, SUB_POINT, TEXT }
+    }
 
     /** This app's CI build number, 0 for a local build. */
     val installedBuild: Int get() = BuildConfig.CI_BUILD_NUMBER
+
+    /** The commit this app was built from, empty for a local build (and builds before 185). */
+    val installedCommit: String get() = BuildConfig.CI_COMMIT
 
     fun loadToken(context: Context): String =
         File(context.noBackupFilesDir, TOKEN_FILE).takeIf { it.exists() }?.readText()?.trim().orEmpty()
@@ -150,7 +158,8 @@ object TestBuildUpdater {
                 apkUrl = apk.getString("browser_download_url"),
                 apkSize = apk.optLong("size"),
                 publishedAt = release.optString("published_at"),
-                prerelease = release.optBoolean("prerelease")
+                prerelease = release.optBoolean("prerelease"),
+                notes = release.optString("body")
             )
         }
     }
@@ -167,6 +176,100 @@ object TestBuildUpdater {
             if (d != 0) return d.coerceIn(-1, 1)
         }
         return 0
+    }
+
+    /** The newest release that is newer than the installed version, or null. */
+    @JvmStatic
+    @JvmOverloads
+    fun newestRelease(releases: List<Release>, installed: String = BuildConfig.VERSION_NAME): Release? =
+        releases.filter { compareVersion(it.tag, installed) > 0 }.maxWithOrNull { a, b -> compareVersion(a.tag, b.tag) }
+
+    /** The newest test build after the installed one (none for a local build, which has no number). */
+    @JvmStatic
+    @JvmOverloads
+    fun newestBuild(builds: List<CiBuild>, installed: Int = installedBuild): CiBuild? =
+        if (installed <= 0) null else builds.filter { it.buildNumber > installed }.maxByOrNull { it.buildNumber }
+
+    /**
+     * What changed since the installed version, from a release's notes (docs/RELEASE-NOTES.md):
+     * the points of each "## New in vX" part newer than [installed], without the Markdown marks.
+     * The version headings are only there when more than one version is new.
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun whatsNew(notes: String, installed: String = BuildConfig.VERSION_NAME): List<Note> {
+        val parts = mutableListOf<Pair<String, MutableList<Note>>>()
+        var part: MutableList<Note>? = null
+        fun plain(text: String) = text.replace("**", "").replace("`", "").trim()
+        for (raw in notes.lines()) {
+            val line = raw.trimEnd('\r', ' ')
+            if (line.startsWith("#")) {
+                val version = Regex("^##\\s+New in v?(\\S+)").find(line)?.groupValues?.get(1)
+                part = if (version != null && compareVersion(version, installed) > 0) mutableListOf<Note>().also { parts += version to it } else null
+                continue
+            }
+            val into = part ?: continue
+            val bullet = Regex("^(\\s*)[-*] +(.*)").find(line)
+            when {
+                bullet != null -> into += Note(plain(bullet.groupValues[2]), if (bullet.groupValues[1].isEmpty()) Note.Kind.POINT else Note.Kind.SUB_POINT)
+                line.isNotBlank() && line.endsWith(":") -> into += Note(plain(line), Note.Kind.GROUP)
+            }
+        }
+        if (parts.size == 1) return parts[0].second
+        return parts.flatMap { (version, list) -> listOf(Note("New in v$version", Note.Kind.VERSION)) + list }
+    }
+
+    /**
+     * What a test build changes against this app: the titles of the commits in between, newest
+     * first, or, when this app's commit is not known, the new build's own commit message.
+     */
+    fun buildNotes(build: CiBuild, token: String): List<Note> {
+        val run = JSONObject(get("https://api.github.com/repos/$REPO/actions/runs/${build.runId}", token))
+        val head = run.optString("head_sha")
+        if (installedCommit.isNotEmpty() && head.isNotEmpty() && head != installedCommit) {
+            val between = runCatching { parseCompare(get("https://api.github.com/repos/$REPO/compare/$installedCommit...$head", token)) }.getOrNull()
+            if (!between.isNullOrEmpty()) return between
+        }
+        return commitNotes(run.optJSONObject("head_commit")?.optString("message").orEmpty())
+    }
+
+    /** The commits of a comparison (GitHub lists them oldest first): their titles, newest first, merges left out. */
+    @JvmStatic
+    @JvmOverloads
+    fun parseCompare(json: String, limit: Int = 30): List<Note> {
+        val commits = JSONObject(json).optJSONArray("commits") ?: return emptyList()
+        val titles = (0 until commits.length()).map {
+            commits.getJSONObject(it).optJSONObject("commit")?.optString("message").orEmpty().lineSequence().first().trim()
+        }.filter { it.isNotEmpty() && !it.startsWith("Merge ") }.reversed()
+        val notes = titles.take(limit).map { Note(it, Note.Kind.POINT) }
+        return if (titles.size > limit) notes + Note("and ${titles.size - limit} more", Note.Kind.TEXT) else notes
+    }
+
+    private val TRAILER = Regex("^(Co-Authored-By|Claude-Session|Signed-off-by|Change-Id):", RegexOption.IGNORE_CASE)
+
+    /** A commit message as notes: its title, then its paragraphs and points, without the trailers (Co-Authored-By and the like). */
+    @JvmStatic
+    fun commitNotes(message: String): List<Note> {
+        val lines = message.replace("\r", "").lines()
+        val title = lines.firstOrNull()?.trim().orEmpty()
+        if (title.isEmpty()) return emptyList()
+        val notes = mutableListOf(Note(title, Note.Kind.GROUP))
+        val paragraph = StringBuilder()
+        fun flush() {
+            if (paragraph.isNotBlank()) notes += Note(paragraph.toString().trim(), Note.Kind.TEXT)
+            paragraph.clear()
+        }
+        for (line in lines.drop(1)) {
+            val text = line.trim()
+            when {
+                text.isEmpty() -> flush()
+                TRAILER.containsMatchIn(text) -> flush()
+                text.startsWith("- ") || text.startsWith("* ") -> { flush(); notes += Note(text.drop(2).trim(), Note.Kind.POINT) }
+                else -> paragraph.append(text).append(' ')
+            }
+        }
+        flush()
+        return notes
     }
 
     /** The download address of the run's APK artifact, or null when it has none (or it expired). */
@@ -223,6 +326,8 @@ object TestBuildUpdater {
                 if (total > 0) onProgress((done.toFloat() / total).coerceAtMost(1f))
             }
             counting.use { input -> apk.outputStream().use { input.copyTo(it, 64 * 1024) } }
+            // A cut-off file would only make Android's installer say the package is broken.
+            if (release.apkSize > 0 && apk.length() != release.apkSize) throw IllegalStateException("The download was cut off. Try again.")
             return apk
         } finally {
             connection.disconnect()

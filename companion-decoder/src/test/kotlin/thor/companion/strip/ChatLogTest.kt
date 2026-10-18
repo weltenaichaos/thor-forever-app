@@ -30,6 +30,20 @@ class ChatLogTest {
     }
 
     @Test
+    fun linesCarryTheSendersClass() {
+        val log = ChatLog()
+        // 0.30.3 adds the class number after the text (8 mage, 1 warrior); system lines and older addons have none.
+        log.add("TH1|9\tMorgrath-Realm\n1\tguild\tVelyna-Realm\t\tevening all\t8\n2\tsystem\t\t\tYou are now Away.\n3\twhisper\tMorgrath-Realm\t\tpst\t1\n4\tsay\tBo-Realm\t\thi")
+        assertEquals(listOf("MAGE", null, "WARRIOR", null), log.lines.map { it.classFile })
+        assertEquals("evening all", log.lines[0].text)
+        assertEquals("WARRIOR", log.classOf("Morgrath-Realm"))
+        assertNull(log.classOf("Bo-Realm"))
+        // A number the app doesn't know is no class, and the line stays.
+        log.add("TH1|9\t\n5\tsay\tNew-Realm\t\thello\t99")
+        assertEquals(ChatLine("say", "New-Realm", "hello"), log.lines.last())
+    }
+
+    @Test
     fun channelLinesKeepTheWholeName() {
         assertEquals(null, ChatFile.parse("10/7 20:33:01.000  Left Channel: |Hchannel:1140896|h[(null)]|h"))
         assertEquals(ChatLine("system", "", "Joined Channel: [2. Trade - City]"), ChatFile.parse("10/7 20:33:01.000  Joined Channel: |Hchannel:CHANNEL:2|h[2. Trade - City]|h"))

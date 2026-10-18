@@ -133,6 +133,8 @@ android {
         // Which CI build this is, so the app can tell whether a newer test build exists.
         buildConfigField "int", "CI_BUILD_NUMBER", (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
         buildConfigField "String", "CI_BRANCH", "\"" + (System.getenv("GITHUB_REF_NAME") ?: "local") + "\""
+        // The commit it was built from, so a newer test build can list the commits since.
+        buildConfigField "String", "CI_COMMIT", "\"" + (System.getenv("GITHUB_SHA") ?: "") + "\""
 
         // External native build from Winlator
         externalNativeBuild {
@@ -209,6 +211,21 @@ android {
         compose = true
         buildConfig = true
     }
+
+    testOptions {
+        unitTests {
+            // The screenshots (CompanionScreensTest, StartScreenShotsTest) need the app's fonts.
+            includeAndroidResources = true
+            all {
+                // They are only taken when asked: -PcompanionScreens=<folder for the pictures>.
+                def screens = project.findProperty("companionScreens")
+                if (screens) systemProperty 'companion.screens.dir', screens
+                else exclude '**/CompanionScreensTest*', '**/StartScreenShotsTest*'
+                // A failing test shows why in the build's log.
+                testLogging { events 'failed'; exceptionFormat 'full' }
+            }
+        }
+    }
 }
 
 dependencies {
@@ -217,6 +234,7 @@ dependencies {
     implementation platform('androidx.compose:compose-bom:2025.08.00')
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
     implementation 'androidx.activity:activity-compose:1.10.1'
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.ui:ui-tooling-preview'
