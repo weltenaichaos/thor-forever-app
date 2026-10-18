@@ -2,16 +2,18 @@ package thor.companion.strip
 
 /**
  * One chat line as the addon sends it (see addon/ThorCompanion/Chat.lua). [sender] is
- * Name-Realm as the game gives it; [channel] the public channel ("Trade"), or empty.
+ * Name-Realm as the game gives it; [channel] the public channel ("Trade"), or empty;
+ * [classFile] the sender's class as the game names it ("MAGE"), when the addon knew it.
  */
-data class ChatLine(val kind: String, val sender: String, val text: String, val channel: String = "") {
+data class ChatLine(val kind: String, val sender: String, val text: String, val channel: String = "", val classFile: String? = null) {
     /** The sender without the realm, as the chat frame shows it. */
     val name: String get() = sender.substringBefore('-')
 }
 
 /**
  * The chat lines the app has received, oldest first, from the addon's
- * `TH1|<session>\t<names>\t<channels>\n<id>\t<kind>\t<sender>\t<channel>\t<text>\n...` messages.
+ * `TH1|<session>\t<names>\t<channels>\n<id>\t<kind>\t<sender>\t<channel>\t<text>[\t<class>]\n...`
+ * messages. <class> is the game's class number (8 is a mage, see [CLASSES]); addons before 0.30.3 leave it out.
  * Lines sent again (after a refresh) are recognised by session and number and kept once.
  * The addon may send a group line before an older Trade line; lines are kept in the
  * order of their numbers, so the chat reads as it was written.
@@ -32,6 +34,12 @@ class ChatLog(private val keep: Int = 200) {
     /** Who has which whisper key right now: slot n (1-based) is ALT-SHIFT-F<n>. */
     var whisperNames: List<String> = emptyList()
         private set
+
+    /** Each sender's class as the last line with one said it, for lines that come without (the chat log file). */
+    private val classes = HashMap<String, String>()
+
+    /** [sender]'s class ("MAGE"), as the chat last said it; null when no line said it. */
+    fun classOf(sender: String): String? = classes[sender]
 
     /** The public channels you are in, by number: 1 to "General", 2 to "Trade", ... */
     var channels: List<Pair<Int, String>> = emptyList()
@@ -72,7 +80,8 @@ class ChatLog(private val keep: Int = 200) {
         whisperNames = names
         channels = chans
         for (row in rows.drop(1)) {
-            val f = row.split('\t', limit = 5)
+            // The text has no tabs (the addon takes them out), so a sixth field is the class.
+            val f = row.split('\t', limit = 6)
             if (f.size < 5) continue
             val key = session + ":" + f[0]
             val id = f[0].toLongOrNull() ?: continue
@@ -82,7 +91,9 @@ class ChatLog(private val keep: Int = 200) {
             while (at > 0 && rank[at - 1] > r) at--
             order.add(at, key)
             rank.add(at, r)
-            _lines.add(at, ChatLine(f[1], f[2], f[4], f[3]))
+            val classFile = f.getOrNull(5)?.trim()?.toIntOrNull()?.let { CLASSES[it] }
+            if (classFile != null && f[2].isNotEmpty()) classes[f[2]] = classFile
+            _lines.add(at, ChatLine(f[1], f[2], f[4], f[3], classFile))
             total++
             added = true
             if (_lines.size > keep) {
@@ -92,6 +103,14 @@ class ChatLog(private val keep: Int = 200) {
             }
         }
         return added
+    }
+
+    companion object {
+        /** The game's class numbers, as the addon sends them, and the names the game gives the classes. */
+        val CLASSES = mapOf(
+            1 to "WARRIOR", 2 to "PALADIN", 3 to "HUNTER", 4 to "ROGUE", 5 to "PRIEST", 6 to "DEATHKNIGHT",
+            7 to "SHAMAN", 8 to "MAGE", 9 to "WARLOCK", 10 to "MONK", 11 to "DRUID", 12 to "DEMONHUNTER", 13 to "EVOKER",
+        )
     }
 }
 

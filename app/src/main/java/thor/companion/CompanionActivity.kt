@@ -1518,11 +1518,12 @@ class CompanionActivity : Activity() {
             words.addView(line(if (g == null) "Empty" else known?.name ?: "#${g.itemId}", quality ?: DIM, 13f).apply {
                 setPadding(0, 0, 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             })
-            if (detail.isNotEmpty()) words.addView(line(detail, when {
+            // Always three lines (an empty one kept invisible), so every box is as high as the others.
+            words.addView(line(detail.ifEmpty { " " }, when {
                 dur != null && dur <= 20 -> Theme.BAD
                 dur != null && dur <= 50 -> Theme.WARN
                 else -> DIM
-            }, 11f).apply { setPadding(0, 0, 0, 0) })
+            }, 11f).apply { setPadding(0, 0, 0, 0); maxLines = 1; if (detail.isEmpty()) visibility = View.INVISIBLE })
             tile.addView(words, LinearLayout.LayoutParams(0, -2, 1f))
             grid.addView(tile, GridLayout.LayoutParams().apply {
                 width = 0
@@ -2905,20 +2906,28 @@ class CompanionActivity : Activity() {
         // The channel quiet, the name bold, then what was said.
         val text = android.text.SpannableStringBuilder()
         fun add(part: String, vararg spans: Any) {
+            if (part.isEmpty()) return  // an empty span can't be set
             val start = text.length
             text.append(part)
             for (span in spans) text.setSpan(span, start, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         if (l.channel.isNotEmpty()) add("${l.channel}  ", android.text.style.ForegroundColorSpan(DIM))
-        val who = when {
-            n.isEmpty() -> ""
-            l.kind == "whisper" -> "$n whispers: "
-            l.kind == "whisper_to" -> "To $n: "
-            l.kind == "emote" -> "$n "
-            l.kind == "yell" -> "$n yells: "
-            else -> "$n: "
+        val (before, after) = when {
+            n.isEmpty() -> "" to ""
+            l.kind == "whisper" -> "" to " whispers: "
+            l.kind == "whisper_to" -> "To " to ": "
+            l.kind == "emote" -> "" to " "
+            l.kind == "yell" -> "" to " yells: "
+            else -> "" to ": "
         }
-        if (who.isNotEmpty()) add(who, android.text.style.StyleSpan(Typeface.BOLD))
+        if (n.isNotEmpty()) {
+            // The name in its class colour, like the game's chat frame (addon 0.30.3 and later say the class).
+            val classFile = l.classFile ?: chat.classOf(l.sender)
+            add(before, android.text.style.StyleSpan(Typeface.BOLD))
+            if (classFile != null) add(n, android.text.style.StyleSpan(Typeface.BOLD), android.text.style.ForegroundColorSpan(classColour(classFile)))
+            else add(n, android.text.style.StyleSpan(Typeface.BOLD))
+            add(after, android.text.style.StyleSpan(Typeface.BOLD))
+        }
         add(l.text)
         val view = line("", colour, 15f).apply { this.text = text; setPadding(0, dp(3), 0, dp(3)) }
         // Tap a line: write a whisper to its sender.

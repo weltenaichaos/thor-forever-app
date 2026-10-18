@@ -1,27 +1,27 @@
-TS1|Jessra|24|34217|1420|0.6195|0.6490|0.1|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+TS1|Jessra|24|34217|1420|0.6195|0.6490|0.1|1792350000|9164|0.30.3|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
 ---
 # Forever Companion sample: Jessra, level 24 Undead Mage on Thunderstrike, in Brill (Tirisfal Glades).
 # Records are separated by lines that are exactly ---; # lines right after a --- are comments.
-# Messages are as the addon 0.30.2 builds them (real tabs and newlines inside). Times: time() = 1792352400,
+# Messages are as the addon 0.30.3 builds them (real tabs and newlines inside). Times: time() = 1792352400,
 # GetTime() = 84213. The status walks from the Undercity gate to the Brill inn (the Map tab's path).
 # bags: 28 stacks, 8 of 36 slots free (the addon sends them right after the first status)
 TB1|8/36|6948:1:1,2136:20:2,2136:20:3,1114:20:4,1114:6:5,17031:7:6,3531:9:7,3385:3:8,858:2:9,3496:10:10,2592:20:11,2592:13:12,2589:7:13,4306:6:14,6218:1:15,2997:4:16,2996:2:17,2321:5:18,2604:3:19,10940:11:20,10938:4:21,10939:1:25,10978:1:26,818:1:27,774:2:28,7073:4:36,7074:3:37,4865:2:38
 ---
-TS1|Jessra|24|34217|1420|0.6172|0.6315|0.1|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+TS1|Jessra|24|34217|1420|0.6172|0.6315|0.1|1792350000|9164|0.30.3|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
 ---
-TS1|Jessra|24|34217|1420|0.6131|0.6142|0.2|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+TS1|Jessra|24|34217|1420|0.6131|0.6142|0.2|1792350000|9164|0.30.3|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
 ---
-TS1|Jessra|24|34217|1420|0.6094|0.5968|0.2|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+TS1|Jessra|24|34217|1420|0.6094|0.5968|0.2|1792350000|9164|0.30.3|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
 ---
-TS1|Jessra|24|34217|1420|0.6073|0.5791|0.0|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+TS1|Jessra|24|34217|1420|0.6073|0.5791|0.0|1792350000|9164|0.30.3|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
 ---
-TS1|Jessra|24|34217|1420|0.6081|0.5612|6.2|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+TS1|Jessra|24|34217|1420|0.6081|0.5612|6.2|1792350000|9164|0.30.3|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
 ---
-TS1|Jessra|24|34217|1420|0.6112|0.5446|5.9|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+TS1|Jessra|24|34217|1420|0.6112|0.5446|5.9|1792350000|9164|0.30.3|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
 ---
-TS1|Jessra|24|34217|1420|0.6151|0.5318|5.7|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+TS1|Jessra|24|34217|1420|0.6151|0.5318|5.7|1792350000|9164|0.30.3|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
 ---
-TS1|Jessra|24|34217|1420|0.6180|0.5240|2.4|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+TS1|Jessra|24|34217|1420|0.6180|0.5240|2.4|1792350000|9164|0.30.3|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
 ---
 # zone map places
 TM1|1420|Tirisfal Glades|Eastern Kingdoms|4518|3012|0
@@ -193,33 +193,33 @@ TN2|1475	1	8	0	15	Tradeskill / Other	Small Venom Sac
 TH1|1792350000	Velyna-Thunderstrike,,,,,,,,,	1 General,3 LocalDefense,4 LookingForGroup
 1	system			Guild Message of the Day: SFK run Saturday 8pm server time, sign up in /g!
 2	system			[Velyna] has come online.
-3	guild	Velyna-Thunderstrike		evening all
+3	guild	Velyna-Thunderstrike		evening all	5
 ---
 # chat, message 2 of 8
 TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,,,,,,,,	1 General,3 LocalDefense,4 LookingForGroup
 1	system			Guild Message of the Day: SFK run Saturday 8pm server time, sign up in /g!
 2	system			[Velyna] has come online.
-3	guild	Velyna-Thunderstrike		evening all
-4	guild	Jessra-Thunderstrike		hey Vel o/
-5	channel	Grubthak-Thunderstrike	General	where do i learn cooking around brill?
+3	guild	Velyna-Thunderstrike		evening all	5
+4	guild	Jessra-Thunderstrike		hey Vel o/	8
+5	channel	Grubthak-Thunderstrike	General	where do i learn cooking around brill?	1
 ---
 # chat, message 3 of 8
 TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,,,,,,	1 General,3 LocalDefense,4 LookingForGroup
-4	guild	Jessra-Thunderstrike		hey Vel o/
-6	channel	Kelthos-Thunderstrike	General	ask a deathguard, they mark it on your map
-7	say	Mortimus-Thunderstrike		anyone selling woolen bags? paying 50s
+4	guild	Jessra-Thunderstrike		hey Vel o/	8
+6	channel	Kelthos-Thunderstrike	General	ask a deathguard, they mark it on your map	9
+7	say	Mortimus-Thunderstrike		anyone selling woolen bags? paying 50s	4
 ---
 # chat, message 4 of 8
 TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,Morgrath-Thunderstrike,,,,,	1 General,3 LocalDefense,4 LookingForGroup
-7	say	Mortimus-Thunderstrike		anyone selling woolen bags? paying 50s
-8	channel	Morgrath-Thunderstrike	LookingForGroup	LF2M SFK, need heal + dps, pst
-9	whisper	Morgrath-Thunderstrike		still need SFK? got a spot for a mage
-10	whisper_to	Morgrath-Thunderstrike		yes please, need Book of Ur and Arugal
+7	say	Mortimus-Thunderstrike		anyone selling woolen bags? paying 50s	4
+8	channel	Morgrath-Thunderstrike	LookingForGroup	LF2M SFK, need heal + dps, pst	1
+9	whisper	Morgrath-Thunderstrike		still need SFK? got a spot for a mage	1
+10	whisper_to	Morgrath-Thunderstrike		yes please, need Book of Ur and Arugal	1
 ---
 # chat, message 5 of 8
 TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,Morgrath-Thunderstrike,,,,,	1 General,3 LocalDefense,4 LookingForGroup
-9	whisper	Morgrath-Thunderstrike		still need SFK? got a spot for a mage
-10	whisper_to	Morgrath-Thunderstrike		yes please, need Book of Ur and Arugal
+9	whisper	Morgrath-Thunderstrike		still need SFK? got a spot for a mage	1
+10	whisper_to	Morgrath-Thunderstrike		yes please, need Book of Ur and Arugal	1
 11	system			Morgrath invites you to a group.
 12	system			Tazdingo joins the party.
 ---
@@ -227,20 +227,20 @@ TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike
 TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,Morgrath-Thunderstrike,Tazdingo-Thunderstrike,,,,	1 General,3 LocalDefense,4 LookingForGroup
 11	system			Morgrath invites you to a group.
 12	system			Tazdingo joins the party.
-13	party	Morgrath-Thunderstrike		Taz heals, we meet at the Sepulcher
-14	party	Tazdingo-Thunderstrike		omw, at the zeppelin tower
-15	guild	Velyna-Thunderstrike		anyone have Small Lustrous Pearls? 3s each
+13	party	Morgrath-Thunderstrike		Taz heals, we meet at the Sepulcher	1
+14	party	Tazdingo-Thunderstrike		omw, at the zeppelin tower	7
+15	guild	Velyna-Thunderstrike		anyone have Small Lustrous Pearls? 3s each	5
 ---
 # chat, message 7 of 8
 TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,Morgrath-Thunderstrike,Tazdingo-Thunderstrike,,,,	1 General,3 LocalDefense,4 LookingForGroup
-13	party	Morgrath-Thunderstrike		Taz heals, we meet at the Sepulcher
-14	party	Tazdingo-Thunderstrike		omw, at the zeppelin tower
-15	guild	Velyna-Thunderstrike		anyone have Small Lustrous Pearls? 3s each
-16	party	Jessra-Thunderstrike		brb 2 min, repairing my boots first
+13	party	Morgrath-Thunderstrike		Taz heals, we meet at the Sepulcher	1
+14	party	Tazdingo-Thunderstrike		omw, at the zeppelin tower	7
+15	guild	Velyna-Thunderstrike		anyone have Small Lustrous Pearls? 3s each	5
+16	party	Jessra-Thunderstrike		brb 2 min, repairing my boots first	8
 ---
 # chat, message 8 of 8
 TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,Morgrath-Thunderstrike,Tazdingo-Thunderstrike,,,,	1 General,3 LocalDefense,4 LookingForGroup
-16	party	Jessra-Thunderstrike		brb 2 min, repairing my boots first
+16	party	Jessra-Thunderstrike		brb 2 min, repairing my boots first	8
 ---
 # chat box state after her last line
 TE1|3|closed|/p |0|11
