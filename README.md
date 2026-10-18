@@ -10,7 +10,7 @@ It is a fork of Winlator Bionic (Winlator Ludashi) and comes with Wine, DXVK and
 ## Status
 
 This is a test version (alpha). It is tested on one AYN Thor.
-The newest release is [v0.4.0](https://github.com/weltenaichaos/thor-forever-app/releases/tag/v0.4.0).
+The newest release is [v0.5.0](https://github.com/weltenaichaos/thor-forever-app/releases/tag/v0.5.0).
 What changed in each release: [docs/RELEASE-NOTES.md](docs/RELEASE-NOTES.md).
 
 Works, and was confirmed on the device:
