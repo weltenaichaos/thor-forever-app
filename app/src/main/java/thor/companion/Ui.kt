@@ -19,8 +19,8 @@ import com.winlator.cmod.R
 
 /**
  * The app's look: the Thor Forever start screen's (ThorStartActivity). Deep blue, lighter
- * at the top, thin gold frames, buttons in a blue gradient (teal for the main one and for
- * what is chosen) with Cinzel capitals, and Tahoma for the rest.
+ * at the top, thin gold frames, round buttons in a blue gradient (teal for the main one and
+ * for what is chosen) with Cinzel capitals, and Tahoma for the rest.
  */
 object Theme {
     val BG = Color.rgb(16, 38, 59)
@@ -93,28 +93,47 @@ object Theme {
         if (stroke != null) setStroke((strokeDp * d).toInt().coerceAtLeast(1), stroke)
     }
 
-    /** A face from [top] to [bottom] in a one-pixel [edge], with an [inner] line just inside it, as the start screen draws its frames. */
-    fun framed(context: Context, top: Int, bottom: Int, edge: Int, inner: Int? = INNER): Drawable {
+    /** A button's round corners, as in the companion's first look (a pill for a one-line button). */
+    const val BUTTON_RADIUS_DP = 18f
+    /** The tabs' corners: a little rounder than a square, so the row of tabs still reads as one bar. */
+    const val TAB_RADIUS_DP = 12f
+
+    /**
+     * A face from [top] to [bottom] in a one-pixel [edge], with an [inner] line just inside it,
+     * as the start screen draws its frames; [radiusDp] rounds the corners.
+     */
+    fun framed(context: Context, top: Int, bottom: Int, edge: Int, inner: Int? = INNER, radiusDp: Float = 0f): Drawable {
         val px = px(context)
-        val face = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(top, bottom)).apply { setStroke(px, edge) }
+        val radius = radiusDp * context.resources.displayMetrics.density
+        val face = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(top, bottom)).apply {
+            setStroke(px, edge)
+            cornerRadius = radius
+        }
         if (inner == null) return face
-        val line = GradientDrawable().apply { setColor(Color.TRANSPARENT); setStroke(px, inner) }
+        val line = GradientDrawable().apply {
+            setColor(Color.TRANSPARENT)
+            setStroke(px, inner)
+            cornerRadius = maxOf(0f, radius - px)
+        }
         return LayerDrawable(arrayOf(face, line)).apply { setLayerInset(1, px, px, px, px) }
     }
 
     /**
-     * A button: deep blue, or teal in a gold edge for the main one ([primary]) and for what is
-     * chosen, grey when it can't be tapped; while pressed its gradient turns over.
+     * A round button: deep blue, or teal in a gold edge for the main one ([primary]) and for
+     * what is chosen, grey when it can't be tapped; while pressed its gradient turns over.
      */
-    fun button(context: Context, primary: Boolean = false, enabled: Boolean = true): Drawable {
+    fun button(context: Context, primary: Boolean = false, enabled: Boolean = true, radiusDp: Float = BUTTON_RADIUS_DP): Drawable {
         val top = if (!enabled) Color.rgb(44, 58, 72) else if (primary) TEAL else BUTTON_TOP
         val bottom = if (!enabled) Color.rgb(34, 46, 58) else if (primary) TEAL_DARK else BUTTON_BOTTOM
         val edge = if (!enabled) Color.rgb(70, 88, 106) else if (primary) ACCENT else EDGE
         return StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_pressed), framed(context, bottom, top, edge))
-            addState(intArrayOf(), framed(context, top, bottom, edge))
+            addState(intArrayOf(android.R.attr.state_pressed), framed(context, bottom, top, edge, radiusDp = radiusDp))
+            addState(intArrayOf(), framed(context, top, bottom, edge, radiusDp = radiusDp))
         }
     }
+
+    /** A round deep blue button in a gold edge: one that stands out without being the main one. */
+    fun goldButton(context: Context): Drawable = framed(context, BUTTON_TOP, BUTTON_BOTTOM, ACCENT, radiusDp = BUTTON_RADIUS_DP)
 
     /** A panel to group things in, in a thin [edge]; [gold] frames it as the start screen does (gold, then bronze). */
     fun panel(context: Context, fill: Int = SURFACE, edge: Int = STROKE, gold: Boolean = false): Drawable =

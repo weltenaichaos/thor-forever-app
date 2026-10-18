@@ -1247,7 +1247,7 @@ class CompanionActivity : Activity() {
         if (p != Panel.CHAT) closeCompose()
         panel = p
         for ((key, b) in tabs) {
-            b.background = Theme.button(this, primary = key == p)
+            b.background = Theme.button(this, primary = key == p, radiusDp = Theme.TAB_RADIUS_DP)
             b.setTextColor(if (key == p) Color.WHITE else Theme.GOLD_TEXT)
         }
         scroll.scrollTo(0, 0)
@@ -1676,6 +1676,7 @@ class CompanionActivity : Activity() {
             zoomButtons.addView(chip(text) { zoom(by) }.apply {
                 textSize = 20f
                 typeface = Theme.body(context, bold = true)
+                background = Theme.button(context, radiusDp = 24f)  // a circle
                 setPadding(0, 0, 0, 0)
             }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { topMargin = dp(6) })
         }
@@ -1989,7 +1990,7 @@ class CompanionActivity : Activity() {
         }
         if (main != null) {
             actions.addView(chip(main) { makeNextFromList() }.apply {
-                if (run != null) { background = Theme.framed(context, Theme.BUTTON_TOP, Theme.BUTTON_BOTTOM, ACCENT); setTextColor(Theme.GOLD_TEXT) }
+                if (run != null) { background = Theme.goldButton(context); setTextColor(Theme.GOLD_TEXT) }
                 else primary()
                 maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
@@ -2756,7 +2757,7 @@ class CompanionActivity : Activity() {
         }
         return chip("✦ " + parts.joinToString(" · ")) { showSpells() }.apply {
             setTextColor(Theme.GOLD_TEXT)
-            background = Theme.framed(context, Theme.BUTTON_TOP, Theme.BUTTON_BOTTOM, ACCENT)
+            background = Theme.goldButton(context)
         }
     }
 
@@ -3165,7 +3166,7 @@ class CompanionActivity : Activity() {
         listening = recognizer
         micFor = field to mic
         micAlts = alts
-        mic.background = Theme.framed(this, Theme.BAD, Color.rgb(170, 40, 40), ACCENT)
+        mic.background = Theme.framed(this, Theme.BAD, Color.rgb(170, 40, 40), ACCENT, radiusDp = Theme.BUTTON_RADIUS_DP)
         say("Listening… speak your message")
         fun guesses(b: android.os.Bundle?) =
             b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().filter { it.isNotBlank() }
