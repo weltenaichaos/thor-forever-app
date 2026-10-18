@@ -826,8 +826,9 @@ class CompanionActivity : Activity() {
      * sent them, without reading the top screen, on the tab named [tab] ("BAGS", "MAP"...).
      * With [loaded] false the start-up card stays, ticking off what the messages brought.
      */
-    internal fun preview(messages: List<String>, tab: String, loaded: Boolean = true) {
+    internal fun preview(messages: List<String>, tab: String, loaded: Boolean = true, craft: String? = null) {
         frameAt = SystemClock.uptimeMillis()
+        craftProfession = craft
         seenAt = frameAt
         game = Game.IN_WORLD
         for (m in messages) {
@@ -840,7 +841,7 @@ class CompanionActivity : Activity() {
             for ((_, b) in tabs) b.alpha = 1f
         }
         show(Panel.valueOf(tab))
-        saidAt = 0L
+        saidAt = SystemClock.uptimeMillis() - NOTICE_MS - 1
         connected()
     }
 
@@ -1951,7 +1952,8 @@ class CompanionActivity : Activity() {
                 prof.max > 0 -> "${prof.level}/${prof.max}"
                 else -> "${prof.level}"
             }
-            box.addView(line(name, if (on) ACCENT else if (prof == null) DIM else TEXT, if (compact) 13f else 14f, bold = prof != null).apply {
+            box.addView(line(name, if (on) Theme.GOLD_TEXT else if (prof == null) DIM else TEXT, if (compact) 13f else 14f).apply {
+                typeface = Theme.heading(context)
                 setPadding(0, 0, 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             }, if (compact) LinearLayout.LayoutParams(0, -2, 1f) else LinearLayout.LayoutParams(-2, -2))
             box.addView(line(level, DIM, 12f).apply { setPadding(if (compact) dp(6) else 0, 0, 0, if (compact) 0 else dp(2)) })
@@ -2564,7 +2566,7 @@ class CompanionActivity : Activity() {
         val open = getPreferences(MODE_PRIVATE).getBoolean("errandsOpen", false)
         val box = card()
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        top.addView(line("Errands ($count)", TEXT, 16f, bold = true).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+        top.addView(line("Errands ($count)", Theme.GOLD_TEXT, 16f).apply { typeface = Theme.heading(context); setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
         if (!open) top.addView(line(if (stops.size == 1) "1 stop" else "${stops.size} stops", DIM, 13f).apply { setPadding(dp(8), 0, dp(8), 0) })
         top.addView(line(if (open) "▴" else "▾", DIM, 18f).apply { setPadding(dp(4), 0, 0, 0) })
         top.setOnClickListener {

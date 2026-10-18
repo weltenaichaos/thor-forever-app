@@ -1,0 +1,276 @@
+TS1|Jessra|24|34217|1420|0.6195|0.6490|0.1|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+---
+# Forever Companion sample: Jessra, level 24 Undead Mage on Thunderstrike, in Brill (Tirisfal Glades).
+# Records are separated by lines that are exactly ---; # lines right after a --- are comments.
+# Messages are as the addon 0.30.2 builds them (real tabs and newlines inside). Times: time() = 1792352400,
+# GetTime() = 84213. The status walks from the Undercity gate to the Brill inn (the Map tab's path).
+# bags: 28 stacks, 8 of 36 slots free (the addon sends them right after the first status)
+TB1|8/36|6948:1:1,2136:20:2,2136:20:3,1114:20:4,1114:6:5,17031:7:6,3531:9:7,3385:3:8,858:2:9,3496:10:10,2592:20:11,2592:13:12,2589:7:13,4306:6:14,6218:1:15,2997:4:16,2996:2:17,2321:5:18,2604:3:19,10940:11:20,10938:4:21,10939:1:25,10978:1:26,818:1:27,774:2:28,7073:4:36,7074:3:37,4865:2:38
+---
+TS1|Jessra|24|34217|1420|0.6172|0.6315|0.1|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+---
+TS1|Jessra|24|34217|1420|0.6131|0.6142|0.2|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+---
+TS1|Jessra|24|34217|1420|0.6094|0.5968|0.2|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+---
+TS1|Jessra|24|34217|1420|0.6073|0.5791|0.0|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+---
+TS1|Jessra|24|34217|1420|0.6081|0.5612|6.2|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+---
+TS1|Jessra|24|34217|1420|0.6112|0.5446|5.9|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+---
+TS1|Jessra|24|34217|1420|0.6151|0.5318|5.7|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+---
+TS1|Jessra|24|34217|1420|0.6180|0.5240|2.4|1792350000|9164|0.30.2|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
+---
+# zone map places
+TM1|1420|Tirisfal Glades|Eastern Kingdoms|4518|3012|0
+q,0.795,0.553,Rear Guard Patrol
+Q,0.620,0.664,The Prodigal Lich
+g,0.607,0.588,Tazdingo
+f,0.622,0.673,Undercity, Tirisfal
+d,0.849,0.331,Scarlet Monastery
+---
+# character sheet
+TP1|Mage|MAGE|Undead|13842|31700|9450|15.1|Forever Friends|27,26,44,79|257
+---
+# what she wears
+TQ1|3:4315:24:71,15:4311:21,5:6264:23:64,4:2587:20,19:5976:1,9:9793:25:88,10:9795:26:43,6:9799:26:79,7:9797:28:58,8:4313:20:17,16:6505:24:69
+---
+# quest log, page 1 of 2
+TL1|158|2|1970|2
+501	r	1950	Elixir of Pain	+10/10 Mountain Lion Blood	24	1424:0.614:0.199:Hillsbrad Foothills	Tarren Mill
+356	z	180	Rear Guard Patrol	+8/8 Bleeding Horror slain;5/8 Wandering Spirit slain	11		
+405	r	20	The Prodigal Lich		8	1458:0.841:0.175:Undercity	
+527	o	1950	Battle of Hillsbrad	+6/6 Hillsbrad Farmer slain;4/6 Hillsbrad Farmhand slain;0/1 Farmer Ray slain;+1/1 Farmer Getz slain	24	1424:0.347:0.418:Hillsbrad Foothills	
+---
+# bag item cooldowns
+TC2|84213|6948:86493
+---
+# spells to learn
+TV1|24|1458:0.852:0.105:Undercity|
+24	r	3600	Arcane Missiles	Rank 3
+24	r	3600	Counterspell	
+24	r	3600	Dampen Magic	Rank 2
+24	r	3600	Fireball	Rank 5
+24	r	3600	Flamestrike	Rank 2
+26	f	4000	Cone of Cold	Rank 1
+26	f	4000	Frost Nova	Rank 2
+26	f	4000	Frostbolt	Rank 5
+---
+# quest log, page 2 of 2
+TL2|2|2
+1098	o	2000	Deathstalkers in Shadowfang		25	1421:0.448:0.678:Silverpine Forest	
+1013	o	2100	The Book of Ur	0/1 The Book of Ur	26	1421:0.448:0.678:Silverpine Forest	
+1014	o	3300	Arugal Must Die	0/1 Head of Arugal	27	1421:0.448:0.678:Silverpine Forest	
+---
+# professions and what she made lately
+TF1|1792352400
+k	Enchanting	48
+k	First Aid	49
+k	Tailoring	50
+f	1
+p	Enchanting	95	150
+p	Tailoring	118	150
+p	Cooking	62	75
+p	First Aid	132	150
+e	1792175980	You create: [Heavy Wool Bandage].
+e	1792175990	Your skill in First Aid has increased to 132.
+e	1792352068	You create: [Bolt of Woolen Cloth].
+e	1792352070	Your skill in Tailoring has increased to 117.
+e	1792352099	You create: [Bolt of Woolen Cloth].
+e	1792352101	Your skill in Tailoring has increased to 118.
+---
+# recipes: Enchanting|95|150|1|2|1792086000
+TR1|Enchanting|95|150|1|2|1792086000
+o	0	1	1	0	10940:2;10939:1	Enchant Bracer - Minor Agility
+o	0	1	1	0	10939:1;10938:1	Enchant Chest - Lesser Mana
+m	0	1	1	0	10940:2;10938:2	Enchant Chest - Lesser Health
+m	0	1	1	0	10938:2	Enchant Bracer - Minor Spirit
+e	0	1	1	0	10940:3	Enchant Bracer - Minor Stamina
+e	0	1	1	0	10940:2;10938:1	Enchant Chest - Minor Absorption
+t	11287	1	1	0	4470:1;10938:1	Lesser Magic Wand
+t	0	1	1	0	10938:1	Enchant Chest - Minor Mana
+---
+# recipes: Enchanting|95|150|2|2|1792086000
+TR1|Enchanting|95|150|2|2|1792086000
+t	0	1	1	0	10940:1	Enchant Chest - Minor Health
+t	0	1	1	0	10940:1	Enchant Bracer - Minor Health
+t	6218	1	1	0	6217:1;10940:1;10938:1	Runed Copper Rod
+---
+# recipes: First Aid|132|150|1|1|1792176000
+TR1|First Aid|132|150|1|1|1792176000
+o	3531	1	1	0	2592:2	Heavy Wool Bandage
+e	3530	1	1	0	2592:1	Wool Bandage
+e	6452	1	1	0	1475:1	Anti-Venom
+t	2581	1	1	0	2589:2	Heavy Linen Bandage
+t	1251	1	1	0	2589:1	Linen Bandage
+---
+# recipes: Tailoring|118|150|1|2|1792352103
+TR1|Tailoring|118|150|1|2|1792352103
+h	0	0	0	0		Cloth
+o	6264	1	1	0	2997:5;2321:3;2604:3	Greater Adept's Robe
+m	4315	1	1	0	2997:6;2319:2;2321:2	Reinforced Woolen Shoulders
+m	4311	1	1	0	2997:3;2321:2;5498:2	Heavy Woolen Cloak
+e	4313	1	1	0	2997:4;2318:2;2321:1;2604:2	Red Woolen Boots
+h	0	0	0	0		Bag
+e	4241	1	1	0	2997:3;2321:1	Woolen Bag
+t	4238	1	1	0	2996:3;2320:3	Linen Bag
+h	0	0	0	0		Miscellaneous
+e	2587	1	1	0	2997:2;2321:1;4340:1	Gray Woolen Shirt
+h	0	0	0	0		Trade Goods
+---
+# recipes: Tailoring|118|150|2|2|1792352103
+TR1|Tailoring|118|150|2|2|1792352103
+e	2997	1	1	0	2592:3	Bolt of Woolen Cloth
+t	2996	1	1	0	2589:2	Bolt of Linen Cloth
+---
+# bank counts of recipe materials
+TK1|1792258800|10938:3,10940:14,2318:6,2319:4,2997:6
+---
+# item names, page 1 of 5
+TN2|6948	1	1	0	0	Miscellaneous	Hearthstone
+2136	1	25	15	0	Consumable	Conjured Purified Water
+1114	1	25	15	0	Consumable	Conjured Rye
+17031	1	20	0	250	Reagent	Rune of Teleportation
+3531	1	23	0	100	Consumable	Heavy Wool Bandage
+3385	1	24	14	30	Consumable	Lesser Mana Potion
+858	1	13	3	25	Consumable	Lesser Healing Potion
+3496	1	1	0	0	Quest	Mountain Lion Blood
+2592	1	15	0	33	Tradeskill / Cloth	Wool Cloth
+2589	1	5	0	13	Tradeskill / Cloth	Linen Cloth
+4306	1	25	0	38	Tradeskill / Cloth	Silk Cloth
+---
+# item names, page 2 of 5
+TN2|6218	1	5	0	25	Tradeskill / Enchanting	Runed Copper Rod
+2997	1	25	0	100	Tradeskill / Cloth	Bolt of Woolen Cloth
+2996	1	10	0	40	Tradeskill / Cloth	Bolt of Linen Cloth
+2321	1	5	0	25	Tradeskill / Cloth	Fine Thread
+2604	1	15	0	12	Tradeskill / Other	Red Dye
+10940	1	10	0	25	Tradeskill / Enchanting	Strange Dust
+10938	2	10	0	40	Tradeskill / Enchanting	Lesser Magic Essence
+10939	2	15	0	120	Tradeskill / Enchanting	Greater Magic Essence
+10978	3	15	0	200	Tradeskill / Enchanting	Small Glimmering Shard
+---
+# item names, page 3 of 5
+TN2|818	2	15	0	150	Tradeskill / Jewelcrafting	Tigerseye
+774	2	10	0	100	Tradeskill / Jewelcrafting	Malachite
+7073	0	1	0	6	Miscellaneous / Junk	Broken Fang
+7074	0	1	0	4	Miscellaneous / Junk	Chipped Claw
+4865	0	1	0	5	Miscellaneous / Junk	Ruined Pelt
+4315	2	24	19	425	Armor / Cloth	Reinforced Woolen Shoulders
+4311	2	21	16	475	Armor / Cloth	Heavy Woolen Cloak
+6264	2	23	18	884	Armor / Cloth	Greater Adept's Robe
+2587	1	20	0	125	Armor / Miscellaneous	Gray Woolen Shirt
+5976	1	1	0	2500	Armor / Miscellaneous	Guild Tabard
+---
+# item names, page 4 of 5
+TN2|9793	2	25	20	550	Armor / Cloth	Ivycloth Bracelets
+9795	2	26	21	626	Armor / Cloth	Ivycloth Gloves
+9799	2	26	21	635	Armor / Cloth	Ivycloth Sash
+9797	2	28	23	1528	Armor / Cloth	Ivycloth Pants
+4313	2	20	15	416	Armor / Cloth	Red Woolen Boots
+6505	3	24	0	3680	Weapon / Staves	Crescent Staff
+11287	2	13	8	236	Weapon / Wands	Lesser Magic Wand
+4470	1	5	0	9	Tradeskill / Other	Simple Wood
+6217	1	5	0	24	Tradeskill / Other	Copper Rod
+3530	1	15	0	28	Consumable	Wool Bandage
+6452	1	16	0	20	Consumable	Anti-Venom
+---
+# item names, page 5 of 5
+TN2|1475	1	8	0	15	Tradeskill / Other	Small Venom Sac
+2581	1	10	0	20	Consumable	Heavy Linen Bandage
+1251	1	5	0	10	Consumable	Linen Bandage
+2319	1	15	0	15	Tradeskill / Leather	Medium Leather
+5498	2	20	0	100	Tradeskill / Jewelcrafting	Small Lustrous Pearl
+2318	1	5	0	3	Tradeskill / Leather	Light Leather
+4241	1	15	0	300	Container / Bag	Woolen Bag
+4238	1	10	0	100	Container / Bag	Linen Bag
+2320	1	5	0	2	Tradeskill / Cloth	Coarse Thread
+4340	1	15	0	87	Tradeskill / Other	Gray Dye
+---
+# chat, message 1 of 8
+TH1|1792350000	Velyna-Thunderstrike,,,,,,,,,	1 General,3 LocalDefense,4 LookingForGroup
+1	system			Guild Message of the Day: SFK run Saturday 8pm server time, sign up in /g!
+2	system			[Velyna] has come online.
+3	guild	Velyna-Thunderstrike		evening all
+---
+# chat, message 2 of 8
+TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,,,,,,,,	1 General,3 LocalDefense,4 LookingForGroup
+1	system			Guild Message of the Day: SFK run Saturday 8pm server time, sign up in /g!
+2	system			[Velyna] has come online.
+3	guild	Velyna-Thunderstrike		evening all
+4	guild	Jessra-Thunderstrike		hey Vel o/
+5	channel	Grubthak-Thunderstrike	General	where do i learn cooking around brill?
+---
+# chat, message 3 of 8
+TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,,,,,,	1 General,3 LocalDefense,4 LookingForGroup
+4	guild	Jessra-Thunderstrike		hey Vel o/
+6	channel	Kelthos-Thunderstrike	General	ask a deathguard, they mark it on your map
+7	say	Mortimus-Thunderstrike		anyone selling woolen bags? paying 50s
+---
+# chat, message 4 of 8
+TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,Morgrath-Thunderstrike,,,,,	1 General,3 LocalDefense,4 LookingForGroup
+7	say	Mortimus-Thunderstrike		anyone selling woolen bags? paying 50s
+8	channel	Morgrath-Thunderstrike	LookingForGroup	LF2M SFK, need heal + dps, pst
+9	whisper	Morgrath-Thunderstrike		still need SFK? got a spot for a mage
+10	whisper_to	Morgrath-Thunderstrike		yes please, need Book of Ur and Arugal
+---
+# chat, message 5 of 8
+TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,Morgrath-Thunderstrike,,,,,	1 General,3 LocalDefense,4 LookingForGroup
+9	whisper	Morgrath-Thunderstrike		still need SFK? got a spot for a mage
+10	whisper_to	Morgrath-Thunderstrike		yes please, need Book of Ur and Arugal
+11	system			Morgrath invites you to a group.
+12	system			Tazdingo joins the party.
+---
+# chat, message 6 of 8
+TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,Morgrath-Thunderstrike,Tazdingo-Thunderstrike,,,,	1 General,3 LocalDefense,4 LookingForGroup
+11	system			Morgrath invites you to a group.
+12	system			Tazdingo joins the party.
+13	party	Morgrath-Thunderstrike		Taz heals, we meet at the Sepulcher
+14	party	Tazdingo-Thunderstrike		omw, at the zeppelin tower
+15	guild	Velyna-Thunderstrike		anyone have Small Lustrous Pearls? 3s each
+---
+# chat, message 7 of 8
+TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,Morgrath-Thunderstrike,Tazdingo-Thunderstrike,,,,	1 General,3 LocalDefense,4 LookingForGroup
+13	party	Morgrath-Thunderstrike		Taz heals, we meet at the Sepulcher
+14	party	Tazdingo-Thunderstrike		omw, at the zeppelin tower
+15	guild	Velyna-Thunderstrike		anyone have Small Lustrous Pearls? 3s each
+16	party	Jessra-Thunderstrike		brb 2 min, repairing my boots first
+---
+# chat, message 8 of 8
+TH1|1792350000	Velyna-Thunderstrike,Grubthak-Thunderstrike,Kelthos-Thunderstrike,Mortimus-Thunderstrike,Morgrath-Thunderstrike,Tazdingo-Thunderstrike,,,,	1 General,3 LocalDefense,4 LookingForGroup
+16	party	Jessra-Thunderstrike		brb 2 min, repairing my boots first
+---
+# chat box state after her last line
+TE1|3|closed|/p |0|11
+---
+# item tooltips, message 1 of 2
+TT1|6948	Unique	Use: Returns you to Brill. Speak to an Innkeeper in a diffe…
+2136	Conjured Item	Requires Level 15	Use: Restores 835.2 mana over 27 sec. Must remain seated wh…
+1114	Conjured Item	Requires Level 15	Use: Restores 552 health over 24 sec. Must remain seated wh…
+17031
+3531	Requires First Aid (115)	Use: Heals 301 damage over 8 sec.
+3385	Requires Level 14	Use: Restores 140 to 180 mana.
+---
+# item tooltips, message 2 of 2
+TT1|858	Requires Level 3	Use: Restores 140 to 180 health.
+3496	Quest Item
+2592
+2589
+4306
+6218
+2997
+2996
+2321
+2604
+10940
+10938
+10939
+10978
+818
+774
+7073
+7074
+4865
+4315	Binds when equipped	Shoulder  Cloth	28 Armor	+4 Intellect	Durability 50 / 50	Requires Level 19	Equip: Increases damage and healing done by magical spells …
