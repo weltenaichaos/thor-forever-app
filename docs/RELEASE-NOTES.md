@@ -1,7 +1,25 @@
-# Thor Forever v0.3.0 (alpha, pre-release)
+# Thor Forever v0.4.0 (alpha, pre-release)
 
 Thor Forever is an Android app that starts World of Warcraft: Forever on the AYN Thor with one tap.
 It is a fork of Winlator Bionic (Winlator Ludashi). This is a test release, tested on one AYN Thor.
+
+## New in v0.4.0
+
+The Forever Companion:
+- **Exit** in the companion closes only the companion. The game keeps running. Before, the whole app closed and the game went back to its login screen.
+- The game keeps running on the top screen while something else is on the bottom screen.
+- The "Type in the game" box closes when you tap the game, at the character screen too. Before, a controller button could then make Android close the app as "not responding".
+- The **Map** tab, made over:
+  - The map fills the whole bottom screen at every zoom.
+  - Drag to look around, and tap **Back to me** to return. **+** and **−** zoom, and so does a pinch.
+  - Quest areas have the real shape the game's own map shows. A quest the game has no shape for gets a circle.
+  - Tap a pin or a quest area for a card with how far and which way it is, and **Lead me there**.
+  - **Turn with me** turns the map with you, like the minimap (still being tried out).
+- When you die and release your spirit, the Map tab opens by itself and leads you to your corpse, also in the zone next door. Once you live again, the companion goes back to the tab you were on.
+- **Errands** and the Quests tab show where each finished quest is handed in, also in another zone ("Turn it in at Brill, Tirisfal Glades"). Fewer quests are left under "Turn-in place not known".
+- The mouse cursor starts in the middle of the game's screen. In the top-left corner it covered the square with your position, and the map didn't follow you until you swiped the cursor away.
+
+Coming from v0.1.1 or later: Settings > **Check for updates** installs it. Coming from v0.1.0: install this APK over it. Your setup, the game and your add-ons stay. The companion add-on updates itself to 0.30.2 the next time the companion starts.
 
 ## New in v0.3.0
 
@@ -17,8 +35,6 @@ The Forever Companion:
 
 The app:
 - WoW's crash reports are copied to `Winlator/logs/wow-errors` on your device, where you can open them. This happens when the game closes and before it starts, never while you play. The game's own files are not changed.
-
-Coming from v0.1.1 or v0.2.0: Settings > **Check for updates** installs it. Coming from v0.1.0: install this APK over it. Your setup, the game and your add-ons stay. The companion add-on updates itself to 0.29.1 the next time the companion starts.
 
 ## New in v0.2.0
 
@@ -66,7 +82,8 @@ Step by step, and the Android settings to set first: [README](https://github.com
 ## Known issues and not yet
 
 - The Forever Companion is new and still being tested on the device.
-- The app does not set or check the Android settings (child process restrictions, battery Unrestricted, maximum performance mode). Set them yourself, see [docs/THOR-SETUP.md](https://github.com/weltenaichaos/thor-forever-app/blob/v0.3.0/docs/THOR-SETUP.md).
+- With **Turn with me** on, the names printed in the zone picture turn with the map.
+- The app does not set or check the Android settings (child process restrictions, battery Unrestricted, maximum performance mode). Set them yourself, see [docs/THOR-SETUP.md](https://github.com/weltenaichaos/thor-forever-app/blob/v0.4.0/docs/THOR-SETUP.md).
 - Thor Forever is its own app (`com.thorforever.app`). Test builds and Winlator stay separate apps, and a setup in them does not carry over.
 - FEXCore is version 2601. The tested shortcut used 2510.1, which is not included.
 - VKD3D is not used. WoW runs on Direct3D 11 through DXVK.
@@ -75,8 +92,8 @@ Step by step, and the Android settings to set first: [README](https://github.com
 
 ## Credits and licence
 
-The source code for this release is this repository at the tag `v0.3.0`.
-Licences and notices for the bundled parts are in [LICENSE](https://github.com/weltenaichaos/thor-forever-app/blob/v0.3.0/LICENSE) and the [notices](https://github.com/weltenaichaos/thor-forever-app/tree/v0.3.0/notices) folder.
-Credits are in the [README](https://github.com/weltenaichaos/thor-forever-app/blob/v0.3.0/README.md#credits).
+The source code for this release is this repository at the tag `v0.4.0`.
+Licences and notices for the bundled parts are in [LICENSE](https://github.com/weltenaichaos/thor-forever-app/blob/v0.4.0/LICENSE) and the [notices](https://github.com/weltenaichaos/thor-forever-app/tree/v0.4.0/notices) folder.
+Credits are in the [README](https://github.com/weltenaichaos/thor-forever-app/blob/v0.4.0/README.md#credits).
 
 Not affiliated with or endorsed by Blizzard Entertainment or AYN. World of Warcraft is a trademark of Blizzard Entertainment, Inc.

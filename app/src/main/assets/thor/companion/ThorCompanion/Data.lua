@@ -297,11 +297,13 @@ local function withoutPosition(p)
     return table.concat(f, "|")
 end
 
--- A quest taken, done or handed in, or a new zone, changes the map's places: then
--- the map goes first, not after the other kinds' turns.
+-- A quest taken, done or handed in, a new zone, or dying and living again (your corpse,
+-- see Map.lua), changes the map's places: then the map goes first, not after the other
+-- kinds' turns.
 local mapEvents = CreateFrame("Frame")
-for _, e in ipairs({ "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED" }) do
-    mapEvents:RegisterEvent(e)
+for _, e in ipairs({ "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED",
+    "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST" }) do
+    pcall(mapEvents.RegisterEvent, mapEvents, e)
 end
 mapEvents:SetScript("OnEvent", function() mapUrgent = true end)
 function ns.MapUrgent() mapUrgent = true end

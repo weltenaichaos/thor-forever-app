@@ -210,6 +210,7 @@ public class VulkanXServerView extends XServerRendererView implements SurfaceHol
                         nativeSetPostFXMode(nativeHandle, pendingPostFXMode);
                         nativeSetSharpness(nativeHandle, pendingSharpness);
                         updateTransform();
+                        nativeSetPointerPos(nativeHandle, xServer.pointer.getX(), xServer.pointer.getY());
                         nativeSetCursorVisible(nativeHandle, cursorVisible);
                         initComplete = true;
                         return;
@@ -228,6 +229,9 @@ public class VulkanXServerView extends XServerRendererView implements SurfaceHol
                     nativeSetPostFXMode(nativeHandle, pendingPostFXMode);
                     nativeSetSharpness(nativeHandle, pendingSharpness);
                     updateTransform();
+                    // Where the cursor is now (it need not be the top-left corner, see
+                    // XServerDisplayActivity): drawn there from the first frame, not only after it moves.
+                    nativeSetPointerPos(nativeHandle, xServer.pointer.getX(), xServer.pointer.getY());
                     nativeSetCursorVisible(nativeHandle, cursorVisible);
 
                     if (isColdInit) {

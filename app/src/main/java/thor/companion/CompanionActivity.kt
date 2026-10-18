@@ -1086,8 +1086,50 @@ class CompanionActivity : Activity() {
         connected()
         if (map == zoneMap) return
         zoneMap = map
-        if (panel == Panel.MAP) render()
+        if (!followCorpse(map) && panel == Panel.MAP) render()
         updateCompass()
+    }
+
+    /** While you are a ghost: the map leads you to your corpse (set when that began). */
+    private var ghost = false
+    /** The tab you were on when the map turned to your corpse by itself, to go back to once you live again. */
+    private var tabBeforeDeath: Panel? = null
+    /** ✕ on the corpse line: no leading until the next death. */
+    private var corpseHidden = false
+
+    /**
+     * Idea 6 (Jesse 2026-10-17): once you release your spirit, the Map tab opens by itself
+     * and leads you to your corpse (a ring, and how far and which way on the line on top),
+     * zoomed to show you both; also when the corpse is in the zone next door. Back to the
+     * tab you were on once you live again. True when it drew the tab itself.
+     */
+    private fun followCorpse(map: ZoneMap): Boolean {
+        if (map.ghost == ghost) return false
+        ghost = map.ghost
+        corpseHidden = false
+        if (ghost) {
+            android.util.Log.i("ThorCompanion", "ghost: leading to the corpse (${map.corpse?.label ?: "not on this map"})")
+            val c = map.corpse
+            val x = state?.x; val y = state?.y
+            if (c != null && x != null && y != null && x > 0) {
+                val far = maxOf(Math.abs(c.x - x), Math.abs(c.y - y) * 1.5)
+                getPreferences(MODE_PRIVATE).edit().putBoolean("mapClose", far < 0.38)
+                    .putFloat("mapSpan", (far * 2.6).coerceIn(MapView.MIN_SPAN, 1.0).toFloat()).apply()
+            }
+            mapPan = null
+            say(if (c != null) "You died: the map leads you to your corpse" else "You died: the game doesn't show where your corpse is")
+            // Not while you type a chat message: that box would close.
+            if (composing != null) return false
+            tabBeforeDeath = panel.takeIf { it != Panel.MAP }
+            show(Panel.MAP)
+            return true
+        }
+        android.util.Log.i("ThorCompanion", "alive again")
+        say("You're alive again")
+        val back = tabBeforeDeath
+        tabBeforeDeath = null
+        if (back != null && panel == Panel.MAP && composing == null) { show(back); return true }
+        return false
     }
 
     private fun onChat(message: String) {
@@ -1565,10 +1607,14 @@ class CompanionActivity : Activity() {
         val questText = line("", TEXT, 14f).apply { setPadding(0, 0, 0, 0) }
         questRow.addView(questText, LinearLayout.LayoutParams(0, -2, 1f))
         questRow.addView(chip("✕") {
-            tracked = null
-            ledTo = null
-            getPreferences(MODE_PRIVATE).edit().remove("tracked").apply()
-            view.highlight = null
+            // While the line shows your corpse: only that goes (the quest you follow comes back).
+            if (ghost && !corpseHidden) corpseHidden = true
+            else {
+                tracked = null
+                ledTo = null
+                getPreferences(MODE_PRIVATE).edit().remove("tracked").apply()
+                view.highlight = null
+            }
             updateCompass()
         }, LinearLayout.LayoutParams(dp(44), -2))
         questLine = questText
@@ -2586,6 +2632,18 @@ class CompanionActivity : Activity() {
         val line = questLine ?: return
         val title = tracked
         val row = line.parent as? View
+        val map = zoneMap?.takeIf { it.mapId == state?.mapId }
+        if (ghost && !corpseHidden && map != null && map.ghost) {
+            // A ghost: your corpse first, before any quest or pin.
+            row?.visibility = View.VISIBLE
+            val c = map.corpse
+            line.text = if (c == null) "Your corpse: the game doesn't show where it is"
+                else "${c.label.ifEmpty { "Your corpse" }}  ·  " + (wayTo(c)?.let { if (it == "you're there") "You're there" else it } ?: "walk a bit and the yards appear")
+            mapView?.targetNote = c?.let { it to "" }
+            mapView?.highlight = null
+            mapView?.invalidate()
+            return
+        }
         val led = ledTo?.takeIf { it.first == state?.mapId }?.second
         if (title == null && led != null) {
             // A pin you asked to be led to.

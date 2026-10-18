@@ -1,11 +1,14 @@
 -- Map.lua
 -- What the app's Map tab draws, besides your own position (TS1): the zone's name
 -- and the places on it. Sent as
---   TM1|mapID|zone|parent zone|width|height<newline><kind>,<x>,<y>,<label><newline>...
--- with x and y from 0 to 1 on the zone map, like the position. Kinds:
+--   TM1|mapID|zone|parent zone|width|height|ghost<newline><kind>,<x>,<y>,<label><newline>...
+-- with x and y from 0 to 1 on the zone map, like the position; <ghost> is 1 while you
+-- are a ghost (after releasing your spirit), else 0. Kinds:
 --   q quest objective area   Q quest ready to turn in   a quest to pick up
 --   w your map pin
---   c your corpse            f flight master            d dungeon or raid entrance
+--   c your corpse, while you are a ghost: in a zone next to this one off the map's edge
+--     (x or y below 0 or above 1, where it is from here), labelled with that zone
+--                            f flight master            d dungeon or raid entrance
 --   p other place on the map (towns, events)            v rare or treasure
 --   g group member
 -- The app draws these together with the path you walked, over a picture of the
@@ -53,6 +56,34 @@ local function each(entries, source)
     return ok or err
 end
 
+-- Your corpse from this zone's map: on it, or, in another zone of the continent, where
+-- it is from here (off the map's edge) with that zone's name, so the app can still lead
+-- you there. Nothing when the game doesn't say (a corpse in a dungeon, say).
+local function corpse(mapID)
+    local x, y = xy(C_DeathInfo.GetCorpseMapPosition(mapID))
+    if x then return x, y, "Your corpse" end
+    local cont = C_Map.GetMapInfo(mapID)
+    while cont and cont.mapType and cont.mapType > Enum.UIMapType.Continent and cont.parentMapID and cont.parentMapID > 0 do
+        cont = C_Map.GetMapInfo(cont.parentMapID)
+    end
+    if not cont or cont.mapType ~= Enum.UIMapType.Continent then return end
+    local pos = C_DeathInfo.GetCorpseMapPosition(cont.mapID)
+    if not pos or secret(pos) then return end
+    local cx, cy = pos:GetXY()
+    local zone = C_Map.GetMapInfoAtPosition(cont.mapID, cx, cy)
+    local world, at = C_Map.GetWorldPosFromMapPos(cont.mapID, pos)
+    local _, here = C_Map.GetMapPosFromWorldPos(world, at, mapID)
+    if not here then return end
+    x, y = here:GetXY()
+    if not x or not y or secret(x) or secret(y) then return end
+    local name = zone and zone.mapID ~= mapID and zone.name and not secret(zone.name) and zone.name
+    return x, y, name and ("Your corpse in " .. name) or "Your corpse"
+end
+
+local function ghost()
+    return UnitIsGhost and UnitIsGhost("player") and true or false
+end
+
 local function places(mapID)
     local entries = {}
     -- Most useful first: the list is cut when it is too long for the square.
@@ -60,8 +91,13 @@ local function places(mapID)
         local wp = C_Map.GetUserWaypoint and C_Map.GetUserWaypoint()
         if wp and wp.uiMapID == mapID then add("w", wp.position, "Map pin") end
     end)
-    each(entries, function(add)
-        if C_DeathInfo and UnitIsDeadOrGhost("player") then add("c", C_DeathInfo.GetCorpseMapPosition(mapID), "Your corpse") end
+    each(entries, function()
+        if not C_DeathInfo or not ghost() then return end
+        local x, y, text = corpse(mapID)
+        -- Off the edge too (see the top of this file), but not on the other side of the world.
+        if x and x > -5 and x < 6 and y > -5 and y < 6 then
+            entries[#entries + 1] = string.format("c,%.3f,%.3f,%s", x, y, label(text))
+        end
     end)
     each(entries, function(add)
         for _, q in ipairs(C_QuestLog.GetQuestsOnMap(mapID) or {}) do
@@ -155,7 +191,7 @@ function ns.MapPayload()
         width, height, sizeSource = 0, 0, "unknown so far"
     end
     local head = "TM1|" .. mapID .. "|" .. label(info and info.name):gsub("|", "/") .. "|" .. label(parent and parent.name):gsub("|", "/")
-        .. string.format("|%d|%d", width, height)
+        .. string.format("|%d|%d|%d", width, height, ghost() and 1 or 0)
     local room = ns.StripCapacity() - #head - 1
     local out, used = {}, 0
     for _, e in ipairs(places(mapID)) do
