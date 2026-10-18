@@ -76,7 +76,8 @@ These are written for Thor Forever instead:
 To take a newer companion over, copy the files in the first table again and keep the
 replacements above.
 
-## Not yet
+## Logs
 
-- The companion's log button saves Thor Forever's own log, but no screenshot: taking one
-  needs root.
+- A long press on the companion's status line saves Thor Forever's recent log
+  (`Download/ForeverCompanion-log.txt`) and the game's picture as the app sees it
+  (`Download/ForeverCompanion-screen.png`, copied from the game's view, no root needed).
