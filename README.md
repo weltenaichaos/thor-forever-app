@@ -116,6 +116,14 @@ It is built into the app. Turn it on with the **Companion** button on the start 
 The app then puts the companion's add-on into the game and opens the companion on the other screen when WoW starts.
 Turned off, the companion stays closed and its add-on is removed.
 
+How it looks on the bottom screen (with sample data):
+
+| Bags | Character | Quests |
+| --- | --- | --- |
+| ![The Bags tab](docs/images/companion/bags.png) | ![The Character tab](docs/images/companion/character.png) | ![The Quests tab](docs/images/companion/quests.png) |
+| **Craft** | **Map** | **Chat** |
+| ![The Craft tab](docs/images/companion/craft.png) | ![The Map tab](docs/images/companion/map.png) | ![The Chat tab](docs/images/companion/chat.png) |
+
 Its tabs:
 
 - **Bags:** everything in your bags. Tap an item to use it. Hold it to see its details; gear is compared with what you wear.

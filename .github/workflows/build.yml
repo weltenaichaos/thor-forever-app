@@ -257,15 +257,3 @@ jobs:
             companion-screens/
             app/build/reports/tests/testReleaseUnitTest/
           if-no-files-found: warn
-
-      # For now: the start screen pictures written into the log as text, to look at them
-      # where the artifact can't be downloaded. To be removed again.
-      - name: Start screen pictures in the log
-        if: always()
-        continue-on-error: true
-        run: |
-          for f in companion-screens/start-*.png; do
-            echo "=== $f"
-            base64 -w 120 "$f" | sed 's/^/B64 /'
-            echo "=== end"
-          done
