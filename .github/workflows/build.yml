@@ -241,11 +241,12 @@ jobs:
             echo "::warning::Release $TAG is already published, so it was not changed. The APK is in the build's artifacts."
           fi
 
-      # Pictures of the Forever Companion's tabs (CompanionScreensTest, filled with sample data),
-      # so a change to its look can be seen without the Thor. Never holds up the APK.
+      # Pictures of the Forever Companion's tabs (CompanionScreensTest, filled with sample data)
+      # and of the start screen (StartScreenShotsTest), so a change to their look can be seen
+      # without the Thor. Never holds up the APK.
       - name: Companion screenshots
         continue-on-error: true
-        run: ./gradlew testReleaseUnitTest --tests thor.companion.CompanionScreensTest -PcompanionScreens="$GITHUB_WORKSPACE/companion-screens"
+        run: ./gradlew testReleaseUnitTest --tests thor.companion.CompanionScreensTest --tests com.winlator.cmod.ui.start.StartScreenShotsTest -PcompanionScreens="$GITHUB_WORKSPACE/companion-screens"
 
       - name: Upload companion screenshots
         if: always()

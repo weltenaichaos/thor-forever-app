@@ -212,13 +212,13 @@ android {
 
     testOptions {
         unitTests {
-            // The companion screenshots (CompanionScreensTest) need the app's fonts.
+            // The screenshots (CompanionScreensTest, StartScreenShotsTest) need the app's fonts.
             includeAndroidResources = true
             all {
                 // They are only taken when asked: -PcompanionScreens=<folder for the pictures>.
                 def screens = project.findProperty("companionScreens")
                 if (screens) systemProperty 'companion.screens.dir', screens
-                else exclude '**/CompanionScreensTest*'
+                else exclude '**/CompanionScreensTest*', '**/StartScreenShotsTest*'
                 // A failing test shows why in the build's log.
                 testLogging { events 'failed'; exceptionFormat 'full' }
             }

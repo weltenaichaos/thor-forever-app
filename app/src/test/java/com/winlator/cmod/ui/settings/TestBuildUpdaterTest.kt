@@ -2,6 +2,7 @@ package com.winlator.cmod.ui.settings
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import com.winlator.cmod.ui.settings.TestBuildUpdater.Note
 import org.junit.Test
 
 class TestBuildUpdaterTest {
@@ -67,5 +68,66 @@ class TestBuildUpdaterTest {
         assertEquals(1, TestBuildUpdater.compareVersion("v0.1.1", "0.1.0"))
         assertEquals(1, TestBuildUpdater.compareVersion("v0.10.0", "0.9.3"))
         assertEquals(-1, TestBuildUpdater.compareVersion("v0.1", "0.1.2"))
+    }
+
+    @Test
+    fun theStartScreenOffersTheNewestNewerRelease() {
+        fun release(tag: String) = TestBuildUpdater.Release(tag, "https://example.invalid/$tag", 1, "", true)
+        val listed = listOf(release("v0.4.0"), release("v0.5.1"), release("v0.5.0"), release("v0.3.0"))
+        assertEquals("v0.5.1", TestBuildUpdater.newestRelease(listed, "0.4.0")?.tag)
+        assertNull(TestBuildUpdater.newestRelease(listed, "0.5.1"))
+        assertNull(TestBuildUpdater.newestRelease(emptyList(), "0.4.0"))
+    }
+
+    @Test
+    fun aTestBuildIsOfferedOnlyWhenItsNumberIsHigher() {
+        fun build(n: Int) = TestBuildUpdater.CiBuild(n.toLong(), n, "feat/x", "", "")
+        val listed = listOf(build(183), build(181), build(182))
+        assertEquals(183, TestBuildUpdater.newestBuild(listed, 181)?.buildNumber)
+        assertNull(TestBuildUpdater.newestBuild(listed, 183))
+        // A local build has no number to compare with.
+        assertNull(TestBuildUpdater.newestBuild(listed, 0))
+    }
+
+    @Test
+    fun whatsNewTakesOnlyTheNewerVersionsWithoutMarkdown() {
+        val notes = """# Thor Forever v0.5.0 (alpha, pre-release)
+
+Thor Forever is an Android app.
+
+## New in v0.5.0
+
+The Forever Companion:
+- **Round** buttons again.
+- The map:
+  - Zoom is `smoother`.
+
+The app:
+- The start screen says when a new version is out.
+
+Coming from v0.1.1 or later: Settings > **Check for updates** installs it.
+
+## New in v0.4.0
+
+- Older things.
+
+## Install
+
+1. Download the APK.
+- Not a change.
+""".replace("\n", "\r\n")
+        assertEquals(listOf(
+            Note("The Forever Companion:", Note.Kind.GROUP),
+            Note("Round buttons again.", Note.Kind.POINT),
+            Note("The map:", Note.Kind.POINT),
+            Note("Zoom is smoother.", Note.Kind.SUB_POINT),
+            Note("The app:", Note.Kind.GROUP),
+            Note("The start screen says when a new version is out.", Note.Kind.POINT)
+        ), TestBuildUpdater.whatsNew(notes, "0.4.0"))
+        // Two versions behind: each version under its own heading.
+        val both = TestBuildUpdater.whatsNew(notes, "0.3.0")
+        assertEquals(Note("New in v0.5.0", Note.Kind.VERSION), both.first())
+        assertEquals(listOf(Note("New in v0.4.0", Note.Kind.VERSION), Note("Older things.", Note.Kind.POINT)), both.takeLast(2))
+        assertEquals(emptyList<Note>(), TestBuildUpdater.whatsNew(notes, "0.5.0"))
     }
 }

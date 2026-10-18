@@ -82,7 +82,12 @@ object TestBuildUpdater {
 
     data class CiBuild(val runId: Long, val buildNumber: Int, val branch: String, val title: String, val finishedAt: String)
 
-    data class Release(val tag: String, val apkUrl: String, val apkSize: Long, val publishedAt: String, val prerelease: Boolean)
+    data class Release(val tag: String, val apkUrl: String, val apkSize: Long, val publishedAt: String, val prerelease: Boolean, val notes: String = "")
+
+    /** One line of a release's "what's new": a version's heading, a group ("The Forever Companion:"), a point or a sub-point. */
+    data class Note(val text: String, val kind: Kind) {
+        enum class Kind { VERSION, GROUP, POINT, SUB_POINT }
+    }
 
     /** This app's CI build number, 0 for a local build. */
     val installedBuild: Int get() = BuildConfig.CI_BUILD_NUMBER
@@ -150,7 +155,8 @@ object TestBuildUpdater {
                 apkUrl = apk.getString("browser_download_url"),
                 apkSize = apk.optLong("size"),
                 publishedAt = release.optString("published_at"),
-                prerelease = release.optBoolean("prerelease")
+                prerelease = release.optBoolean("prerelease"),
+                notes = release.optString("body")
             )
         }
     }
@@ -167,6 +173,47 @@ object TestBuildUpdater {
             if (d != 0) return d.coerceIn(-1, 1)
         }
         return 0
+    }
+
+    /** The newest release that is newer than the installed version, or null. */
+    @JvmStatic
+    @JvmOverloads
+    fun newestRelease(releases: List<Release>, installed: String = BuildConfig.VERSION_NAME): Release? =
+        releases.filter { compareVersion(it.tag, installed) > 0 }.maxWithOrNull { a, b -> compareVersion(a.tag, b.tag) }
+
+    /** The newest test build after the installed one (none for a local build, which has no number). */
+    @JvmStatic
+    @JvmOverloads
+    fun newestBuild(builds: List<CiBuild>, installed: Int = installedBuild): CiBuild? =
+        if (installed <= 0) null else builds.filter { it.buildNumber > installed }.maxByOrNull { it.buildNumber }
+
+    /**
+     * What changed since the installed version, from a release's notes (docs/RELEASE-NOTES.md):
+     * the points of each "## New in vX" part newer than [installed], without the Markdown marks.
+     * The version headings are only there when more than one version is new.
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun whatsNew(notes: String, installed: String = BuildConfig.VERSION_NAME): List<Note> {
+        val parts = mutableListOf<Pair<String, MutableList<Note>>>()
+        var part: MutableList<Note>? = null
+        fun plain(text: String) = text.replace("**", "").replace("`", "").trim()
+        for (raw in notes.lines()) {
+            val line = raw.trimEnd('\r', ' ')
+            if (line.startsWith("#")) {
+                val version = Regex("^##\\s+New in v?(\\S+)").find(line)?.groupValues?.get(1)
+                part = if (version != null && compareVersion(version, installed) > 0) mutableListOf<Note>().also { parts += version to it } else null
+                continue
+            }
+            val into = part ?: continue
+            val bullet = Regex("^(\\s*)[-*] +(.*)").find(line)
+            when {
+                bullet != null -> into += Note(plain(bullet.groupValues[2]), if (bullet.groupValues[1].isEmpty()) Note.Kind.POINT else Note.Kind.SUB_POINT)
+                line.isNotBlank() && line.endsWith(":") -> into += Note(plain(line), Note.Kind.GROUP)
+            }
+        }
+        if (parts.size == 1) return parts[0].second
+        return parts.flatMap { (version, list) -> listOf(Note("New in v$version", Note.Kind.VERSION)) + list }
     }
 
     /** The download address of the run's APK artifact, or null when it has none (or it expired). */
@@ -223,6 +270,8 @@ object TestBuildUpdater {
                 if (total > 0) onProgress((done.toFloat() / total).coerceAtMost(1f))
             }
             counting.use { input -> apk.outputStream().use { input.copyTo(it, 64 * 1024) } }
+            // A cut-off file would only make Android's installer say the package is broken.
+            if (release.apkSize > 0 && apk.length() != release.apkSize) throw IllegalStateException("The download was cut off. Try again.")
             return apk
         } finally {
             connection.disconnect()
