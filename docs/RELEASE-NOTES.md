@@ -1,7 +1,21 @@
-# Thor Forever v0.4.0 (alpha, pre-release)
+# Thor Forever v0.5.0 (alpha, pre-release)
 
 Thor Forever is an Android app that starts World of Warcraft: Forever on the AYN Thor with one tap.
 It is a fork of Winlator Bionic (Winlator Ludashi). This is a test release, tested on one AYN Thor.
+
+## New in v0.5.0
+
+The app:
+- When a new Thor Forever is out, a small **New version** button shows at the top right of the start screen, and a line in the middle says so. Nothing opens by itself.
+- Tap the button to see what's new, then **Update now**. It downloads the update and opens Android's installer: press **Update**, then **Open**. Your setup, the game and your add-ons stay.
+- You can go back while it downloads. The button shows how far it is, then **Install**. **Stop download** stops it.
+
+The Forever Companion:
+- A new look, like the start screen: dark blue, gold frames and round buttons.
+- Names in chat have their class colours, like in the game's chat.
+- The gear boxes on the Character tab are all the same height.
+
+Coming from v0.1.1 or later: Settings > **Check for updates** installs it. Coming from v0.1.0: install this APK over it. Your setup, the game and your add-ons stay. The companion add-on updates itself to 0.30.3 the next time the companion starts. From v0.5.0 on, the start screen tells you by itself when the next release is out.
 
 ## New in v0.4.0
 
@@ -72,6 +86,7 @@ Step by step, and the Android settings to set first: [README](https://github.com
 - A first setup that runs by itself: Wine 11 (arm64ec, Thor build 7), DXVK 2.6.2 Thor (ARM64X), Turnip 26.2.3 (Thor build), esync, the "Thor Extreme" FEXCore preset and the game settings file `Config-Thor-Forever.wtf`.
 - Install Battle.net from the start screen, log in, install the game, then Play.
 - The start screen says when a game update is waiting.
+- The start screen says when a new Thor Forever is out, and installs it with a tap.
 - FPS cap (Off, 30, 40, 45, 60), timed to the screen refresh.
 - Overlay: Off, FPS, or FPS with a graph.
 - Add-ons: a store (popular add-ons from GitHub, and WoWInterface add-ons made for the game), install from a `.zip`, and uninstall.
