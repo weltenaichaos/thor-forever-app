@@ -219,6 +219,8 @@ android {
                 def screens = project.findProperty("companionScreens")
                 if (screens) systemProperty 'companion.screens.dir', screens
                 else exclude '**/CompanionScreensTest*'
+                // A failing test shows why in the build's log.
+                testLogging { events 'failed'; exceptionFormat 'full' }
             }
         }
     }
