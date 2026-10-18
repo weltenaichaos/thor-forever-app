@@ -601,6 +601,15 @@ public class XServerDisplayActivity extends AppCompatActivity {
         Log.i("XServerDisplayActivity", "Skip drawing hidden desktop: " + xServer.skipHiddenDraws);
         xServer.setWinHandler(winHandler);
         xServer.setRelativeMouseMovement(isRelativeMouseMovement);
+        // WoW: the mouse cursor starts in the middle of the screen. In the top-left corner, where
+        // the X server puts it, it sat on the companion's square with your position, and the app
+        // could not read it until the cursor was swiped away (Jesse, 2026-10-18). This only sets
+        // where it starts, before the game is running: nothing is sent to the game, and it moves
+        // with your touches as before.
+        if (isWowForeverShortcut()) {
+            xServer.pointer.setX(xServer.screenInfo.width / 2);
+            xServer.pointer.setY(xServer.screenInfo.height / 2);
+        }
         advertisePanelRefreshRates();
 
         boolean[] winStarted = { false };
