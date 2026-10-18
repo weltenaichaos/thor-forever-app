@@ -130,4 +130,28 @@ Coming from v0.1.1 or later: Settings > **Check for updates** installs it.
         assertEquals(listOf(Note("New in v0.4.0", Note.Kind.VERSION), Note("Older things.", Note.Kind.POINT)), both.takeLast(2))
         assertEquals(emptyList<Note>(), TestBuildUpdater.whatsNew(notes, "0.5.0"))
     }
+
+    @Test
+    fun aTestBuildListsTheCommitsSinceTheInstalledOneNewestFirst() {
+        val json = """{"commits":[
+            {"sha":"a","commit":{"message":"Companion: round buttons\n\nLonger text"}},
+            {"sha":"b","commit":{"message":"Merge branch '4.1' into feat/x"}},
+            {"sha":"c","commit":{"message":"Start screen: a small update button"}}]}"""
+        assertEquals(listOf(Note("Start screen: a small update button", Note.Kind.POINT), Note("Companion: round buttons", Note.Kind.POINT)),
+            TestBuildUpdater.parseCompare(json))
+        assertEquals(listOf(Note("Start screen: a small update button", Note.Kind.POINT), Note("and 1 more", Note.Kind.TEXT)),
+            TestBuildUpdater.parseCompare(json, limit = 1))
+    }
+
+    @Test
+    fun aCommitMessageBecomesTitleParagraphsAndPointsWithoutTrailers() {
+        val message = "Start screen: a small update button\n\nThe start screen no longer opens a page by\nitself.\n\n- Stop download\n- Back keeps it going\n\nCo-Authored-By: Someone <x@example.invalid>\nClaude-Session: https://example.invalid/s"
+        assertEquals(listOf(
+            Note("Start screen: a small update button", Note.Kind.GROUP),
+            Note("The start screen no longer opens a page by itself.", Note.Kind.TEXT),
+            Note("Stop download", Note.Kind.POINT),
+            Note("Back keeps it going", Note.Kind.POINT)
+        ), TestBuildUpdater.commitNotes(message))
+        assertEquals(emptyList<Note>(), TestBuildUpdater.commitNotes(""))
+    }
 }

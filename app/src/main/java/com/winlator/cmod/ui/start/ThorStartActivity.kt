@@ -157,22 +157,31 @@ class ThorStartActivity : ComponentActivity() {
     /** offer is null when the add-on has no file for this game (or error says why not). */
     private data class StoreOffer(val offer: AddonStore.Offer?, val error: String? = null)
 
-    /** A newer Thor Forever on GitHub, offered on its own page; null when there is none. */
+    /** A newer Thor Forever on GitHub, shown as a small button at the top right; null when there is none. */
     private var appUpdate by mutableStateOf<AppUpdate?>(null)
-    /** What the update is doing now, shown instead of its hint. */
+    /** Its page is open: what's new, Update now, Back. Only the player opens it. */
+    private var showAppUpdate by mutableStateOf(false)
+    /** What the update is doing now, or why it stopped; empty before anything was pressed. */
     private var appUpdateStatus by mutableStateOf("")
     /** How far the download is, 0 to 1, or -1 while nothing downloads. */
     private var appUpdateProgress by mutableStateOf(-1f)
     /** The downloaded APK, once it is complete. */
     private var appUpdateApk by mutableStateOf<java.io.File?>(null)
-    @Volatile private var appUpdateStopped = false
+    /** Which download counts: Stop download (or a new one) makes the running one end at its next step. */
+    @Volatile private var appDownload = 0
     private var checkingApp = false
     /** Android's installer opens by itself when the player comes back from allowing this app to install apps. */
     private var installWhenAllowed = false
 
     /** A release (or, for a tester with a GitHub token, a test build) and how to download it. */
     private class AppUpdate(
-        val key: String, val title: String, val hint: String, val notes: List<TestBuildUpdater.Note>,
+        val key: String,
+        /** On the button: "0.5.0" or "Build 184". */
+        val short: String,
+        /** In sentences: "Thor Forever 0.5.0" or "Test build 184". */
+        val name: String,
+        val hint: String,
+        val notes: List<TestBuildUpdater.Note>,
         val fetch: (Context, (Float) -> Unit) -> java.io.File
     )
 
@@ -217,12 +226,14 @@ class ThorStartActivity : ComponentActivity() {
     }
 
     /**
-     * Asks GitHub whether a newer Thor Forever is published, when the app starts and then at
-     * most every few hours. With a GitHub token saved (Settings > Check for updates), a newer
-     * test build counts too. No answer (offline, GitHub busy): nothing is shown.
+     * Asks GitHub whether a newer Thor Forever is published: when the app starts, and when the
+     * start screen comes back an hour or more later. With a GitHub token saved (Settings > Check
+     * for updates), a newer test build counts too. It only shows the small button at the top
+     * right: nothing opens by itself. No answer (offline, GitHub busy): nothing changes.
      */
     private fun checkForAppUpdate() {
-        if (!TestBuildUpdater.listsReleases || appUpdate != null || checkingApp) return
+        // While one downloads or waits to be installed, it stays the one offered.
+        if (!TestBuildUpdater.listsReleases || checkingApp || appUpdateProgress >= 0f || appUpdateApk != null) return
         val now = android.os.SystemClock.elapsedRealtime()
         if (appCheckedAt != 0L && now - appCheckedAt < APP_CHECK_EVERY_MS) return
         checkingApp = true
@@ -233,7 +244,8 @@ class ThorStartActivity : ComponentActivity() {
                 val release = TestBuildUpdater.newestRelease(TestBuildUpdater.fetchReleases())
                 answered = true
                 release?.let { r ->
-                    AppUpdate(r.tag, "Thor Forever ${r.tag.removePrefix("v")} is out",
+                    val version = r.tag.removePrefix("v")
+                    AppUpdate(r.tag, version, "Thor Forever $version",
                         "You have ${BuildConfig.VERSION_NAME}. Your game, add-ons and settings stay.",
                         TestBuildUpdater.whatsNew(r.notes)) { c, progress -> TestBuildUpdater.downloadRelease(c, r, progress) }
                 }
@@ -241,40 +253,52 @@ class ThorStartActivity : ComponentActivity() {
                 val token = TestBuildUpdater.loadToken(context)
                 if (token.isEmpty()) return@runCatching null
                 TestBuildUpdater.newestBuild(TestBuildUpdater.fetchBuilds(token))?.let { b ->
-                    AppUpdate("build ${b.buildNumber}", "Test build ${b.buildNumber} is ready",
-                        "From ${b.branch}, ${TestBuildUpdater.shortTime(b.finishedAt)}. You have build ${TestBuildUpdater.installedBuild}.", emptyList()
+                    val notes = runCatching { TestBuildUpdater.buildNotes(b, token) }
+                        .onFailure { Log.w("ThorStart", "Test build notes: $it") }.getOrDefault(emptyList())
+                    AppUpdate("build ${b.buildNumber}", "Build ${b.buildNumber}", "Test build ${b.buildNumber}",
+                        "From ${b.branch}, ${TestBuildUpdater.shortTime(b.finishedAt)}. You have build ${TestBuildUpdater.installedBuild}.", notes
                     ) { c, progress -> TestBuildUpdater.download(c, b, token, progress) }
                 }
             }.onFailure { Log.w("ThorStart", "Test build check failed: $it") }.getOrNull()
             runOnUiThread {
                 checkingApp = false
                 if (answered) appCheckedAt = now
-                if (found != null && found.key != laterFor && appUpdate == null) appUpdate = found
+                // A newer one takes the place of the one offered, unless that one is downloading.
+                if (found != null && found.key != appUpdate?.key && appUpdateProgress < 0f && appUpdateApk == null) {
+                    appUpdate = found
+                    appUpdateStatus = ""
+                }
             }
         }.start()
     }
 
-    /** Update now: downloads the new APK (once) and opens Android's installer for it. */
+    /** Update now (or Install): downloads the new APK once, then opens Android's installer for it. */
     private fun startAppUpdate() {
         val update = appUpdate ?: return
         appUpdateApk?.let { installAppUpdate(it); return }
         if (appUpdateProgress >= 0f) return
-        appUpdateStopped = false
+        val id = ++appDownload
         appUpdateProgress = 0f
-        appUpdateStatus = "Downloading the new version..."
+        appUpdateStatus = "Downloading. You can go back: the button at the top right shows how far it is."
         val context = applicationContext
         Thread {
             val result = runCatching {
                 update.fetch(context) { progress ->
-                    if (appUpdateStopped) throw java.io.InterruptedIOException("stopped")
-                    runOnUiThread { if (appUpdateProgress >= 0f) appUpdateProgress = progress }
+                    if (appDownload != id) throw java.io.InterruptedIOException("stopped")
+                    runOnUiThread { if (appDownload == id && appUpdateProgress >= 0f) appUpdateProgress = progress }
                 }
             }
             runOnUiThread {
-                if (appUpdateStopped || appUpdate !== update) return@runOnUiThread
+                if (appDownload != id || appUpdate !== update) return@runOnUiThread
                 appUpdateProgress = -1f
                 result.fold(
-                    onSuccess = { apk -> appUpdateApk = apk; installAppUpdate(apk) },
+                    onSuccess = { apk ->
+                        appUpdateApk = apk
+                        // Straight on to the installer if the player waits on the update's page;
+                        // otherwise the button at the top right says Install.
+                        if (showAppUpdate && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) installAppUpdate(apk)
+                        else appUpdateStatus = "Downloaded. Press Install to update."
+                    },
                     onFailure = { e ->
                         Log.w("ThorStart", "App update download failed", e)
                         appUpdateStatus = (e.message ?: "The download failed.") + " Press Update now to try again."
@@ -282,6 +306,14 @@ class ThorStartActivity : ComponentActivity() {
                 )
             }
         }.start()
+    }
+
+    /** Stop download: the download ends at its next step; Update now starts it again. */
+    private fun stopAppUpdate() {
+        if (appUpdateProgress < 0f) return
+        appDownload++
+        appUpdateProgress = -1f
+        appUpdateStatus = "Download stopped. Press Update now to start it again."
     }
 
     /** Android's own installer: it asks to update, closes the app, and offers Open when it's done. */
@@ -299,22 +331,19 @@ class ThorStartActivity : ComponentActivity() {
             .onFailure { appUpdateStatus = "Android's installer did not open (${it.message})." }
     }
 
-    /** For the screenshot test: the update page with these words, [progress] into its download (nothing is downloaded). */
-    internal fun previewAppUpdate(title: String, hint: String, notes: List<TestBuildUpdater.Note>, progress: Float = -1f) {
-        appUpdate = AppUpdate("preview", title, hint, notes) { _, _ -> throw java.io.IOException("only a preview") }
+    /** For the screenshot test: an update with these words, its page open or not, [progress] into its download (nothing is downloaded). */
+    internal fun previewAppUpdate(short: String, name: String, hint: String, notes: List<TestBuildUpdater.Note>, page: Boolean, progress: Float = -1f) {
+        appUpdate = AppUpdate("preview", short, name, hint, notes) { _, _ -> throw java.io.IOException("only a preview") }
+        showAppUpdate = page
         appUpdateProgress = progress
-        appUpdateStatus = if (progress >= 0f) "Downloading the new version..." else ""
+        appUpdateStatus = if (progress >= 0f) "Downloading. You can go back: the button at the top right shows how far it is." else ""
     }
 
-    /** Later: back to the start screen; the notice comes back the next time the app starts. A download stops. */
-    private fun laterAppUpdate() {
-        appUpdateStopped = true
-        laterFor = appUpdate?.key
-        appUpdate = null
-        appUpdateStatus = ""
-        appUpdateProgress = -1f
-        appUpdateApk = null
-        installWhenAllowed = false
+    /** The line under the status while an update is offered. */
+    private fun appUpdateLine(update: AppUpdate): String = when {
+        appUpdateProgress >= 0f -> "Downloading ${update.name}: ${(appUpdateProgress * 100).toInt()}%"
+        appUpdateApk != null -> "${update.name} is downloaded. Tap Install at the top right."
+        else -> "${update.name} is out. Tap the button at the top right to see what's new."
     }
 
     private fun load() {
@@ -714,7 +743,7 @@ class ThorStartActivity : ComponentActivity() {
             // its width on narrow screens), so the buttons stay a fitting size on the Thor.
             val u = minOf(maxHeight / 20f, maxWidth / 34f).coerceAtLeast(12.dp)
             // The add-on pages use a smaller logo, so their lists have more room.
-            val subPage = showStore || showAddons || appUpdate != null
+            val subPage = showStore || showAddons || (showAppUpdate && appUpdate != null)
             val logo = if (subPage) u * 3 / 5 else u
             val headerHeight = logo * 17 / 4
             val px = onePx()
@@ -739,9 +768,9 @@ class ThorStartActivity : ComponentActivity() {
                         AddonsPage(u, body)
                         return@Column
                     }
-                    val appNotice = appUpdate
-                    if (appNotice != null) {
-                        UpdatePage(appNotice, u, body)
+                    val offered = appUpdate
+                    if (showAppUpdate && offered != null) {
+                        UpdatePage(offered, u, body)
                         return@Column
                     }
                     Text(when {
@@ -750,6 +779,9 @@ class ThorStartActivity : ComponentActivity() {
                             else -> "Installed game version: $version"
                         }, style = body, color = GoldLight, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().height(u))
                     Text(status, style = body, color = TextColor, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().height(u * 2))
+                    if (offered != null) {
+                        Text(appUpdateLine(offered), style = body, color = Teal, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().height(u))
+                    }
                     Spacer(Modifier.weight(1f))
                     val enabled = loaded && game != null
                     val play = remember { FocusRequester() }
@@ -787,6 +819,20 @@ class ThorStartActivity : ComponentActivity() {
                     }
                     val setupReady = loaded && (setup == Setup.INSTALL_BATTLE_NET || setup == Setup.OPEN_BATTLE_NET)
                     LaunchedEffect(enabled, setupReady) { if (enabled || setupReady) runCatching { play.requestFocus() } }
+                }
+                // A newer Thor Forever: a small button at the top right, which opens its page.
+                val offered = appUpdate
+                if (!subPage && offered != null) {
+                    Box(Modifier.align(Alignment.TopEnd).padding(top = u / 2, end = u / 2)) {
+                        val progress = appUpdateProgress
+                        val ready = appUpdateApk != null
+                        StartButton(
+                            if (progress >= 0f) "Downloading" else if (ready) "Downloaded" else "New version",
+                            if (progress >= 0f) "${(progress * 100).toInt()}%" else if (ready) "Install" else offered.short,
+                            u, u * 22 / 5, height = u * 9 / 5, fontSize = u / 2, play = true,
+                            onClick = { showAppUpdate = true; if (ready) startAppUpdate() }
+                        )
+                    }
                 }
             }
         }
@@ -896,21 +942,23 @@ class ThorStartActivity : ComponentActivity() {
         LaunchedEffect(Unit) { runCatching { back.requestFocus() } }
     }
 
-    /** A newer Thor Forever: what's new, Update now and Later. */
+    /** A newer Thor Forever: what's new, Update now (with how far it is), Stop download and Back. */
     @Composable
     private fun ColumnScope.UpdatePage(update: AppUpdate, u: Dp, body: TextStyle) {
-        BackHandler { laterAppUpdate() }
+        // Back keeps a download going: the button at the top right shows it.
+        BackHandler { showAppUpdate = false }
         val main = remember { FocusRequester() }
-        PageTitle(update.title, appUpdateStatus.ifEmpty { update.hint }, u, body, highlight = appUpdateStatus.isNotEmpty())
+        PageTitle("${update.name} is out", appUpdateStatus.ifEmpty { update.hint }, u, body, highlight = appUpdateStatus.isNotEmpty())
         val notes = body.copy(fontSize = textSize(u / 2), lineHeight = textSize(u * 7 / 10))
+        val heading = FontFamily(Font(R.font.cinzel_bold, FontWeight.Bold))
         PageList(u) {
-            if (update.notes.isNotEmpty()) {
-                Text("What's new", color = GoldLight, fontFamily = FontFamily(Font(R.font.cinzel_bold, FontWeight.Bold)), fontSize = textSize(u * 11 / 20))
-            }
+            Text("What's new", color = GoldLight, fontFamily = heading, fontSize = textSize(u * 11 / 20))
+            if (update.notes.isEmpty()) Text("No notes came with it.", style = notes, color = Sky, modifier = Modifier.padding(top = u / 5))
             for (note in update.notes) when (note.kind) {
-                TestBuildUpdater.Note.Kind.VERSION -> Text(note.text, color = GoldLight, fontFamily = FontFamily(Font(R.font.cinzel_bold, FontWeight.Bold)),
+                TestBuildUpdater.Note.Kind.VERSION -> Text(note.text, color = GoldLight, fontFamily = heading,
                     fontSize = textSize(u / 2), modifier = Modifier.padding(top = u / 3))
                 TestBuildUpdater.Note.Kind.GROUP -> Text(note.text, style = notes, color = Sky, modifier = Modifier.padding(top = u / 5))
+                TestBuildUpdater.Note.Kind.TEXT -> Text(note.text, style = notes, color = TextColor, modifier = Modifier.padding(top = u / 5))
                 TestBuildUpdater.Note.Kind.POINT, TestBuildUpdater.Note.Kind.SUB_POINT -> {
                     val sub = note.kind == TestBuildUpdater.Note.Kind.SUB_POINT
                     Row(Modifier.padding(start = if (sub) u * 3 / 4 else u / 4, top = u / 10)) {
@@ -928,7 +976,8 @@ class ThorStartActivity : ComponentActivity() {
                 else -> "Update now"
             }
             StartButton(null, label, u, u * 8, height = u * 7 / 5, fontSize = u * 11 / 20, play = true, focusRequester = main, onClick = ::startAppUpdate)
-            StartButton(null, "Later", u, u * 13 / 2, height = u * 7 / 5, fontSize = u * 11 / 20, onClick = ::laterAppUpdate)
+            if (progress >= 0f) StartButton(null, "Stop download", u, u * 13 / 2, height = u * 7 / 5, fontSize = u * 11 / 20, onClick = ::stopAppUpdate)
+            StartButton(null, "Back", u, u * 13 / 2, height = u * 7 / 5, fontSize = u * 11 / 20, onClick = { showAppUpdate = false })
         }
         LaunchedEffect(Unit) { runCatching { main.requestFocus() } }
     }
@@ -1124,11 +1173,10 @@ class ThorStartActivity : ComponentActivity() {
         private const val EXTRA_FPS_LIMIT = "nativeFpsLimit"
         private val FPS_CAPS = listOf(0, 30, 40, 45, 60)
         private val OVERLAYS = listOf("Off", "FPS", "FPS + graph")
-        /** The app's update is checked when it starts, then at most this often. */
-        private const val APP_CHECK_EVERY_MS = 6 * 60 * 60 * 1000L
-        /** For the life of the app: when GitHub last answered, and the update put off with Later. */
+        /** The app's update is checked when it starts, then at most this often (GitHub allows 60 questions an hour without a token). */
+        private const val APP_CHECK_EVERY_MS = 60 * 60 * 1000L
+        /** When GitHub last answered, for the life of the app. */
         private var appCheckedAt = 0L
-        private var laterFor: String? = null
 
         private val Background = Color(16, 38, 59)
         private val HeaderTop = Color(65, 110, 151)

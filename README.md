@@ -102,7 +102,8 @@ Thor Forever is its own app (`com.thorforever.app`). It installs next to any Win
   - Uninstall an add-on with one tap.
 - **Companion:** turn the [Forever Companion](#forever-companion) on or off.
 - **Updates:**
-  - When a new release is out, the start screen says so when the app starts, with what's new. **Update now** downloads it and opens Android's installer: press **Update**, then **Open**. Your setup, the game and your add-ons stay. **Later** asks again the next time the app starts.
+  - When a new release is out, a small **New version** button shows at the top right of the start screen. Nothing opens by itself. Tap it to see what's new, then **Update now**: it downloads the release and opens Android's installer. Press **Update**, then **Open**. Your setup, the game and your add-ons stay.
+  - While it downloads you can go back: the button at the top right shows how far it is, and then says **Install**. **Stop download** on the update's page stops it.
   - The first time, Android asks whether Thor Forever may install apps. Switch on **Allow from this source** and go back: the installer opens by itself.
   - Settings > **Check for updates** lists all published releases and installs the one you tap.
 - **Crash reports:** WoW's crash reports are copied to `Winlator/logs/wow-errors`, where you can open them.

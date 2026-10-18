@@ -62,13 +62,21 @@ class StartScreenShotsTest {
         controller.pause().stop().destroy()
     }
 
+    private val hint = "You have 0.4.0. Your game, add-ons and settings stay."
+
     @Test fun start() = shoot("start-1-screen")
 
+    /** Only the small button at the top right and a line in the middle: nothing opens by itself. */
     @Test fun newVersion() = shoot("start-2-new-version") {
-        previewAppUpdate("Thor Forever 0.5.0 is out", "You have 0.4.0. Your game, add-ons and settings stay.", notes)
+        previewAppUpdate("0.5.0", "Thor Forever 0.5.0", hint, notes, page = false)
     }
 
-    @Test fun downloading() = shoot("start-3-downloading") {
-        previewAppUpdate("Thor Forever 0.5.0 is out", "You have 0.4.0. Your game, add-ons and settings stay.", notes, progress = 0.42f)
+    @Test fun updatePage() = shoot("start-3-update-page") {
+        previewAppUpdate("0.5.0", "Thor Forever 0.5.0", hint, notes, page = true)
+    }
+
+    /** Back from the page while it downloads: the button shows how far it is. */
+    @Test fun downloading() = shoot("start-4-downloading") {
+        previewAppUpdate("0.5.0", "Thor Forever 0.5.0", hint, notes, page = false, progress = 0.42f)
     }
 }

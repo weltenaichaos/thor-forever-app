@@ -133,6 +133,8 @@ android {
         // Which CI build this is, so the app can tell whether a newer test build exists.
         buildConfigField "int", "CI_BUILD_NUMBER", (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
         buildConfigField "String", "CI_BRANCH", "\"" + (System.getenv("GITHUB_REF_NAME") ?: "local") + "\""
+        // The commit it was built from, so a newer test build can list the commits since.
+        buildConfigField "String", "CI_COMMIT", "\"" + (System.getenv("GITHUB_SHA") ?: "") + "\""
 
         // External native build from Winlator
         externalNativeBuild {
