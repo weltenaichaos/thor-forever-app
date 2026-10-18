@@ -11,6 +11,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.ConscryptMode
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
@@ -22,6 +23,8 @@ import java.io.File
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
+// The app brings Conscrypt for Android, whose native part Robolectric can't load on a PC.
+@ConscryptMode(ConscryptMode.Mode.OFF)
 @Config(sdk = [33], qualifiers = "w564dp-h491dp-land-352dpi")
 class CompanionScreensTest {
 
