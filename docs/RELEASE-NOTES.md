@@ -17,6 +17,7 @@ The Forever Companion:
   - **Turn with me** turns the map with you, like the minimap (still being tried out).
 - When you die and release your spirit, the Map tab opens by itself and leads you to your corpse, also in the zone next door. Once you live again, the companion goes back to the tab you were on.
 - **Errands** and the Quests tab show where each finished quest is handed in, also in another zone ("Turn it in at Brill, Tirisfal Glades"). Fewer quests are left under "Turn-in place not known".
+- The mouse cursor starts in the middle of the game's screen. In the top-left corner it covered the square with your position, and the map didn't follow you until you swiped the cursor away.
 
 Coming from v0.1.1 or later: Settings > **Check for updates** installs it. Coming from v0.1.0: install this APK over it. Your setup, the game and your add-ons stay. The companion add-on updates itself to 0.30.2 the next time the companion starts.
 
