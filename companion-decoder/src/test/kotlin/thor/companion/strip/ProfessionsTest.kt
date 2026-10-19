@@ -84,4 +84,36 @@ class ProfessionsTest {
         assertEquals(1, p.list.size)
         assertEquals(null, Professions.parse("TF1|1000\np\tTailoring\t50\t75")!!.progress)
     }
+
+    @Test
+    fun readsWhichItemsAnEnchantmentFits() {
+        // Addon 0.30.4: an enchantment ends with the items it goes on (worn slot 9, a bag item), maybe none.
+        val page = RecipePage.parse("TR1|Enchanting|95|150|1|1|1000\n" +
+            "h\t0\t0\t0\t0\t\tBracer\n" +
+            "m\t0\t1\t1\t0\t10940:2\tEnchant Bracer - Minor Health\t9:2000,1003:2001\n" +
+            "e\t0\t1\t1\t0\t10940:3\tEnchant Bracer - Minor Stamina\t\n" +
+            "t\t6218\t1\t1\t0\t6217:1\tRuned Copper Rod")!!
+        val health = page.recipes[1]
+        assertEquals(listOf(EnchantTarget(9, 2000), EnchantTarget(1003, 2001)), health.fits)
+        assertEquals(true, health.enchantment)
+        assertEquals("Enchant Bracer - Minor Health", health.name)
+        assertEquals(true, health.fits!![0].worn)
+        assertEquals(0, health.fits!![1].bag)
+        assertEquals(3, health.fits!![1].bagSlot)
+        assertEquals(emptyList(), page.recipes[2].fits)
+        assertEquals(true, page.recipes[2].enchantment)
+        assertNull(page.recipes[3].fits)
+        assertEquals(false, page.recipes[3].enchantment)
+
+        // Make with the item: two more numbers before MAKE.
+        assertEquals(listOf("ALT-CTRL-NUMPAD1", "ALT-CTRL-F1", "ALT-CTRL-NUMPAD2", "ALT-CTRL-F1", "ALT-CTRL-NUMPAD1",
+            "ALT-CTRL-F1", "ALT-CTRL-NUMPAD9", "ALT-CTRL-F1", "ALT-CTRL-NUMPAD2", "ALT-CTRL-NUMPAD0", "ALT-CTRL-NUMPAD0",
+            "ALT-CTRL-NUMPAD0", "ALT-CTRL-F2"), Professions.makeKeys(1, 2, 1, EnchantTarget(9, 2000)))
+
+        // The game asks before replacing an enchantment: still running, and asking.
+        val asking = Professions.parse("TF1|5\nc\t4\t0\t1\tasking\tDo you want to replace \"+3 Stamina\" with \"+5 Health\"?\tEnchant Bracer - Minor Health")!!.progress!!
+        assertEquals(true, asking.asking)
+        assertEquals(true, asking.running)
+        assertEquals("Do you want to replace \"+3 Stamina\" with \"+5 Health\"?", asking.reason)
+    }
 }

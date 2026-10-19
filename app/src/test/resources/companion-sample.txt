@@ -5,7 +5,7 @@ TS1|Jessra|24|34217|1420|0.6195|0.6490|0.1|1792350000|9164|0.30.3|5:37515,6:5957
 # Messages are as the addon 0.30.3 builds them (real tabs and newlines inside). Times: time() = 1792352400,
 # GetTime() = 84213. The status walks from the Undercity gate to the Brill inn (the Map tab's path).
 # bags: 28 stacks, 8 of 36 slots free (the addon sends them right after the first status)
-TB1|8/36|6948:1:1,2136:20:2,2136:20:3,1114:20:4,1114:6:5,17031:7:6,3531:9:7,3385:3:8,858:2:9,3496:10:10,2592:20:11,2592:13:12,2589:7:13,4306:6:14,6218:1:15,2997:4:16,2996:2:17,2321:5:18,2604:3:19,10940:11:20,10938:4:21,10939:1:25,10978:1:26,818:1:27,774:2:28,7073:4:36,7074:3:37,4865:2:38
+TB1|7/36|6948:1:1,2136:20:2,2136:20:3,1114:20:4,1114:6:5,17031:7:6,3531:9:7,3385:3:8,858:2:9,3496:10:10,2592:20:11,2592:13:12,2589:7:13,4306:6:14,6218:1:15,2997:4:16,2996:2:17,2321:5:18,2604:3:19,10940:11:20,10938:4:21,2585:1:22,10939:1:25,10978:1:26,818:1:27,774:2:28,7073:4:36,7074:3:37,4865:2:38
 ---
 TS1|Jessra|24|34217|1420|0.6172|0.6315|0.1|1792350000|9164|0.30.3|5:37515,6:59571,7:36169,8:31431,10:55632,11:40647
 ---
@@ -81,21 +81,26 @@ e	1792352070	Your skill in Tailoring has increased to 117.
 e	1792352099	You create: [Bolt of Woolen Cloth].
 e	1792352101	Your skill in Tailoring has increased to 118.
 ---
-# recipes: Enchanting|95|150|1|2|1792086000
+# recipes: Enchanting|95|150|1|2|1792086000 (addon 0.30.4: headings, and the items each enchantment goes on)
 TR1|Enchanting|95|150|1|2|1792086000
-o	0	1	1	0	10940:2;10939:1	Enchant Bracer - Minor Agility
-o	0	1	1	0	10939:1;10938:1	Enchant Chest - Lesser Mana
-m	0	1	1	0	10940:2;10938:2	Enchant Chest - Lesser Health
-m	0	1	1	0	10938:2	Enchant Bracer - Minor Spirit
-e	0	1	1	0	10940:3	Enchant Bracer - Minor Stamina
-e	0	1	1	0	10940:2;10938:1	Enchant Chest - Minor Absorption
-t	11287	1	1	0	4470:1;10938:1	Lesser Magic Wand
-t	0	1	1	0	10938:1	Enchant Chest - Minor Mana
+h	0	0	0	0		Bracer
+o	0	1	1	0	10940:2;10939:1	Enchant Bracer - Minor Agility	9:9793
+m	0	1	1	0	10938:2	Enchant Bracer - Minor Spirit	9:9793
+e	0	1	1	0	10940:3	Enchant Bracer - Minor Stamina	9:9793
+t	0	1	1	0	10940:1	Enchant Bracer - Minor Health	9:9793
+h	0	0	0	0		Chest
+o	0	1	1	0	10939:1;10938:1	Enchant Chest - Lesser Mana	5:6264,1104:2585
+m	0	1	1	0	10940:2;10938:2	Enchant Chest - Lesser Health	5:6264,1104:2585
+e	0	1	1	0	10940:2;10938:1	Enchant Chest - Minor Absorption	5:6264,1104:2585
 ---
 # recipes: Enchanting|95|150|2|2|1792086000
 TR1|Enchanting|95|150|2|2|1792086000
-t	0	1	1	0	10940:1	Enchant Chest - Minor Health
-t	0	1	1	0	10940:1	Enchant Bracer - Minor Health
+t	0	1	1	0	10938:1	Enchant Chest - Minor Mana	5:6264,1104:2585
+t	0	1	1	0	10940:1	Enchant Chest - Minor Health	5:6264,1104:2585
+h	0	0	0	0		Cloak
+m	0	1	1	0	10940:3	Enchant Cloak - Minor Protection	15:4311
+h	0	0	0	0		Rods and Wands
+t	11287	1	1	0	4470:1;10938:1	Lesser Magic Wand
 t	6218	1	1	0	6217:1;10940:1;10938:1	Runed Copper Rod
 ---
 # recipes: First Aid|132|150|1|1|1792176000
@@ -161,6 +166,7 @@ TN2|818	2	15	0	150	Tradeskill / Jewelcrafting	Tigerseye
 4315	2	24	19	425	Armor / Cloth	Reinforced Woolen Shoulders
 4311	2	21	16	475	Armor / Cloth	Heavy Woolen Cloak
 6264	2	23	18	884	Armor / Cloth	Greater Adept's Robe
+2585	2	21	16	330	Armor / Cloth	Gray Woolen Robe
 2587	1	20	0	125	Armor / Miscellaneous	Gray Woolen Shirt
 5976	1	1	0	2500	Armor / Miscellaneous	Guild Tabard
 ---

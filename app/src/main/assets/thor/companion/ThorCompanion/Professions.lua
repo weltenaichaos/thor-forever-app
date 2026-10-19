@@ -8,13 +8,17 @@
 --                                                      index into ns.ActionKeys, see the open keys below)
 --   f<tab>1                                            the Make keys are bound (see the Make keys below)
 --   TR1|<profession>|<level>|<max>|<page>|<pages>|<read at>
---   <kind><tab><itemID><tab><made min><tab><made max><tab><ready at><tab><materials><tab><name>
+--   <kind><tab><itemID><tab><made min><tab><made max><tab><ready at><tab><materials><tab><name>[<tab><fits>]
 --                                                      the recipes, in the profession window's order
+--                                                      and under its headings
 --   TK1|<read at>|itemID:count,...                     the materials of these recipes in your bank
 -- <kind>: o, m, e or t (the game's orange, yellow, green and grey: how sure a skill point
 -- is), h for a heading. <itemID> is what the recipe makes (0 for an enchantment).
 -- <ready at> is when a recipe with a cooldown can be made again (0: now). <materials> is
 -- "itemID:count;itemID:count", an item the game hasn't loaded yet as "0:count:name".
+-- <fits> only comes with an enchantment: the items it can go on, as the game's own enchanting
+-- window lists them (C_TradeSkillUI.GetEnchantItems), "place:itemID,place:itemID" (empty: none
+-- now). <place> is a worn item's slot (1 to 19) or 1000 + bag * 100 + slot for one in the bags.
 -- The game shows the recipes only while a profession window is open: they are read then
 -- and kept per character (saved with the addon's settings), so the app has them after the
 -- next login too. The same for the bank, which the game shows only while it is open.
@@ -168,14 +172,73 @@ local function readCrafts()
     return clean(profession, MAX_NAME), number(rank) or 0, number(max) or 0, rows
 end
 
--- The newer profession window, for a game that has it instead.
+-- Where an item is, as one number (see <fits> above): a worn item's slot, or 1000 + bag * 100 + slot.
+local function placeOf(bag, slot)
+    if bag then return 1000 + bag * 100 + slot end
+    return slot
+end
+
+local function locationOf(place)
+    if not (ItemLocation and place) then return nil end
+    if place >= 1000 then
+        return ItemLocation:CreateFromBagAndSlot(math.floor((place - 1000) / 100), (place - 1000) % 100)
+    end
+    return ItemLocation:CreateFromEquipmentSlot(place)
+end
+
+-- Everything you wear and carry, by the game's item GUID: { place, id }.
+local function itemsByGUID()
+    local out = {}
+    if not (ItemLocation and C_Item and C_Item.DoesItemExist and C_Item.GetItemGUID) then return out end
+    local function note(loc, place)
+        local okE, exists = pcall(C_Item.DoesItemExist, loc)
+        if not okE or not exists then return end
+        local okG, guid = pcall(C_Item.GetItemGUID, loc)
+        if okG and guid and not secret(guid) then
+            out[guid] = { place = place, id = number(C_Item.GetItemID and C_Item.GetItemID(loc)) or 0 }
+        end
+    end
+    for slot = 1, 19 do note(ItemLocation:CreateFromEquipmentSlot(slot), slot) end
+    local bags = (NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4)
+    for bag = 0, bags do
+        local n = C_Container and C_Container.GetContainerNumSlots and C_Container.GetContainerNumSlots(bag) or 0
+        for slot = 1, math.min(n or 0, 99) do note(ItemLocation:CreateFromBagAndSlot(bag, slot), placeOf(bag, slot)) end
+    end
+    return out
+end
+
+-- The items an enchantment can go on, as the game's enchanting window offers them: { place, id }, worn first.
+local MAX_FITS = 8   -- (a recipe row has to fit a page: see build)
+local function enchantItems(recipeID, byGUID)
+    local ui = C_TradeSkillUI
+    local out = {}
+    if not (ui and ui.GetEnchantItems) then return out end
+    local ok, guids = pcall(ui.GetEnchantItems, recipeID)
+    if not ok or type(guids) ~= "table" then return out end
+    for _, guid in ipairs(guids) do
+        local at = not secret(guid) and byGUID[guid]
+        if at then out[#out + 1] = at end
+    end
+    table.sort(out, function(x, y) return x.place < y.place end)
+    return out
+end
+
+local function isEnchant(info, schematic)
+    if info and info.isEnchantingRecipe then return true end
+    local kinds = Enum and Enum.TradeskillRecipeType
+    return schematic ~= nil and kinds ~= nil and kinds.Enchant ~= nil and schematic.recipeType == kinds.Enchant
+end
+
+-- The newer profession window, for a game that has it instead (this one, WoW Forever): its
+-- recipes under its own headings (Bracer, Chest, ... for enchanting), in its order.
 local function readModern()
     local ui = C_TradeSkillUI
     if not (ui and ui.GetAllRecipeIDs and ui.GetRecipeInfo and ui.GetBaseProfessionInfo) then return nil end
     local info = ui.GetBaseProfessionInfo()
     if not info or not info.professionName or secret(info.professionName) then return nil end
-    local rows = {}
+    local entries = {}
     local now = time()
+    local byGUID  -- read once, when the first enchantment comes
     for _, id in ipairs(ui.GetAllRecipeIDs() or {}) do
         local r = ui.GetRecipeInfo(id)
         if r and r.learned and r.name and not secret(r.name) then
@@ -191,8 +254,47 @@ local function readModern()
                 end
             end
             local wait = ui.GetRecipeCooldown and number((ui.GetRecipeCooldown(id)))
-            rows[#rows + 1] = row(MODERN_KINDS[r.relativeDifficulty] or "t", out, low, high,
+            local enchant = isEnchant(r, okS and s or nil)
+            local text = row(MODERN_KINDS[r.relativeDifficulty] or "t", enchant and 0 or out, low, high,
                 wait and wait > 0 and math.floor(now + wait) or 0, materials, r.name)
+            if enchant then
+                byGUID = byGUID or itemsByGUID()
+                local fits = {}
+                for i, at in ipairs(enchantItems(id, byGUID)) do
+                    if i > MAX_FITS then break end
+                    fits[#fits + 1] = at.place .. ":" .. at.id
+                end
+                text = text .. "\t" .. table.concat(fits, ",")
+            end
+            entries[#entries + 1] = { category = number(r.categoryID) or 0, text = text }
+        end
+    end
+    -- Under the window's headings: its category order, then any other in the order its recipes came.
+    local order, seen = {}, {}
+    local okC, cats = pcall(function() return { ui.GetCategories() } end)
+    if okC and type(cats) == "table" then
+        if type(cats[1]) == "table" then cats = cats[1] end
+        for _, c in ipairs(cats) do
+            c = number(c)
+            if c and not seen[c] then seen[c] = true order[#order + 1] = c end
+        end
+    end
+    for _, e in ipairs(entries) do
+        if not seen[e.category] then seen[e.category] = true order[#order + 1] = e.category end
+    end
+    local byCategory = {}
+    for _, e in ipairs(entries) do
+        byCategory[e.category] = byCategory[e.category] or {}
+        table.insert(byCategory[e.category], e.text)
+    end
+    local rows = {}
+    for _, c in ipairs(order) do
+        local list = byCategory[c]
+        if list then
+            local okI, cat = pcall(function() return ui.GetCategoryInfo and ui.GetCategoryInfo(c) end)
+            local title = okI and cat and cat.name
+            if title and not secret(title) and title ~= "" then rows[#rows + 1] = row("h", 0, 0, 0, 0, nil, title) end
+            for _, t in ipairs(list) do rows[#rows + 1] = t end
         end
     end
     return clean(info.professionName, MAX_NAME), number(info.skillLevel) or 0, number(info.maxSkillLevel) or 0, rows
@@ -253,22 +355,59 @@ local function addResult(text)
 end
 
 -- What is being made now (a Make): how many of how many, and whether the game stopped.
--- Sent as c\t<seq>\t<made>\t<wanted>\t<status>\t<reason>\t<name>; status making, done or stopped.
+-- Sent as c\t<seq>\t<made>\t<wanted>\t<status>\t<reason>\t<name>; status making, done or stopped,
+-- or asking while the game asks something about an enchantment (<reason>: its question, as
+-- "Do you want to replace ...?"); the app's Yes and No answer it (the answer keys below).
 local run
 local runSeq = 0
 local function runChanged()
     changed = true
     if ns.ProfessionsUrgent then ns.ProfessionsUrgent() end
 end
-local function startRun(name, itemId, want)
+local function startRun(name, itemId, want, spell)
     runSeq = runSeq + 1
-    run = { seq = runSeq, name = clean(name, MAX_NAME), id = itemId, want = want, made = 0, status = "making", reason = "", at = GetTime() }
+    run = { seq = runSeq, name = clean(name, MAX_NAME), id = itemId, want = want, made = 0, status = "making", reason = "", at = GetTime(), spell = spell }
     runChanged()
 end
+local function busy() return run and (run.status == "making" or run.status == "asking") end
 local function stopRun(reason)
-    if not run or run.status ~= "making" then return end
-    run.status, run.reason = "stopped", clean(reason or "", 40)
+    if not busy() then return end
+    run.status, run.reason, run.asking = "stopped", clean(reason or "", 60, true), nil
     runChanged()
+end
+
+-- The game asks before an enchantment replaces another one or binds the item to you
+-- (its own dialog on the top screen). Answered there or with the app's Yes and No.
+local function ask(which, text)
+    run.status, run.reason, run.asking = "asking", clean(text, 90, true), which
+    runChanged()
+    if not (StaticPopup_Visible and C_Timer) then return end
+    local seq = run.seq
+    local function check()
+        if not run or run.seq ~= seq or run.status ~= "asking" then return end
+        if StaticPopup_Visible(which) then C_Timer.After(0.5, check) return end
+        -- Answered in the game: a yes starts the enchantment (UNIT_SPELLCAST_START), a no doesn't.
+        C_Timer.After(1.5, function()
+            if run and run.seq == seq and run.status == "asking" then stopRun("nothing enchanted: the game's question got a no") end
+        end)
+    end
+    C_Timer.After(1, check)
+end
+
+local ANSWERS = { REPLACE_ENCHANT = "ReplaceEnchant", REPLACE_TRADESKILL_ENCHANT = "ReplaceTradeskillEnchant", BIND_ENCHANT = "BindEnchant" }
+local function answer(yes)
+    if not run or run.status ~= "asking" then return end
+    local which = run.asking
+    if yes then
+        local name = ANSWERS[which]
+        local f = name and ((C_Item and C_Item[name]) or _G[name])
+        if f then pcall(f) end
+        run.status, run.reason, run.asking = "making", "", nil
+        runChanged()
+    else
+        stopRun("you said no: nothing enchanted")
+    end
+    if StaticPopup_Hide and which then pcall(StaticPopup_Hide, which) end
 end
 local function runMade(text)
     if not run or run.status ~= "making" then return end
@@ -280,16 +419,44 @@ local function runMade(text)
     end
 end
 local runEvents = CreateFrame("Frame")
-for _, e in ipairs({ "UNIT_SPELLCAST_INTERRUPTED", "UI_ERROR_MESSAGE" }) do pcall(runEvents.RegisterEvent, runEvents, e) end
-runEvents:SetScript("OnEvent", function(_, event, a, b)
-    if not run or run.status ~= "making" then return end
+for _, e in ipairs({ "UNIT_SPELLCAST_INTERRUPTED", "UI_ERROR_MESSAGE", "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED",
+    "UNIT_SPELLCAST_FAILED", "REPLACE_ENCHANT", "REPLACE_TRADESKILL_ENCHANT", "BIND_ENCHANT" }) do
+    pcall(runEvents.RegisterEvent, runEvents, e)
+end
+local lastError, lastErrorAt = nil, 0
+runEvents:SetScript("OnEvent", function(_, event, a, b, c)
+    local message
+    if event == "UI_ERROR_MESSAGE" then
+        -- (message type, message), or just the message in older games
+        message = type(b) == "string" and b or a
+        if type(message) ~= "string" or secret(message) then return end
+        lastError, lastErrorAt = message, GetTime()
+    end
+    if not busy() then return end
     if event == "UNIT_SPELLCAST_INTERRUPTED" then
         if a == "player" then stopRun("interrupted") end
-    else
-        -- (message type, message), or just the message in older games
-        local message = type(b) == "string" and b or a
-        if type(message) ~= "string" or secret(message) then return end
-        if message == ERR_INV_FULL or message:lower():find("full", 1, true) then stopRun(message) end
+    elseif event == "UI_ERROR_MESSAGE" then
+        if message == ERR_INV_FULL or message:lower():find("full", 1, true) then stopRun(message)
+        -- An enchantment the game refuses right away says why ("Requires Runed Copper Rod").
+        elseif run.spell and GetTime() - run.at < 3 then stopRun(message) end
+    elseif not run.spell then
+        return
+    elseif event == "REPLACE_ENCHANT" or event == "REPLACE_TRADESKILL_ENCHANT" then
+        local okF, text = pcall(string.format, REPLACE_ENCHANT or "Replace \"%s\" with \"%s\"?", tostring(a or ""), tostring(b or ""))
+        ask(event, okF and text or "Replace the enchantment that is on it?")
+    elseif event == "BIND_ENCHANT" then
+        ask(event, BIND_ENCHANT or "Enchanting this item will bind it to you.")
+    elseif a == "player" and number(c) == run.spell then
+        if event == "UNIT_SPELLCAST_START" and run.status == "asking" then
+            run.status, run.reason, run.asking = "making", "", nil
+            runChanged()
+        elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+            run.made, run.status, run.reason, run.asking = 1, "done", "", nil
+            addResult("Enchanted " .. (run.on or "it") .. ": " .. run.name)
+            runChanged()
+        elseif event == "UNIT_SPELLCAST_FAILED" then
+            stopRun(GetTime() - lastErrorAt < 1 and lastError or "the game didn't do it")
+        end
     end
 end)
 
@@ -428,11 +595,13 @@ syncOpenKeys = function()
 end
 
 -- The Make keys: the app's Make without typing in the chat. It presses, one after another,
---   <profession n> SEP <row> SEP <count> MAKE
+--   <profession n> SEP <row> SEP <count> [SEP <place> SEP <itemID>] MAKE
 -- each number as digit keys: ALT-CTRL-NUMPAD0 to 9, SEP is ALT-CTRL-F1 and MAKE ALT-CTRL-F2.
 -- <profession n> is that profession's open key (ALT-SHIFT-F<n>), <row> the recipe's place in
 -- its TR1 rows (1 first, headings counted). MAKE is the key press that crafts (the game wants
 -- one); the digits before it only say what. One tap in the app, one craft, as with typing.
+-- An enchantment also says which item it goes on: its <place> (see <fits> above) and itemID.
+-- ALT-CTRL-F3 and ALT-CTRL-F4 answer the game's question about an enchantment: yes and no.
 local makeOwner = CreateFrame("Frame")
 local digits, digitsAt = "", 0
 local makeBound = false
@@ -453,8 +622,10 @@ local function makeNow()
     local text = digits
     digits = ""
     if GetTime() - digitsAt > 2 then return end
-    local n, row, count = text:match("^(%d+)%*(%d+)%*(%d+)$")
-    n, row, count = tonumber(n), tonumber(row), tonumber(count)
+    local nums = {}
+    for v in text:gmatch("[^*]+") do nums[#nums + 1] = tonumber(v) end
+    if not text:match("^[%d*]+$") or (#nums ~= 3 and #nums ~= 5) then nums = {} end
+    local n, row, count, place, item = nums[1], nums[2], nums[3], nums[4], nums[5]
     local names = {}
     for name in pairs(mine().recipes) do if name ~= "" then names[#names + 1] = name end end
     table.sort(names)
@@ -467,12 +638,15 @@ local function makeNow()
     local f = { strsplit("\t", r) }
     local id = tonumber(f[2]) or 0
     local what = id > 0 and tostring(id) or (f[7] or ""):lower()
-    print("|cff66ccffForever Companion|r " .. ns.Make(math.max(1, count or 1) .. " " .. what))
+    local on = place and (" @" .. place .. ":" .. (item or 0)) or ""
+    print("|cff66ccffForever Companion|r " .. ns.Make(math.max(1, count or 1) .. " " .. what .. on))
 end
 local makeButtons = {}
 for d = 0, 9 do makeButtons[#makeButtons + 1] = { "ALT-CTRL-NUMPAD" .. d, keyButton("ThorCompanionDigit" .. d, function() addDigit(tostring(d)) end) } end
 makeButtons[#makeButtons + 1] = { "ALT-CTRL-F1", keyButton("ThorCompanionMakeSep", function() addDigit("*") end) }
 makeButtons[#makeButtons + 1] = { "ALT-CTRL-F2", keyButton("ThorCompanionMake", makeNow) }
+makeButtons[#makeButtons + 1] = { "ALT-CTRL-F3", keyButton("ThorCompanionYes", function() answer(true) end) }
+makeButtons[#makeButtons + 1] = { "ALT-CTRL-F4", keyButton("ThorCompanionNo", function() answer(false) end) }
 local makePending = false
 local function bindMakeKeys()
     if InCombatLockdown() then makePending = true return end
@@ -661,10 +835,47 @@ local function findModern(want)
     end
 end
 
+-- An enchantment on the item at <place> (see <fits> above), the way the game's own enchanting
+-- window does it: the item has to be one the game offers for it (GetEnchantItems), and when it
+-- moved in the bags since the app saw it, the same item is found where it is now.
+local function enchant(recipeID, name, place, itemID)
+    local ui = C_TradeSkillUI
+    if not (ui and ui.CraftEnchant and ui.GetEnchantItems) then return "this game can't enchant from the app" end
+    local fits = enchantItems(recipeID, itemsByGUID())
+    local pick
+    for _, at in ipairs(fits) do
+        if at.place == place and (itemID == 0 or at.id == itemID) then pick = at break end
+    end
+    if not pick and itemID > 0 then
+        for _, at in ipairs(fits) do if at.id == itemID then pick = at break end end
+    end
+    if not pick then
+        local said = #fits == 0 and "no item of yours takes " .. clean(name, MAX_NAME) .. " now"
+            or "that item isn't there any more or doesn't take " .. clean(name, MAX_NAME)
+        addResult(said:sub(1, 1):upper() .. said:sub(2))
+        return said
+    end
+    local loc = locationOf(pick.place)
+    local okN, item = pcall(function() return C_Item.GetItemName and C_Item.GetItemName(loc) end)
+    item = okN and type(item) == "string" and not secret(item) and item or ("item " .. pick.id)
+    startRun(name, 0, 1, recipeID)
+    run.on = clean(item, MAX_NAME)
+    local ok, err = pcall(ui.CraftEnchant, recipeID, 1, nil, loc)
+    if not ok then
+        stopRun("couldn't enchant: " .. tostring(err))
+        return "couldn't enchant: " .. tostring(err)
+    end
+    return "enchanting " .. item .. " with " .. clean(name, MAX_NAME)
+end
+
 function ns.Make(args, again)
     local count, want = (args or ""):match("^(%S+)%s+(.+)$")
     want = want and want:lower():gsub("^%s+", ""):gsub("%s+$", "")
-    if not want then return "use: /thor make <count|all> <item id or recipe name>" end
+    if not want then return "use: /thor make <count|all> <item id or recipe name> [@place:itemID]" end
+    -- An enchantment's item: @<place>:<itemID> at the end.
+    local place, onItem = want:match("%s*@(%d+):?(%d*)$")
+    if place then want = want:gsub("%s*@%d+:?%d*$", "") end
+    place, onItem = tonumber(place), tonumber(onItem) or 0
     local all = count == "all"
     local n = all and 0 or math.max(1, math.min(tonumber(count) or 1, 999))
     -- How many to make: the game's count or the bags' (the larger), and when neither can be
@@ -708,6 +919,9 @@ function ns.Make(args, again)
     end
     if C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs and C_TradeSkillUI.CraftRecipe then
         local okF, id, name, available = pcall(findModern, want)
+        if okF and id and place then
+            return enchant(id, name, place, onItem)
+        end
         if okF and id then
             local make, said = plan(name, available, nil)
             if make then
@@ -745,5 +959,21 @@ function ns.ProfessionsInfo()
             return #k > 0 and table.concat(k, ", ") or "none"
         end)() ..
         "; Make keys: " .. (makeBound and "on" or "off") ..
+        "; enchantments: " .. (function()
+            local n, worn, carried = 0, {}, {}
+            for _, p in pairs(m.recipes) do
+                for _, r in ipairs(p.rows) do
+                    local fits = select(8, strsplit("\t", r))
+                    if fits then
+                        n = n + 1
+                        for at in fits:gmatch("(%d+):") do
+                            if tonumber(at) < 1000 then worn[at] = true else carried[at] = true end
+                        end
+                    end
+                end
+            end
+            local function count(t) local c = 0 for _ in pairs(t) do c = c + 1 end return c end
+            return n .. " (fit " .. count(worn) .. " worn, " .. count(carried) .. " in the bags)"
+        end)() ..
         "; window open: " .. (openWindow or "none")
 end

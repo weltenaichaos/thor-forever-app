@@ -44,7 +44,8 @@ class CompanionScreensTest {
         return Regex("\\b179\\d{7}\\b").replace(message) { (it.value.toLong() + shift).toString() }
     }
 
-    private fun shoot(name: String, tab: String, loaded: Boolean = true, upTo: Int = messages.size, craft: String? = null, scrolled: Int = 0) {
+    private fun shoot(name: String, tab: String, loaded: Boolean = true, upTo: Int = messages.size, craft: String? = null, scrolled: Int = 0,
+                      byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null, extra: List<String> = emptyList()) {
         // Run outside Gradle (no app resources): the fonts from their files.
         System.getProperty("companion.fonts.dir")?.let { fonts ->
             Theme.useFonts(Typeface.createFromFile(File(fonts, "cinzel_bold.ttf")), Typeface.createFromFile(File(fonts, "wine_tahoma.ttf")))
@@ -53,7 +54,7 @@ class CompanionScreensTest {
         controller.get().setTheme(android.R.style.Theme_DeviceDefault_NoActionBar)  // as in the manifest
         controller.create()
         val activity = controller.get()
-        activity.preview(messages.take(upTo), tab, loaded, craft)
+        activity.preview(messages.take(upTo) + extra, tab, loaded, craft, byGear, target, recipe, enchanting)
         shadowOf(Looper.getMainLooper()).idle()
         val root = activity.findViewById<View>(android.R.id.content)
         val w = 1240; val h = 1080
@@ -80,6 +81,16 @@ class CompanionScreensTest {
     @Test fun quests() = shoot("3-quests", "QUESTS")
     @Test fun questList() = shoot("3b-quest-list", "QUESTS", scrolled = 640)
     @Test fun craft() = shoot("4-craft", "CRAFT", craft = "Tailoring")
+    /** Enchanting, both ways: by enchantment with one's card open, by gear piece, and the wrist's enchantments. */
+    @Test fun enchantments() = shoot("4b-enchant", "CRAFT", craft = "Enchanting", recipe = "Enchant Chest - Lesser Health")
+    @Test fun enchantList() = shoot("4a-enchant-list", "CRAFT", craft = "Enchanting")
+    @Test fun enchantByGear() = shoot("4c-enchant-gear", "CRAFT", craft = "Enchanting", byGear = true)
+    @Test fun enchantByGearBags() = shoot("4c2-enchant-gear-bags", "CRAFT", craft = "Enchanting", byGear = true, scrolled = 420)
+    @Test fun enchantOneGearPiece() = shoot("4d-enchant-wrist", "CRAFT", craft = "Enchanting", byGear = true, target = 9)
+    /** The game asks before the enchantment replaces another one: Yes and No in the app. */
+    @Test fun enchantAsking() = shoot("4e-enchant-asking", "CRAFT", craft = "Enchanting", recipe = "Enchant Bracer - Minor Stamina",
+        enchanting = "Ivycloth Bracelets", extra = listOf(messages.first { it.startsWith("TF1|") } +
+            "\nc\t1\t0\t1\tasking\tDo you want to replace \"Minor Health\" with \"Minor Stamina\"?\tEnchant Bracer - Minor Stamina"))
     @Test fun map() = shoot("5-map", "MAP")
     @Test fun chat() = shoot("6-chat", "CHAT")
     /** The start-up card, part way: the status, bags and character are in, the rest still coming. */

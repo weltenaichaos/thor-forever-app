@@ -22,6 +22,7 @@ import thor.companion.strip.ChatLine
 import thor.companion.strip.Gear
 import thor.companion.strip.BankCounts
 import thor.companion.strip.CraftProgress
+import thor.companion.strip.EnchantTarget
 import thor.companion.strip.ItemCompare
 import thor.companion.strip.ItemStats
 import thor.companion.strip.Professions
@@ -128,6 +129,9 @@ class CompanionActivity : Activity() {
     private val completeRecipes = HashMap<String, List<Recipe>>()  // per profession, the last complete reading
     private val craftDone = mutableListOf<CraftJob>()  // made from the crafting list since it was started (this session)
     private var craftSheet: String? = null  // the Craft tab's pop-up: "list", "lately" or none
+    /** Enchanting: the list by gear piece instead of by enchantment, and the item picked (its [EnchantTarget.place]). */
+    private var craftByGear = false
+    private var craftTarget: Int? = null
     private var chatTab = ChatTab.ALL
     /** Per chat tab, the number of the last line seen there (see ChatLog.total). */
     private val chatSeen = HashMap<ChatTab, Int>()
@@ -825,10 +829,15 @@ class CompanionActivity : Activity() {
      * For the screenshot test (CompanionScreensTest): shows [messages] as if the game had just
      * sent them, without reading the top screen, on the tab named [tab] ("BAGS", "MAP"...).
      * With [loaded] false the start-up card stays, ticking off what the messages brought.
+     * The Craft tab: [craft] is its profession, [byGear] and [target] its enchanting view,
+     * [recipe] the recipe whose card is open, [enchanting] an item an enchantment is going on.
      */
-    internal fun preview(messages: List<String>, tab: String, loaded: Boolean = true, craft: String? = null) {
+    internal fun preview(messages: List<String>, tab: String, loaded: Boolean = true, craft: String? = null,
+                         byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null) {
         frameAt = SystemClock.uptimeMillis()
         craftProfession = craft
+        craftByGear = byGear
+        craftTarget = target
         seenAt = frameAt
         game = Game.IN_WORLD
         for (m in messages) {
@@ -840,6 +849,8 @@ class CompanionActivity : Activity() {
             finishLoading()
             for ((_, b) in tabs) b.alpha = 1f
         }
+        if (craft != null && recipe != null) craftRecipe = recipesOf(craft).firstOrNull { it.name == recipe }
+        if (craft != null && recipe != null && enchanting != null) craftRunning = CraftRun(CraftJob(craft, 0, 0, recipe, 1), 1, 1, 0, 0, on = enchanting)
         show(Panel.valueOf(tab))
         saidAt = SystemClock.uptimeMillis() - NOTICE_MS - 1
         connected()
@@ -1946,7 +1957,7 @@ class CompanionActivity : Activity() {
                 setPadding(dp(10), dp(if (compact) 5 else 6), dp(10), dp(if (compact) 5 else 6))
                 setOnClickListener {
                     if (prof == null) say("$name isn't learned yet: a $name trainer in any city teaches it")
-                    else { craftProfession = prof.name; craftRecipe = null; scroll.scrollTo(0, 0); render() }
+                    else { craftProfession = prof.name; craftRecipe = null; craftTarget = null; scroll.scrollTo(0, 0); render() }
                 }
             }
             val level = when {
@@ -1983,6 +1994,7 @@ class CompanionActivity : Activity() {
         content.removeCallbacks(craftTick)
         if (run != null) content.postDelayed(craftTick, 1000)
         val main = when {
+            run != null && run.on != null -> "⏳  Enchanting ${run.on}"
             run != null -> "⏳  Making ${run.job.name}: ${run.made()} of ${run.total()}"
             queue.isNotEmpty() && craftDone.isEmpty() -> "▶  Start the list (${queue.size})"
             queue.isNotEmpty() -> "▶  Next (${craftDone.size + 1} of ${craftDone.size + queue.size}): ${queue.first().label()}"
@@ -2005,6 +2017,7 @@ class CompanionActivity : Activity() {
         actions.addView(sheetChip(if (queue.isEmpty()) "List" else "List (${queue.size})", "list"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(4) })
         if (!p?.results.isNullOrEmpty()) actions.addView(sheetChip("Lately", "lately"))
         toolbar.addView(actions)
+        enchantStatus()?.let { toolbar.addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) }) }
 
         // What you have: the bags as they are now, the bank as it was when last open.
         val inBags = HashMap<Int, Int>()
@@ -2032,6 +2045,17 @@ class CompanionActivity : Activity() {
                 "The game shows the recipes only while the profession window is open (for Mining that is Smelting). Open it once and they stay here, also after a restart."))
             return
         }
+        // Enchanting goes both ways, as in the game: an enchantment and then the item, or an item and then what fits it.
+        val enchanting = recipes.any { it.enchantment }
+        if (enchanting) {
+            val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(6), 0, 0) }
+            modes.addView(chip("By enchantment") { craftByGear = false; craftTarget = null; render() }.apply { if (!craftByGear) primary() },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+            modes.addView(chip("By gear piece") { craftByGear = true; craftRecipe = null; render() }.apply { if (craftByGear) primary() },
+                LinearLayout.LayoutParams(0, -2, 1f))
+            content.addView(modes)
+            if (craftByGear) { renderEnchantGear(recipes, bags, both); return }
+        }
         val first = shown.firstOrNull() ?: RecipePage(selected.name, 0, 0, 1, 1, 0, emptyList())
         val age = newest?.let { System.currentTimeMillis() / 1000 - it }
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(6), 0, dp(4)) }
@@ -2044,54 +2068,189 @@ class CompanionActivity : Activity() {
             setPadding(dp(10), dp(5), dp(10), dp(5))
         })
         content.addView(head)
-        val now = System.currentTimeMillis() / 1000
         var heading: String? = null
         var any = false
         for (r in recipes) {
             if (r.heading) { heading = r.name; continue }
-            val n = r.canMake(bags)
-            val withBank = r.canMake(both)
-            if (craftOnlyMakeable && (n ?: 0) <= 0) continue
+            if (craftOnlyMakeable && (r.canMake(bags) ?: 0) <= 0) continue
             heading?.let { content.addView(section(it)); heading = null }
             any = true
-            val known = names[r.itemId]
-            val greyed = n == 0
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                background = Theme.panel(context, if (r == craftRecipe) RAISED else SURFACE, gold = r == craftRecipe)
-                setPadding(dp(10), dp(6), dp(10), dp(6))
-                setOnClickListener { craftRecipe = if (craftRecipe == r) null else r; craftSheet = null; render() }
-                setOnLongClickListener { if (r.itemId > 0) showDetails(r.itemId); true }
-            }
-            row.addView(View(this).apply { background = Theme.box(context, recipeColour(r.colour), 5) }, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginEnd = dp(8) })
-            row.addView(icon(r.itemId.takeIf { it > 0 }, known?.let { qualityColour(it.quality) }, 28).apply { if (greyed) alpha = 0.45f },
-                LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(8) })
-            val nameColour = if (greyed) DIM else known?.let { qualityColour(it.quality) } ?: TEXT
-            row.addView(line(r.name, nameColour, 14f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
-            val wait = r.readyAt - now
-            val right = when {
-                wait > 0 -> "ready in ${duration(wait)}"
-                n == null -> ""
-                n > 0 -> "can make $n"
-                (withBank ?: 0) > 0 -> "$withBank with the bank"
-                else -> "missing"
-            }
-            row.addView(line(right, if (wait > 0) Theme.WARN else if ((n ?: 0) > 0) Theme.GOOD else DIM, 13f).apply { setPadding(dp(8), 0, 0, 0) })
-            content.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+            content.addView(recipeRow(r, bags, both), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
         }
         if (!any) content.addView(empty("Nothing to make right now", "Your bags don't have the materials for any of these recipes."))
     }
 
-    /** A small pop-up at the bottom (the footer): a title with a close button over [body], kept short with its own scrolling. */
-    private fun sheet(title: String, onClose: () -> Unit, body: LinearLayout.() -> Unit) {
+    /** A line of the recipe list: its skill-point colour, what it makes, and how many the bags allow. Tap for its card. */
+    private fun recipeRow(r: Recipe, bags: (Int) -> Int, both: (Int) -> Int): View {
+        val now = System.currentTimeMillis() / 1000
+        val n = r.canMake(bags)
+        val withBank = r.canMake(both)
+        val known = names[r.itemId]
+        val greyed = n == 0
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = Theme.panel(context, if (r == craftRecipe) RAISED else SURFACE, gold = r == craftRecipe)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            setOnClickListener { craftRecipe = if (craftRecipe == r) null else r; craftSheet = null; render() }
+            setOnLongClickListener { if (r.itemId > 0) showDetails(r.itemId); true }
+        }
+        row.addView(View(this).apply { background = Theme.box(context, recipeColour(r.colour), 5) }, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginEnd = dp(8) })
+        row.addView(recipeIcon(r, known?.quality, 28).apply { if (greyed) alpha = 0.45f },
+            LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(8) })
+        val nameColour = if (greyed) DIM else known?.let { qualityColour(it.quality) } ?: TEXT
+        row.addView(line(r.name, nameColour, 14f).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+        val wait = r.readyAt - now
+        val right = when {
+            wait > 0 -> "ready in ${duration(wait)}"
+            n == null -> ""
+            n > 0 -> "can make $n"
+            (withBank ?: 0) > 0 -> "$withBank with the bank"
+            else -> "missing"
+        }
+        row.addView(line(right, if (wait > 0) Theme.WARN else if ((n ?: 0) > 0) Theme.GOOD else DIM, 13f).apply { setPadding(dp(8), 0, 0, 0) })
+        return row
+    }
+
+    /**
+     * The items an enchantment goes on, as the game listed them when the window was last
+     * open, without those that have gone since: a worn item that isn't worn any more, a bag
+     * item that isn't in the bags. [stale] is told whether any went.
+     */
+    private fun currentFits(r: Recipe, stale: (() -> Unit)? = null): List<EnchantTarget> {
+        val worn = gear.associate { it.slot to it.itemId }
+        val carried = state?.items.orEmpty().map { it.itemId }.toSet()
+        return r.fits.orEmpty().filter { t ->
+            val there = if (t.worn) gear.isEmpty() || worn[t.place] == t.itemId else state == null || t.itemId in carried
+            if (!there) stale?.invoke()
+            there
+        }
+    }
+
+    /** An enchantable item's name, and where it is ("Wrist", "in your bags"). */
+    private fun targetName(t: EnchantTarget) = names[t.itemId]?.name ?: "Item #${t.itemId}"
+    private fun targetPlace(t: EnchantTarget) = if (t.worn) Gear.slotName(t.place) else "in your bags"
+
+    /**
+     * One enchantable item: icon, name in its quality's colour, where it is, and a note on the
+     * right. [compact]: on one line, where it is beside the name (the enchantment's card, kept short).
+     */
+    private fun targetRow(t: EnchantTarget, note: String, picked: Boolean, compact: Boolean = false, onTap: () -> Unit): View {
+        val known = names[t.itemId]
+        val size = if (compact) 26 else 32
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = Theme.panel(context, if (picked) RAISED else SURFACE, gold = picked)
+            if (compact) setPadding(dp(8), dp(4), dp(10), dp(4)) else setPadding(dp(10), dp(6), dp(10), dp(6))
+            setOnClickListener { onTap() }
+            setOnLongClickListener { showDetails(t.itemId); true }
+        }
+        row.addView(icon(t.itemId, known?.let { qualityColour(it.quality) }, size), LinearLayout.LayoutParams(dp(size), dp(size)).apply { marginEnd = dp(10) })
+        val name = line(targetName(t), known?.let { qualityColour(it.quality) } ?: TEXT, 14f).apply { setPadding(0, 0, 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        if (compact) {
+            row.addView(name, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(line(targetPlace(t), DIM, 12f).apply { setPadding(dp(8), 0, 0, 0) })
+        } else {
+            val words = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            words.addView(name)
+            words.addView(line(targetPlace(t), DIM, 11f).apply { setPadding(0, 0, 0, 0) })
+            row.addView(words, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        if (note.isNotEmpty()) row.addView(line(note, if (picked) Theme.GOLD_TEXT else DIM, 13f).apply { setPadding(dp(8), 0, 0, 0); minWidth = dp(18) })
+        return row
+    }
+
+    /**
+     * Enchanting by gear piece: your items that an enchantment you know goes on (worn ones in
+     * the paper doll's order, then the bags'), and for the one tapped, the enchantments that fit it.
+     */
+    private fun renderEnchantGear(recipes: List<Recipe>, bags: (Int) -> Int, both: (Int) -> Int) {
+        var stale = false
+        val fitting = LinkedHashMap<Int, MutableList<Recipe>>()
+        val targets = HashMap<Int, EnchantTarget>()
+        for (r in recipes) {
+            if (!r.enchantment) continue
+            for (t in currentFits(r) { stale = true }) {
+                targets.putIfAbsent(t.place, t)
+                fitting.getOrPut(t.place) { mutableListOf() } += r
+            }
+        }
+        val picked = craftTarget?.let { targets[it] }
+        if (picked != null) {
+            val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, dp(2)) }
+            head.addView(targetRow(picked, "", true) {}, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+            head.addView(chip("✕") { craftTarget = null; craftRecipe = null; render() }.apply { setPadding(dp(14), dp(9), dp(14), dp(9)) })
+            content.addView(head)
+            content.addView(section("Enchantments for it"))
+            for (r in fitting[picked.place].orEmpty()) content.addView(recipeRow(r, bags, both), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+            return
+        }
+        if (craftTarget != null) craftTarget = null
+        if (targets.isEmpty()) {
+            content.addView(empty("No gear to enchant", if (stale) "Your gear changed since Enchanting was last open. Open it in the game once, and the list catches up."
+                else "None of your items takes an enchantment you know. Open Enchanting in the game once after you change gear."))
+            return
+        }
+        val worn = targets.values.filter { it.worn }.sortedBy { GEAR_SLOTS.indexOf(it.place).let { i -> if (i < 0) 99 else i } }
+        val carried = targets.values.filter { !it.worn }.sortedBy { it.place }
+        for ((title, list) in listOf("What you wear" to worn, "In your bags" to carried)) {
+            if (list.isEmpty()) continue
+            content.addView(section(title))
+            for (t in list) {
+                val n = fitting[t.place].orEmpty().size
+                content.addView(targetRow(t, if (n == 1) "1 enchantment" else "$n enchantments", false) { craftTarget = t.place; craftRecipe = null; render() },
+                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+            }
+        }
+        content.addView(line(if (stale) "Your gear changed since Enchanting was last open: open it in the game once, and the list catches up."
+            else "Only gear that an enchantment you know goes on is listed, as the game's enchanting window says.", DIM, 12f).apply { setPadding(dp(4), dp(8), dp(4), 0) })
+    }
+
+    /** While an enchantment is on: the game's question with Yes and No; once it ended, how (tap to put it away). */
+    private fun enchantStatus(): View? {
+        val r = craftRunning ?: return null
+        val on = r.on ?: return null
+        val g = r.game()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Theme.panel(context, RAISED, gold = true)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        when {
+            g?.asking == true -> {
+                box.addView(line(g.reason.ifEmpty { "The game asks something before it enchants $on." }, Theme.GOLD_TEXT, 14f).apply { setPadding(0, 0, 0, dp(6)) })
+                val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                buttons.addView(chip("Yes") { answerEnchant(true) }.apply { primary() }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+                buttons.addView(chip("No") { answerEnchant(false) }, LinearLayout.LayoutParams(0, -2, 1f))
+                box.addView(buttons)
+                box.addView(line("The game shows the same question on its screen.", DIM, 12f).apply { setPadding(0, dp(4), 0, 0) })
+            }
+            !r.finished() -> return null  // the button above says it is on
+            r.stopped() != null -> box.addView(line("Not enchanted: ${r.stopped()}", Theme.WARN, 13f).apply { setPadding(0, 0, 0, 0) })
+            else -> box.addView(line("✓  Enchanted $on: ${r.job.name}", Theme.GOOD, 13f).apply { setPadding(0, 0, 0, 0) })
+        }
+        if (g?.asking != true) box.setOnClickListener { craftRunning = null; render() }
+        return box
+    }
+
+    /** The app's Yes or No to the game's question (one key press, as a click on the game's own button). */
+    private fun answerEnchant(yes: Boolean) {
+        say(if (yes) "Yes: enchanting" else "No: nothing enchanted")
+        pressKey(if (yes) Professions.YES else Professions.NO) { err -> say("Couldn't answer: $err") }
+    }
+
+    /**
+     * A small pop-up at the bottom (the footer): a title with a close button over [body], kept
+     * short with its own scrolling, at most [share] of the screen's height.
+     */
+    private fun sheet(title: String, onClose: () -> Unit, share: Float = 0.42f, body: LinearLayout.() -> Unit) {
         val box = card().apply { background = Theme.panel(context, gold = true); setPadding(dp(12), dp(8), dp(12), dp(10)) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         top.addView(line(title, TEXT, 14f, bold = true).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
         top.addView(chip("✕") { onClose() }.apply { setPadding(dp(12), dp(4), dp(12), dp(4)) })
         box.addView(top)
         val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; body() }
-        val cap = (resources.displayMetrics.heightPixels * 0.42f).toInt()
+        val cap = (resources.displayMetrics.heightPixels * share).toInt()
         val scroller = object : ScrollView(this) {
             override fun onMeasure(w: Int, h: Int) = super.onMeasure(w, MeasureSpec.makeMeasureSpec(cap, MeasureSpec.AT_MOST))
         }.apply { isVerticalScrollBarEnabled = false; addView(inner) }
@@ -2125,10 +2284,11 @@ class CompanionActivity : Activity() {
      * one the bags tell: done when they hold [count] crafts of [each], stopped when nothing
      * new came for a while.
      */
-    private inner class CraftRun(val job: CraftJob, val count: Int, val each: Int, val before: Int, val seqBefore: Int) {
+    private inner class CraftRun(val job: CraftJob, val count: Int, val each: Int, val before: Int, val seqBefore: Int, val on: String? = null) {
         val started = SystemClock.uptimeMillis()
         var last = before
         var lastMade = -1
+        var lastStatus = ""
         var lastAt = started
         fun game(): CraftProgress? = professions?.progress?.takeIf { it.seq > seqBefore }
         fun total(): Int = game()?.wanted?.takeIf { it > 0 } ?: count
@@ -2143,7 +2303,7 @@ class CompanionActivity : Activity() {
             val bags = inBags()
             val g = game()
             if (g != null) {
-                if (g.made != lastMade) { lastMade = g.made; lastAt = SystemClock.uptimeMillis() }
+                if (g.made != lastMade || g.status != lastStatus) { lastMade = g.made; lastStatus = g.status; lastAt = SystemClock.uptimeMillis() }
                 // Whichever message came first: the game's count or the bags.
                 return maxOf(g.made, if (g.running) bags else 0).coerceIn(0, total())
             }
@@ -2152,7 +2312,8 @@ class CompanionActivity : Activity() {
         fun finished(): Boolean {
             val m = made()
             val g = game()
-            if (g != null) return !g.running || SystemClock.uptimeMillis() - lastAt > 60_000
+            // (While the game asks before an enchantment, it waits for an answer as long as it takes.)
+            if (g != null) return !g.running || (!g.asking && SystemClock.uptimeMillis() - lastAt > 60_000)
             return m >= count || SystemClock.uptimeMillis() - lastAt > STALL_MS
         }
         /** What the game said when it stopped early (as "Inventory is full."), or null. */
@@ -2265,7 +2426,8 @@ class CompanionActivity : Activity() {
     /** A recipe's card: what it makes, its materials (have / need, grey when missing) and the Make buttons. */
     private fun renderRecipe(r: Recipe, row: Int, profession: String, bags: (Int) -> Int, inBank: Map<Int, Int>) {
         val known = names[r.itemId]
-        sheet("Recipe", { craftRecipe = null; render() }) { recipeCard(this, r, row, profession, bags, inBank) }
+        // An enchantment's card is a little taller: its Enchant button also waits under the items it goes on.
+        sheet(if (r.enchantment) "Enchantment" else "Recipe", { craftRecipe = null; render() }, if (r.enchantment) 0.56f else 0.42f) { recipeCard(this, r, row, profession, bags, inBank) }
     }
 
     private fun recipeCard(box: LinearLayout, r: Recipe, row: Int, profession: String, bags: (Int) -> Int, inBank: Map<Int, Int>) {
@@ -2274,10 +2436,14 @@ class CompanionActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             if (r.itemId > 0) setOnClickListener { showDetails(r.itemId) }
         }
-        top.addView(icon(r.itemId.takeIf { it > 0 }, known?.let { qualityColour(it.quality) }, 40), LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(10) })
+        top.addView(recipeIcon(r, known?.quality, 40), LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(10) })
         val words = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         words.addView(line(r.name, known?.let { qualityColour(it.quality) } ?: TEXT, 16f, bold = true).apply { setPadding(0, 0, 0, 0) })
-        val makes = if (r.madeMax > r.made) "Makes ${r.made} to ${r.madeMax}" else "Makes ${r.made}"
+        val makes = when {
+            r.enchantment -> "Goes on an item"
+            r.madeMax > r.made -> "Makes ${r.made} to ${r.madeMax}"
+            else -> "Makes ${r.made}"
+        }
         val point = when (r.colour) {
             'o' -> "orange: a skill point every time"
             'm' -> "yellow: a skill point most times"
@@ -2294,6 +2460,8 @@ class CompanionActivity : Activity() {
         })
         top.addView(words, LinearLayout.LayoutParams(0, -2, 1f))
         box.addView(top)
+        // An enchantment: what it goes on and Enchant first, so they fit on the card without scrolling.
+        if (r.enchantment) enchantCard(box, r, row, profession, bags)
 
         box.addView(line("Materials", DIM, 12f).apply { setPadding(0, dp(8), 0, dp(2)) })
         for (m in r.materials) {
@@ -2312,6 +2480,11 @@ class CompanionActivity : Activity() {
             box.addView(row)
         }
         if (bank == null && r.materials.isNotEmpty()) box.addView(line("Open your bank once to count what is in it too.", DIM, 12f).apply { setPadding(0, dp(2), 0, 0) })
+
+        if (r.enchantment) {
+            box.addView(line("When the item already has an enchantment, or isn't bound to you yet, the game asks first: answer with Yes or No here.", DIM, 12f).apply { setPadding(0, dp(6), 0, 0) })
+            return
+        }
 
         // Make (see runJob), or onto the crafting list for later.
         val n = r.canMake(bags) ?: 0
@@ -2338,6 +2511,82 @@ class CompanionActivity : Activity() {
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
         }
         box.addView(later)
+    }
+
+    /**
+     * An enchantment's card, above its materials: the items it goes on (as the game listed
+     * them; tap one to pick it) and Enchant, which puts it on the picked one.
+     */
+    private fun enchantCard(box: LinearLayout, r: Recipe, row: Int, profession: String, bags: (Int) -> Int) {
+        var stale = false
+        val fits = currentFits(r) { stale = true }
+        box.addView(line("Put it on", DIM, 12f).apply { setPadding(0, dp(8), 0, dp(2)) })
+        if (fits.isEmpty()) {
+            box.addView(line(if (stale) "Your gear changed since Enchanting was last open: open it in the game once, and this catches up."
+                else "None of your items takes it right now.", DIM, 13f).apply { setPadding(0, dp(2), 0, 0) })
+            return
+        }
+        val pick = fits.firstOrNull { it.place == craftTarget } ?: fits.first()
+        for (t in fits) {
+            box.addView(targetRow(t, if (t == pick) "✓" else "", t == pick, compact = true) { craftTarget = t.place; render() },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+        }
+        val n = r.canMake(bags) ?: 0
+        box.addView(chip("✦  Enchant ${targetName(pick)}") {
+            when {
+                n <= 0 -> say("Not enough materials for ${r.name} in your bags")
+                craftRunning?.finished() == false -> say("Still busy with ${craftRunning!!.job.name}: wait until it is done")
+                else -> runEnchant(profession, row, r, pick)
+            }
+        }.apply {
+            if (n > 0) primary() else setTextColor(DIM)
+            textSize = 14f
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        if (n <= 0) box.addView(line("Not enough materials in your bags yet: see below.", Theme.WARN, 12f).apply { setPadding(0, dp(4), 0, 0) })
+        if (stale) box.addView(line("Some gear changed since Enchanting was last open: open it in the game once to see it all here.", DIM, 12f).apply { setPadding(0, dp(4), 0, 0) })
+    }
+
+    /**
+     * Enchants [on] with [r], as the game's own enchanting window does (addon 0.30.4): one
+     * tap, the Make keys with the item's place, the profession's open key first when its
+     * window is closed. Not kept as the last craft: Make again would put it on the same item.
+     */
+    private fun runEnchant(profession: String, row: Int, r: Recipe, on: EnchantTarget) {
+        val job = CraftJob(profession, row, 0, r.name, 1)
+        val at = findJob(job)?.first ?: run { say("${r.name} isn't in the $profession recipes any more: open that window in the game once"); return }
+        val p = professions
+        val openKey = p?.openKeys?.get(profession)?.let { ActionKeys.forIndex(it) }
+        val n = openKey?.substringAfterLast("-F")?.toIntOrNull()
+        val seqBefore = p?.progress?.seq ?: 0
+        val label = "${r.name} on ${targetName(on)}"
+        if (p != null && p.makeKeys && openKey != null && n != null) {
+            sendMakeKeys(openKey, Professions.makeKeys(n, at, 1, on), p.open != profession || gameAddon == null, "Enchanting: $label")
+        } else {
+            make(label, profession, "1", r.name.lowercase(Locale.ROOT) + " @${on.place}:${on.itemId}")
+        }
+        craftRunning = CraftRun(job, 1, 1, 0, seqBefore, on = targetName(on))
+        render()
+    }
+
+    /** The Make keys for one tap ([press], see Professions.makeKeys), [openKey] first when the window may be closed. */
+    private fun sendMakeKeys(openKey: String, press: List<String>, opening: Boolean, label: String) {
+        val target = gameDisplay()
+        lastKeyAt = SystemClock.uptimeMillis()
+        say(label)
+        keys.execute {
+            if (opening) {
+                KeySender.send(this, target, openKey)
+                SystemClock.sleep(300)  // the window opens on the key's release, a frame or two later
+            }
+            for (k in press) {
+                val err = KeySender.send(this, target, k)
+                if (err != null && !err.startsWith("(focus")) return@execute runOnUiThread { say("Not done: $err") }
+                SystemClock.sleep(10)
+            }
+            lastKeyAt = SystemClock.uptimeMillis()
+        }
     }
 
     /** Something to make: a recipe (its [row] in the profession's recipes, 1 first) and how many ([ALL]: as many as the bags allow). */
@@ -2422,25 +2671,9 @@ class CompanionActivity : Activity() {
         val openKey = p?.openKeys?.get(job.profession)?.let { ActionKeys.forIndex(it) }
         val n = openKey?.substringAfterLast("-F")?.toIntOrNull()
         if (p != null && p.makeKeys && openKey != null && n != null) {
-            val press = Professions.makeKeys(n, row, count)
             // The addon this app brought (0.29) makes the open key do nothing while the window
             // is open, so it is pressed every time: what the app last heard about the window can be old.
-            val opening = p.open != job.profession || gameAddon == null
-            val target = gameDisplay()
-            lastKeyAt = SystemClock.uptimeMillis()
-            say("Making $count × ${job.name}")
-            keys.execute {
-                if (opening) {
-                    KeySender.send(this, target, openKey)
-                    SystemClock.sleep(300)  // the window opens on the key's release, a frame or two later
-                }
-                for (k in press) {
-                    val err = KeySender.send(this, target, k)
-                    if (err != null && !err.startsWith("(focus")) return@execute runOnUiThread { say("Not made: $err") }
-                    SystemClock.sleep(10)
-                }
-                lastKeyAt = SystemClock.uptimeMillis()
-            }
+            sendMakeKeys(openKey, Professions.makeKeys(n, row, count), p.open != job.profession || gameAddon == null, "Making $count × ${job.name}")
         } else {
             make(job.name, job.profession, count.toString(), if (r.itemId > 0) r.itemId.toString() else r.name.lowercase(Locale.ROOT))
         }
@@ -3699,6 +3932,13 @@ class CompanionActivity : Activity() {
             background = Theme.panel(context, RAISED, Theme.INNER)
         }
     }
+
+    /** A recipe's icon: what it makes, or a gold ✦ for an enchantment (it makes no item). */
+    private fun recipeIcon(r: Recipe, quality: Int?, sizeDp: Int): View =
+        if (r.enchantment) icon(null, null, sizeDp).apply {
+            this as TextView
+            text = "✦"; setTextColor(Theme.GOLD_TEXT); textSize = sizeDp / 2.2f
+        } else icon(r.itemId.takeIf { it > 0 }, quality?.let { qualityColour(it) }, sizeDp)
 
     /** One key: the addon shows the icons of your items for a few seconds and the app takes them. */
     private fun askForIcons() {
