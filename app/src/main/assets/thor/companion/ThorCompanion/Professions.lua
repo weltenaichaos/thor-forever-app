@@ -601,7 +601,8 @@ end
 -- its TR1 rows (1 first, headings counted). MAKE is the key press that crafts (the game wants
 -- one); the digits before it only say what. One tap in the app, one craft, as with typing.
 -- An enchantment also says which item it goes on: its <place> (see <fits> above) and itemID.
--- ALT-CTRL-F3 and ALT-CTRL-F4 answer the game's question about an enchantment: yes and no.
+-- ALT-CTRL-F3 and ALT-CTRL-F5 answer the game's question about an enchantment: yes and no
+-- (not F4: ALT-F4 closes the game window, so no key near it is used).
 local makeOwner = CreateFrame("Frame")
 local digits, digitsAt = "", 0
 local makeBound = false
@@ -646,7 +647,7 @@ for d = 0, 9 do makeButtons[#makeButtons + 1] = { "ALT-CTRL-NUMPAD" .. d, keyBut
 makeButtons[#makeButtons + 1] = { "ALT-CTRL-F1", keyButton("ThorCompanionMakeSep", function() addDigit("*") end) }
 makeButtons[#makeButtons + 1] = { "ALT-CTRL-F2", keyButton("ThorCompanionMake", makeNow) }
 makeButtons[#makeButtons + 1] = { "ALT-CTRL-F3", keyButton("ThorCompanionYes", function() answer(true) end) }
-makeButtons[#makeButtons + 1] = { "ALT-CTRL-F4", keyButton("ThorCompanionNo", function() answer(false) end) }
+makeButtons[#makeButtons + 1] = { "ALT-CTRL-F5", keyButton("ThorCompanionNo", function() answer(false) end) }
 local makePending = false
 local function bindMakeKeys()
     if InCombatLockdown() then makePending = true return end

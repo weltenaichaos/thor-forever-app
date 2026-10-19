@@ -67,7 +67,7 @@ data class Professions(val now: Long, val list: List<Profession>, val results: L
 
         /** The keys that answer the game's question about an enchantment ([CraftProgress.asking]): yes and no. */
         const val YES = "ALT-CTRL-F3"
-        const val NO = "ALT-CTRL-F4"
+        const val NO = "ALT-CTRL-F5"  // (not F4: ALT-F4 closes the game window)
 
         /** The spell that opens a profession's window (for /cast): Mining's is Smelting. */
         fun windowSpell(profession: String): String = when (profession) {
