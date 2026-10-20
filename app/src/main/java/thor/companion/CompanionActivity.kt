@@ -111,6 +111,9 @@ class CompanionActivity : Activity() {
     private var mapPan: Pair<Int, DoubleArray>? = null
     private var mapTitle: TextView? = null
     private lateinit var scroll: ScrollView
+    /** The whole companion page, and its height as its last measure said (see sheet). */
+    private lateinit var pageRoot: LinearLayout
+    private var pageHeight = 0
     private var quests: QuestLog? = null
     /** The quest log's first page (TL1) and its other pages (TL2): [quests] is all of them. */
     private var questFirst: QuestLog? = null
@@ -174,7 +177,9 @@ class CompanionActivity : Activity() {
 
         icons = IconStore(this)
 
-        val root = LinearLayout(this).apply {
+        val root = object : LinearLayout(this) {
+            override fun onMeasure(w: Int, h: Int) { pageHeight = MeasureSpec.getSize(h); super.onMeasure(w, h) }
+        }.apply {
             orientation = LinearLayout.VERTICAL
             background = ScreenFrame(dp(150), Theme.px(context))
             setPadding(dp(12), dp(10), dp(12), dp(6))
@@ -238,6 +243,7 @@ class CompanionActivity : Activity() {
         scroll = ScrollView(this).apply { addView(content); isVerticalScrollBarEnabled = false }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(footer)
+        pageRoot = root
         setContentView(root)
         runCatching { trail.load(trailFile().readText()) }
         loadLast()
@@ -2283,7 +2289,18 @@ class CompanionActivity : Activity() {
         if (key != sheetKey) { sheetKey = key; sheetY = 0 }
         var restore = sheetY
         val scroller = object : ScrollView(this) {
-            override fun onMeasure(w: Int, h: Int) = super.onMeasure(w, MeasureSpec.makeMeasureSpec(cap, MeasureSpec.AT_MOST))
+            // At most [share] of the screen, and never more than the space left under the tabs
+            // and the tab's top part: the footer may ask for the whole height (the list above
+            // takes what is left), so a tall card reached past the screen's bottom edge and its
+            // last line, the replace switch, was cut off (Jesse, 2026-10-20).
+            override fun onMeasure(w: Int, h: Int) {
+                var above = 0
+                for (i in 0 until pageRoot.childCount) pageRoot.getChildAt(i).let { if (it !== footer && it !== scroll) above += it.measuredHeight }
+                val room = pageHeight - pageRoot.paddingTop - pageRoot.paddingBottom - above -
+                    top.measuredHeight - box.paddingTop - box.paddingBottom - dp(4)
+                val max = if (pageHeight > 0) minOf(cap, maxOf(dp(80), room)) else cap
+                super.onMeasure(w, MeasureSpec.makeMeasureSpec(max, MeasureSpec.AT_MOST))
+            }
             override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
                 super.onLayout(changed, l, t, r, b)
                 if (restore > 0) { scrollTo(0, restore); restore = 0 }
