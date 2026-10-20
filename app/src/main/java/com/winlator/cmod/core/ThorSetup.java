@@ -94,9 +94,27 @@ public final class ThorSetup {
      * _classic_beta_\WowB-ARM64.exe), or null. With several game versions, the one changed last.
      */
     public static String findInstalledWow(Container container) {
-        String[] folders = { "Program Files (x86)\\World of Warcraft", "Program Files\\World of Warcraft", "World of Warcraft" };
         String best = null;
         long bestTime = -1;
+        for (String wow : findInstalledWows(container)) {
+            File exe = ThorGame.toAndroidPath(container, wow);
+            long time = exe != null ? exe.lastModified() : 0;
+            if (time > bestTime) {
+                best = wow;
+                bestTime = time;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * The .exe of every game version Battle.net installed in the container (one per folder like
+     * _classic_beta_ or _retail_), as Windows paths.
+     */
+    public static List<String> findInstalledWows(Container container) {
+        String[] folders = { "Program Files (x86)\\World of Warcraft", "Program Files\\World of Warcraft", "World of Warcraft" };
+        List<String> found = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
         for (String drive : drives(container, null))
             for (String folder : folders) {
                 String wowDos = drive + ":\\" + folder;
@@ -104,18 +122,158 @@ public final class ThorSetup {
                 if (wowDir == null) continue;
                 File[] flavors = wowDir.listFiles(File::isDirectory);
                 if (flavors == null) continue;
+                java.util.Arrays.sort(flavors);
                 for (File flavor : flavors) {
                     if (!flavor.getName().startsWith("_")) continue;
                     String exe = pickWowExe(flavor.list());
                     if (exe == null) continue;
-                    long time = new File(flavor, exe).lastModified();
-                    if (time > bestTime) {
-                        best = wowDos + "\\" + flavor.getName() + "\\" + exe;
-                        bestTime = time;
-                    }
+                    // The same folder seen through two drive letters is one game version.
+                    String key;
+                    try { key = flavor.getCanonicalPath(); } catch (IOException e) { key = flavor.getAbsolutePath(); }
+                    if (seen.add(key)) found.add(wowDos + "\\" + flavor.getName() + "\\" + exe);
                 }
             }
-        return best;
+        return found;
+    }
+
+    /**
+     * Gives every game version installed next to the game a WoW shortcut of its own, so the start
+     * screen can switch between them: a version Battle.net added (like the release next to the
+     * beta) gets the settings of the game's shortcut, and one of the app's shortcuts whose .exe
+     * was renamed in its folder points to the new one. A version installed after the game's own becomes the one Play
+     * starts. Returns the shortcut of the last version added, or null when none was added.
+     */
+    public static Shortcut addNewWowVersions(Context context, ContainerManager manager, ThorGame game) throws IOException {
+        Container container = game.shortcut.container;
+        List<Shortcut> known = new ArrayList<>();
+        for (Shortcut shortcut : manager.loadShortcuts())
+            if (shortcut.container == container && ThorGame.isWowExe(shortcut.path)) known.add(shortcut);
+        Shortcut added = null;
+        for (String wow : findInstalledWows(container)) {
+            File exe = ThorGame.toAndroidPath(container, wow);
+            boolean has = false;
+            Shortcut moved = null;
+            for (Shortcut shortcut : known) {
+                File its = ThorGame.toAndroidPath(container, shortcut.path);
+                // The same .exe, also when the shortcut reaches it through another drive letter.
+                if (shortcut.path.trim().equalsIgnoreCase(wow) || sameFile(its, exe)) { has = true; break; }
+                boolean gone = its == null || !its.isFile();
+                // Only the app's own shortcuts are changed; a player's own one stays as it is.
+                if (moved == null && gone && its != null && exe != null && isThorWowShortcutFile(shortcut.file.getName())
+                        && sameFile(its.getParentFile(), exe.getParentFile())) moved = shortcut;
+            }
+            if (has) continue;
+            if (moved != null) {
+                repointShortcut(context, moved, wow);
+                continue;
+            }
+            String kind = ThorGame.kindOf(productIn(exe), flavorName(wow));
+            // Battle.net installed it after the game's version (like the release after the beta): Play starts it.
+            File gameExe = ThorGame.toAndroidPath(container, game.shortcut.path);
+            boolean newer = exe != null && (gameExe == null || !gameExe.isFile() || exe.lastModified() > gameExe.lastModified());
+            added = addWowShortcut(context, container, wow, kind, game.shortcut, newer);
+            known.add(added);
+        }
+        return added;
+    }
+
+    private static boolean sameFile(File a, File b) {
+        if (a == null || b == null) return false;
+        try {
+            return a.getCanonicalPath().equals(b.getCanonicalPath());
+        } catch (IOException e) {
+            return a.getAbsolutePath().equals(b.getAbsolutePath());
+        }
+    }
+
+    /** The folder part of a Windows path. */
+    static String folderOf(String dosPath) {
+        int slash = dosPath.lastIndexOf('\\');
+        return slash < 0 ? "" : dosPath.substring(0, slash);
+    }
+
+    /** The game folder's name in a path like ...\_classic_beta_\WowB-ARM64.exe. */
+    static String flavorName(String dosPath) {
+        String folder = folderOf(dosPath);
+        return folder.substring(folder.lastIndexOf('\\') + 1);
+    }
+
+    private static String productIn(File exe) {
+        if (exe == null) return "";
+        try {
+            return ThorGame.flavorProduct(new String(java.nio.file.Files.readAllBytes(new File(exe.getParentFile(), ".flavor.info").toPath()), java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    /**
+     * Adds a WoW shortcut for another game version with the settings of like (its own extras:
+     * Thor variables, FPS cap, start arguments, ...), and the launcher's game settings in that
+     * version's WTF folder. With choose, it is marked as picked, so Play starts it.
+     */
+    static Shortcut addWowShortcut(Context context, Container container, String wowDosPath, String kind, Shortcut like, boolean choose) throws IOException {
+        File desktop = container.getDesktopDir();
+        if (!desktop.isDirectory() && !desktop.mkdirs()) throw new IOException("Could not create " + desktop);
+        File file = new File(desktop, wowShortcutFileName(kind, desktop.list()));
+        writeDesktopEntry(context, file, container, "World of Warcraft " + kind, wowDosPath);
+        Shortcut shortcut = new Shortcut(container, file);
+        for (java.util.Map.Entry<String, String> extra : copiedExtras(like.file).entrySet())
+            shortcut.putExtra(extra.getKey(), extra.getValue());
+        if (shortcut.getExtra("envVars").isEmpty()) shortcut.putExtra("envVars", thorEnvVars(container.getEnvVars()));
+        if (shortcut.getExtra("execArgs").isEmpty()) shortcut.putExtra("execArgs", WOW_EXEC_ARGS);
+        if (choose) shortcut.putExtra(ThorGame.EXTRA_CHOSEN_AT, String.valueOf(System.currentTimeMillis()));
+        seedWowConfig(context, ThorGame.toAndroidPath(container, wowDosPath).getParentFile());
+        shortcut.saveData();
+        return shortcut;
+    }
+
+    /** A free file name like "World of Warcraft Forever Live.desktop" among the desktop's files. */
+    static String wowShortcutFileName(String kind, String[] taken) {
+        java.util.Set<String> names = new java.util.HashSet<>();
+        if (taken != null) for (String name : taken) names.add(name.toLowerCase(Locale.ROOT));
+        String base = "World of Warcraft Forever " + kind;
+        String name = base + ".desktop";
+        for (int i = 2; names.contains(name.toLowerCase(Locale.ROOT)); i++) name = base + " " + i + ".desktop";
+        return name;
+    }
+
+    /** True for the shortcut files this app adds for WoW (one per game version). */
+    public static boolean isThorWowShortcutFile(String name) {
+        return name.equals(WOW_SHORTCUT_FILE) || (name.startsWith("World of Warcraft Forever ") && name.endsWith(".desktop"));
+    }
+
+    /** Extras that belong to one shortcut and are not copied: when it ran, its id, its pictures. */
+    private static final String[] OWN_EXTRAS = { "lastRunAt", ThorGame.EXTRA_CHOSEN_AT, "uuid", "customCoverArtPath" };
+
+    /** The [Extra Data] of a shortcut file, without the ones that belong to that shortcut alone. */
+    static java.util.Map<String, String> copiedExtras(File desktopFile) {
+        java.util.Map<String, String> extras = new java.util.LinkedHashMap<>();
+        String section = "";
+        for (String line : FileUtils.readLines(desktopFile)) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+            if (line.startsWith("[") && line.contains("]")) { section = line.substring(1, line.indexOf(']')); continue; }
+            int eq = line.indexOf('=');
+            if (!section.equals("Extra Data") || eq <= 0) continue;
+            String key = line.substring(0, eq);
+            if (!java.util.Arrays.asList(OWN_EXTRAS).contains(key)) extras.put(key, line.substring(eq + 1));
+        }
+        return extras;
+    }
+
+    /** Points a shortcut to another .exe, keeping its name and settings. */
+    static void repointShortcut(Context context, Shortcut shortcut, String dosPath) throws IOException {
+        java.util.Map<String, String> extras = new java.util.LinkedHashMap<>(copiedExtras(shortcut.file));
+        for (String key : OWN_EXTRAS) if (!shortcut.getExtra(key).isEmpty()) extras.put(key, shortcut.getExtra(key));
+        String name = "World of Warcraft";
+        for (String line : FileUtils.readLines(shortcut.file))
+            if (line.startsWith("Name=")) { name = line.substring(5); break; }
+        writeDesktopEntry(context, shortcut.file, shortcut.container, name, dosPath);
+        Shortcut moved = new Shortcut(shortcut.container, shortcut.file);
+        for (java.util.Map.Entry<String, String> extra : extras.entrySet()) moved.putExtra(extra.getKey(), extra.getValue());
+        seedWowConfig(context, ThorGame.toAndroidPath(shortcut.container, dosPath).getParentFile());
+        moved.saveData();
     }
 
     /** The game's .exe among a game folder's files: the ARM64 one when there is one. */
@@ -267,7 +425,7 @@ public final class ThorSetup {
      */
     public static void fixAddedWowShortcuts(ContainerManager manager) {
         for (Shortcut shortcut : manager.loadShortcuts()) {
-            if (!WOW_SHORTCUT_FILE.equals(shortcut.file.getName())) continue;
+            if (!isThorWowShortcutFile(shortcut.file.getName())) continue;
             EnvVars envVars = new EnvVars(shortcut.getExtra("envVars"));
             boolean presentMode = shortcut.getExtra("rendererPresentMode").isEmpty();
             boolean fexPreset = shortcut.getExtra("fexcorePreset").isEmpty();
