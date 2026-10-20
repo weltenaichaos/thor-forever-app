@@ -131,7 +131,7 @@ class CompanionActivity : Activity() {
     private var craftRunning: CraftRun? = null
     private val completeRecipes = HashMap<String, List<Recipe>>()  // per profession, the last complete reading
     private val craftDone = mutableListOf<CraftJob>()  // made from the crafting list since it was started (this session)
-    private var craftSheet: String? = null  // the Craft tab's pop-up: "list" or none
+    private var craftSheet: String? = null  // "list": the Craft tab shows the crafting list page
     private var sheetKey = ""  // the pop-up shown (see sheet) and how far down it is scrolled
     private var sheetY = 0
     // A finger on the screen: the Craft tab is drawn again only once it lifts (see dispatchTouchEvent).
@@ -846,7 +846,8 @@ class CompanionActivity : Activity() {
      */
     internal fun preview(messages: List<String>, tab: String, loaded: Boolean = true, craft: String? = null,
                          byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null,
-                         lastEnchant: String? = null, replace: Boolean = false, list: List<String> = emptyList(), sheet: String? = null) {
+                         lastEnchant: String? = null, replace: Boolean = false, list: List<String> = emptyList(), sheet: String? = null,
+                         done: List<String> = emptyList()) {
         frameAt = SystemClock.uptimeMillis()
         craftProfession = craft
         craftByGear = byGear
@@ -865,6 +866,7 @@ class CompanionActivity : Activity() {
         if (lastEnchant != null) getPreferences(MODE_PRIVATE).edit().putString(craftKey("lastEnchant"), lastEnchant).putBoolean(craftKey("lastWasEnchant"), true).apply()
         if (replace) getPreferences(MODE_PRIVATE).edit().putBoolean("enchantReplace", true).apply()
         if (list.isNotEmpty()) saveCraftList(list.mapNotNull { CraftJob.parse(it) })
+        craftDone.clear(); craftDone += done.mapNotNull { CraftJob.parse(it) }
         craftSheet = sheet
         if (craft != null && recipe != null && sheet == null) craftRecipe = recipesOf(craft).firstOrNull { it.name == recipe }
         if (craft != null && recipe != null && enchanting != null) craftRunning = CraftRun(CraftJob(craft, 0, 0, recipe, 1), 1, 1, 0, 0, on = enchanting)
@@ -1966,6 +1968,7 @@ class CompanionActivity : Activity() {
      */
     private fun renderCraft(s: GameState) {
         settleListEnchant()  // an enchantment from the list the game has finished counts on its entry
+        if (craftSheet == "list") { renderCraftList(); return }
         val p = professions
         // Recipes kept under a name the skill list doesn't use (the window's own) count as a profession too.
         val list = p?.list.orEmpty().filter { it.name.isNotBlank() }.toMutableList()
@@ -2011,18 +2014,22 @@ class CompanionActivity : Activity() {
             if (!compact && prof != null && prof.max > 0) box.addView(Bar(this).apply { value = prof.level.toFloat() / prof.max; colour = ACCENT }, LinearLayout.LayoutParams(-1, dp(4)))
             return box
         }
-        fun rowOf(views: List<View>, wide: Int = maxOf(2, major.size)) {
+        fun rowOf(views: List<View>, wide: Int = maxOf(2, major.size), weights: List<Float>? = null) {
             val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
-            for (v in views) bar.addView(v, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
+            for ((i, v) in views.withIndex()) bar.addView(v, LinearLayout.LayoutParams(0, -2, weights?.getOrNull(i) ?: 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
             // An odd one keeps its half: a row is two wide (three when there are three main ones).
             repeat((wide - views.size % wide) % wide) { bar.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f).apply { setMargins(dp(2), 0, dp(2), 0) }) }
             toolbar.addView(bar)
         }
-        if (craftRecipe != null || craftSheet != null) {
-            // A card or the list is open: all professions small, four to a row, so the card has the room.
-            val all = (major + minor).map { profBox(it, it.name, true, tight = true) } + missing.map { profBox(null, it, true, tight = true) }
-            val wide = minOf(4, maxOf(2, all.size))
-            all.chunked(wide).forEach { rowOf(it, wide) }
+        if (craftRecipe != null) {
+            // A card is open: all professions small, four to a row, so the card has the room;
+            // each as wide as its words ("Enchanting 109" needs more than "Cooking").
+            val profs = (major + minor).map { it to it.name } + missing.map { null to it }
+            val wide = minOf(4, maxOf(2, profs.size))
+            profs.chunked(wide).forEach { part ->
+                rowOf(part.map { (prof, name) -> profBox(prof, name, true, tight = true) }, wide,
+                    if (part.size == wide) part.map { (prof, name) -> name.length + (prof?.level?.toString()?.length ?: 0) + 4f } else null)
+            }
         } else {
             if (major.isNotEmpty()) rowOf(major.map { profBox(it, it.name, false) })
             val minorViews = minor.map { profBox(it, it.name, true) } + missing.map { profBox(null, it, true) }
@@ -2037,16 +2044,7 @@ class CompanionActivity : Activity() {
         craftShown = craftRunning?.let { "${it.made()}|${it.finished()}" } ?: ""
         content.removeCallbacks(craftTick)
         if (run != null) content.postDelayed(craftTick, 1000)
-        val main = when {
-            run != null && run.on != null -> queue.firstOrNull()?.takeIf { run.listed == Listed.NEXT && it.on != null }
-                ?.let { j -> enchantStep(j).let { (n, of) -> "⏳  Enchanting $n of $of: ${run.on}" } } ?: "⏳  Enchanting ${run.on}"
-            run != null -> "⏳  Making ${run.job.name}: ${run.made()} of ${run.total()}"
-            queue.firstOrNull()?.on != null -> enchantStep(queue.first()).let { (n, of) -> "▶  Enchant $n of $of: ${enchantWhat(queue.first(), short = true)}" }
-            queue.isNotEmpty() && craftDone.isEmpty() -> "▶  Start the list (${queue.size})"
-            queue.isNotEmpty() -> "▶  Next (${craftDone.size + 1} of ${craftDone.size + queue.size}): ${jobLabel(queue.first(), short = true)}"
-            lastWasEnchant() -> lastEnchant()?.let { "↻  Enchant again: ${it.name.substringAfter(" - ", it.name)} on ${targetName(it.on)}" }
-            else -> again?.let { "↻  Make again: ${it.label()}" }
-        }
+        val main = mainAction(queue, run, again)
         if (main != null) {
             actions.addView(chip(main) { makeNextFromList() }.apply {
                 if (run != null) { background = Theme.goldButton(context); setTextColor(Theme.GOLD_TEXT) }
@@ -2056,12 +2054,7 @@ class CompanionActivity : Activity() {
         } else {
             actions.addView(line("Tap a recipe to make it or put it on the list", DIM, 12f).apply { setPadding(dp(4), 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
         }
-        fun sheetChip(label: String, which: String) = chip(label) {
-            craftSheet = if (craftSheet == which) null else which
-            craftRecipe = null
-            render()
-        }.apply { if (craftSheet == which) primary() }
-        actions.addView(sheetChip(if (queue.isEmpty()) "List" else "List (${queue.size})", "list"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(4) })
+        actions.addView(chip(if (queue.isEmpty()) "List" else "List (${queue.size})") { openCraftList() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(4) })
         toolbar.addView(actions)
         enchantStatus()?.let { toolbar.addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) }) }
 
@@ -2081,7 +2074,6 @@ class CompanionActivity : Activity() {
         val open = craftRecipe
         when {
             open != null && recipes.any { it == open } -> renderRecipe(open, recipes.indexOf(open) + 1, selected.name, bags, inBank)
-            craftSheet == "list" -> craftListSheet(queue)
         }
         if (open != null && recipes.none { it == open }) craftRecipe = null
 
@@ -2272,7 +2264,7 @@ class CompanionActivity : Activity() {
             }
             !r.finished() -> return null  // the button above says it is on
             r.stopped() != null -> box.addView(line("Not enchanted: ${r.stopped()}", Theme.WARN, 13f).apply { setPadding(0, 0, 0, 0) })
-            else -> box.addView(line("✓  Enchanted $on: ${r.job.name}", Theme.GOOD, 13f).apply { setPadding(0, 0, 0, 0) })
+            else -> return null  // done: the list's count (green) and the bags show it (Jesse, 2026-10-20)
         }
         if (g?.asking != true) box.setOnClickListener { craftRunning = null; render() }
         return box
@@ -2323,6 +2315,18 @@ class CompanionActivity : Activity() {
         }
         box.addView(scroller)
         footer.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+    }
+
+    /** The main button's words: what is being made, the list's next one, or Make (Enchant) again. */
+    private fun mainAction(queue: List<CraftJob>, run: CraftRun?, again: CraftJob? = lastJob()): String? = when {
+        run != null && run.on != null -> queue.firstOrNull()?.takeIf { run.listed == Listed.NEXT && it.on != null }
+            ?.let { j -> enchantStep(j).let { (n, of) -> "⏳  Enchanting $n of $of: ${run.on}" } } ?: "⏳  Enchanting ${run.on}"
+        run != null -> "⏳  Making ${run.job.name}: ${run.made()} of ${run.total()}"
+        queue.firstOrNull()?.on != null -> enchantStep(queue.first()).let { (n, of) -> "▶  Enchant $n of $of: ${enchantWhat(queue.first(), short = true)}" }
+        queue.isNotEmpty() && craftDone.isEmpty() -> "▶  Start the list (${queue.size})"
+        queue.isNotEmpty() -> "▶  Next (${craftDone.size + 1} of ${craftDone.size + queue.size}): ${jobLabel(queue.first(), short = true)}"
+        lastWasEnchant() -> lastEnchant()?.let { "↻  Enchant again: ${it.name.substringAfter(" - ", it.name)} on ${targetName(it.on)}" }
+        else -> again?.let { "↻  Make again: ${it.label()}" }
     }
 
     /** Make next: the list's first entry (moved to the made ones), or the last thing made again when the list is empty. */
@@ -2487,60 +2491,138 @@ class CompanionActivity : Activity() {
         }
     }
 
-    /** The crafting list as a pop-up: what was made already (✓), the next one marked, the rest, and the start button. */
-    private fun craftListSheet(queue: List<CraftJob>) = sheet(when {
-        queue.isEmpty() && craftDone.isNotEmpty() -> "Crafting list: all made ✓"
-        craftDone.isNotEmpty() -> "Crafting list: ${craftDone.size} of ${craftDone.size + queue.size} made"
-        else -> "Crafting list"
-    }, { craftSheet = null; render() }, key = "craft-list") {
-        if (queue.isEmpty() && craftDone.isEmpty()) {
-            addView(line("Empty. Tap a recipe, then +1, +5 or + all under \"To the list\". Then the ▶ button above makes them one by one: one tap each.", DIM, 13f))
-            return@sheet
-        }
-        var n = 0
+    /** Where the recipes were scrolled to when the list page opened (back there on Close). */
+    private var listReturnY = 0
+    private var clearAskedAt = -10_000L
+
+    private fun openCraftList() {
+        listReturnY = scroll.scrollY
+        craftSheet = "list"; craftRecipe = null
+        render()
+        scroll.post { scroll.scrollTo(0, 0) }
+    }
+
+    private fun closeCraftList() {
+        craftSheet = null
+        render()
+        scroll.post { scroll.scrollTo(0, listReturnY) }
+    }
+
+    /**
+     * The crafting list as its own page, in the whole space under the tabs (Jesse,
+     * 2026-10-20): Close at the top, the entries in order (made ones ✓, the next one
+     * marked, each with its count on the right, green once some are done), and at the
+     * bottom the button that makes the next one, with a small Clear beside it.
+     */
+    private fun renderCraftList() {
+        val queue = craftList()
         val run = craftRunning
         val busy = run != null && !run.finished()
+        craftShown = run?.let { "${it.made()}|${it.finished()}" } ?: ""
+        content.removeCallbacks(craftTick)
+        if (busy) content.postDelayed(craftTick, 1000)
+
+        val total = craftDone.size + queue.size
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(6), 0, dp(4)) }
+        top.addView(line("Crafting list", Theme.GOLD_TEXT, 16f).apply { typeface = Theme.heading(context); setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+        if (total > 0 && queue.isEmpty()) top.addView(line("all made ✓", Theme.GOOD, 13f).apply { setPadding(0, 0, dp(12), 0) })
+        top.addView(chip("Close") { closeCraftList() }.apply { setPadding(dp(18), dp(9), dp(18), dp(9)) })
+        toolbar.addView(top)
+
+        if (total == 0) {
+            content.addView(empty("The list is empty", "Tap a recipe, then +1, +5 or + all under \"To the list\". The button at the bottom of this page then makes them one by one: one tap each."))
+            return
+        }
+        var n = 0
         for ((i, job) in craftDone.withIndex()) {
             n++
             val mine = run != null && run.listed == Listed.DONE && i == craftDone.size - 1
-            if (mine && busy) addView(line("⏳  $n.  ${job.name}: ${run!!.made()} of ${run.total()} made, the game is on it", ACCENT, 13f, bold = true).apply { setPadding(0, dp(2), 0, dp(2)) })
-            else {
-                val why = if (mine) run!!.stopped() else null
-                addView(line("✓  $n.  ${jobLabel(job)}" + if (why != null) "  (stopped at ${run!!.made()} of ${run.total()}: $why)" else "", if (why != null) Theme.WARN else DIM, 13f).apply { setPadding(0, dp(2), 0, dp(2)) })
+            val count = when {
+                mine && busy -> "⏳ ${run!!.made()} of ${run.total()}" to ACCENT
+                job.on != null -> "${job.made} of ${job.made} done" to Theme.GOOD
+                else -> "made" to Theme.GOOD
             }
+            val why = if (mine && !busy) run!!.stopped()?.let { "Stopped at ${run.made()} of ${run.total()}: $it" } else null
+            content.addView(listEntry(n, job, done = !(mine && busy), next = false, count = count, why = why, onRemove = null), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
         }
         val short = listShortfalls(queue)
         for ((i, job) in queue.withIndex()) {
             n++
             val next = i == 0
-            // An enchantment being made stays here, counting: "⏳ 3 of 5", then "3 of 5 done".
             val making = next && busy && run!!.listed == Listed.NEXT
-            val step = job.on?.let { enchantStep(job) }
-            val note = short.getOrNull(i) ?: when {
-                making && step != null -> "⏳ ${step.first} of ${step.second}"
-                step != null && job.made > 0 -> "${job.made} of ${step.second} done"
-                next -> "next"
-                else -> job.profession
-            }
-            val row = LinearLayout(this@CompanionActivity).apply {
-                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(if (next) 8 else 0), dp(3), 0, dp(3))
-                if (next) background = Theme.panel(context, RAISED, ACCENT)
-            }
-            row.addView(line("$n.  ${jobLabel(job)}", if (next) ACCENT else TEXT, 14f, bold = next).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
-            row.addView(line(note, if (short.getOrNull(i) != null) Theme.BAD else if (next) ACCENT else DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
-            row.addView(chip("✕") { saveCraftList(craftList().also { if (i < it.size) it.removeAt(i) }); render() }.apply { setPadding(dp(10), dp(4), dp(10), dp(4)) })
-            addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+            val count = short.getOrNull(i)?.let { it to Theme.BAD } ?: job.on?.let {
+                val (step, of) = enchantStep(job)
+                when {
+                    making -> "⏳ $step of $of" to ACCENT
+                    job.made > 0 -> "${job.made} of $of done" to Theme.GOOD
+                    else -> "0 of $of done" to DIM
+                }
+            } ?: ((if (job.count == ALL) "all you can" else "${job.count} to make") to DIM)
             // The last enchantment of this entry didn't go on (a no, or the game stopped it): not counted.
-            val why = if (next && run != null && run.listed == Listed.NEXT && !busy) run.stopped() else null
-            if (why != null) addView(line("The last one wasn't done ($why), so it isn't counted.", Theme.WARN, 12f).apply { setPadding(dp(8), dp(2), 0, dp(2)) })
+            val why = if (next && run != null && run.listed == Listed.NEXT && !busy) run.stopped()?.let { "The last one wasn't done ($it), so it isn't counted." } else null
+            content.addView(listEntry(n, job, done = false, next = next, count = count, why = why) {
+                saveCraftList(craftList().also { if (i < it.size) it.removeAt(i) }); render()
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
         }
-        if (queue.isNotEmpty()) {
-            if (short.any { it != null }) addView(line("Red: not enough materials left once the entries before it are made.", Theme.BAD, 12f).apply { gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER })
-            addView(line(if (queue.any { it.on != null }) "The ▶ button above makes the next one. An enchantment is one tap each, as in the game."
-                else "The ▶ button above makes the next entry, one tap each.", DIM, 12f).apply { gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER; setPadding(0, dp(6), 0, dp(2)) })
+        if (short.any { it != null }) content.addView(line("Red: not enough materials left once the entries before it are made.", Theme.BAD, 12f).apply { setPadding(dp(4), dp(6), 0, 0) })
+        content.addView(line(if (queue.any { it.on != null }) "An enchantment is one tap each, as in the game's window." else "One tap makes one entry.", DIM, 12f).apply { setPadding(dp(4), dp(4), 0, dp(4)) })
+
+        // At the bottom: the game's question (Yes / No) when it asks, then the button and Clear
+        // (why the last one wasn't done is on its entry above).
+        if (run?.game()?.asking == true) enchantStatus()?.let { footer.addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) }) }
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, dp(2)) }
+        val label = if (queue.isEmpty()) "✓  All made" else mainAction(queue, run?.takeIf { busy }) ?: "▶  Next"
+        buttons.addView(chip(label) { if (queue.isNotEmpty()) makeNextFromList() }.apply {
+            when {
+                busy -> { background = Theme.goldButton(context); setTextColor(Theme.GOLD_TEXT) }
+                queue.isEmpty() -> setTextColor(DIM)
+                else -> primary()
+            }
+            textSize = 14f
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
+        // Small, and a second tap within 3 s, so a tap meant for the button beside it can't empty the list.
+        buttons.addView(chip("Clear") {
+            val now = SystemClock.uptimeMillis()
+            if (now - clearAskedAt < 3000) { clearAskedAt = -10_000L; saveCraftList(emptyList()); craftDone.clear(); craftRunning = null; say("The list is empty"); render() }
+            else { clearAskedAt = now; say("Tap Clear again to empty the list") }
+        }.apply { setTextColor(DIM); setPadding(dp(14), dp(12), dp(14), dp(12)) })
+        footer.addView(buttons)
+    }
+
+    /**
+     * One entry of the list page: its number (✓ when made), the recipe and under it the item
+     * it goes on (or the profession), its count on the right, and a small ✕ to take it off.
+     */
+    private fun listEntry(n: Int, job: CraftJob, done: Boolean, next: Boolean, count: Pair<String, Int>, why: String?, onRemove: (() -> Unit)?): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = Theme.panel(context, if (next) RAISED else SURFACE, gold = next)
+            setPadding(dp(10), dp(6), dp(6), dp(6))
         }
-        addView(chip("Clear the list") { saveCraftList(emptyList()); craftDone.clear(); craftRunning = null; render() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        row.addView(line(if (done) "✓" else "$n", if (done) Theme.GOOD else if (next) ACCENT else DIM, 16f, bold = true).apply {
+            gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER; setPadding(0, 0, 0, 0)
+        }, LinearLayout.LayoutParams(dp(26), -2).apply { marginEnd = dp(8) })
+        val words = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val times = if (job.on != null || job.count == ALL) "" else "${job.count} × "
+        words.addView(line(times + job.name, if (done) DIM else if (next) ACCENT else TEXT, 15f, bold = next).apply {
+            setPadding(0, 0, 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+        words.addView(line(job.on?.let { "on ${targetName(it)}" } ?: job.profession, DIM, 12.5f).apply {
+            setPadding(0, dp(1), 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+        if (why != null) words.addView(line(why, Theme.WARN, 12f).apply { setPadding(0, dp(2), 0, 0) })
+        row.addView(words, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(line(count.first, count.second, 13.5f, bold = count.second == Theme.GOOD || count.second == ACCENT).apply {
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL; textAlignment = View.TEXT_ALIGNMENT_VIEW_END; setPadding(dp(8), 0, dp(8), 0); maxLines = 1
+        }, LinearLayout.LayoutParams(-2, -2))
+        // (A made one keeps an unseen ✕, so its count lines up with the others.)
+        row.addView(chip("✕") { onRemove?.invoke() }.apply {
+            setTextColor(DIM); setPadding(dp(10), dp(4), dp(10), dp(4))
+            if (onRemove == null) { visibility = View.INVISIBLE; isClickable = false }
+        })
+        return row
     }
 
 

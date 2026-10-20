@@ -46,7 +46,8 @@ class CompanionScreensTest {
 
     private fun shoot(name: String, tab: String, loaded: Boolean = true, upTo: Int = messages.size, craft: String? = null, scrolled: Int = 0,
                       byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null, extra: List<String> = emptyList(),
-                      lastEnchant: String? = null, replace: Boolean = false, sheetScrolled: Int = 0, list: List<String> = emptyList(), sheet: String? = null) {
+                      lastEnchant: String? = null, replace: Boolean = false, sheetScrolled: Int = 0, list: List<String> = emptyList(), sheet: String? = null,
+                      done: List<String> = emptyList()) {
         // Run outside Gradle (no app resources): the fonts from their files.
         System.getProperty("companion.fonts.dir")?.let { fonts ->
             Theme.useFonts(Typeface.createFromFile(File(fonts, "cinzel_bold.ttf")), Typeface.createFromFile(File(fonts, "wine_tahoma.ttf")))
@@ -55,7 +56,7 @@ class CompanionScreensTest {
         controller.get().setTheme(android.R.style.Theme_DeviceDefault_NoActionBar)  // as in the manifest
         controller.create()
         val activity = controller.get()
-        activity.preview(messages.take(upTo) + extra, tab, loaded, craft, byGear, target, recipe, enchanting, lastEnchant, replace, list, sheet)
+        activity.preview(messages.take(upTo) + extra, tab, loaded, craft, byGear, target, recipe, enchanting, lastEnchant, replace, list, sheet, done)
         shadowOf(Looper.getMainLooper()).idle()
         val root = activity.findViewById<View>(android.R.id.content)
         val w = 1240; val h = 1080
@@ -113,6 +114,10 @@ class CompanionScreensTest {
     @Test fun enchantOnListMaking() = shoot("4i-enchant-list-making", "CRAFT", craft = "Enchanting", sheet = "list",
         recipe = "Enchant Bracer - Minor Stamina", enchanting = "Ivycloth Bracelets",
         list = listOf("Enchanting\t4\t0\t5\tEnchant Bracer - Minor Stamina\t9\t9793\t2", "Tailoring\t7\t4241\t2\tWoolen Bag"))
+    /** Further on: the first entry made (✓), the second one next. */
+    @Test fun enchantOnListDone() = shoot("4j-enchant-list-done", "CRAFT", craft = "Enchanting", sheet = "list",
+        done = listOf("Enchanting\t4\t0\t4\tEnchant Bracer - Minor Stamina\t9\t9793\t4"),
+        list = listOf("Enchanting\t8\t0\t5\tEnchant Chest - Lesser Health\t5\t6264\t0", "Tailoring\t7\t4241\t2\tWoolen Bag"))
     @Test fun map() = shoot("5-map", "MAP")
     @Test fun chat() = shoot("6-chat", "CHAT")
     /** The start-up card, part way: the status, bags and character are in, the rest still coming. */
