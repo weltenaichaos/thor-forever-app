@@ -129,6 +129,11 @@ class CompanionActivity : Activity() {
     private val completeRecipes = HashMap<String, List<Recipe>>()  // per profession, the last complete reading
     private val craftDone = mutableListOf<CraftJob>()  // made from the crafting list since it was started (this session)
     private var craftSheet: String? = null  // the Craft tab's pop-up: "list", "lately" or none
+    private var sheetKey = ""  // the pop-up shown (see sheet) and how far down it is scrolled
+    private var sheetY = 0
+    // A finger on the screen: the Craft tab is drawn again only once it lifts (see dispatchTouchEvent).
+    private var touching = false
+    private var renderWaiting = false
     /** Enchanting: the list by gear piece instead of by enchantment, and the item picked (its [EnchantTarget.place]). */
     private var craftByGear = false
     private var craftTarget: Int? = null
@@ -1268,7 +1273,25 @@ class CompanionActivity : Activity() {
         render()
     }
 
+    /**
+     * Notes when a finger is on the screen. The Craft tab is drawn again whenever the game
+     * sends something (bags, progress), which swapped the views under a scrolling finger;
+     * it now waits until the finger lifts. The tap's own click (posted while the UP is
+     * handled) still comes first, then the waiting redraw.
+     */
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        val action = ev.actionMasked
+        if (action == android.view.MotionEvent.ACTION_DOWN) touching = true
+        val end = action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL
+        if (end) touching = false
+        val handled = super.dispatchTouchEvent(ev)
+        if (end && renderWaiting) { renderWaiting = false; content.post { render() } }
+        return handled
+    }
+
     private fun render() {
+        if (touching && panel == Panel.CRAFT) { renderWaiting = true; return }
+        renderWaiting = false
         // On the Map tab the tab is stretched to the bottom of the screen, and the map takes
         // what the buttons above it leave (the other tabs scroll as before).
         scroll.isFillViewport = panel == Panel.MAP
@@ -2247,7 +2270,7 @@ class CompanionActivity : Activity() {
      * A small pop-up at the bottom (the footer): a title with a close button over [body], kept
      * short with its own scrolling, at most [share] of the screen's height.
      */
-    private fun sheet(title: String, onClose: () -> Unit, share: Float = 0.42f, body: LinearLayout.() -> Unit) {
+    private fun sheet(title: String, onClose: () -> Unit, share: Float = 0.42f, key: String = title, body: LinearLayout.() -> Unit) {
         val box = card().apply { background = Theme.panel(context, gold = true); setPadding(dp(12), dp(8), dp(12), dp(10)) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         top.addView(line(title, TEXT, 14f, bold = true).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
@@ -2255,9 +2278,20 @@ class CompanionActivity : Activity() {
         box.addView(top)
         val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; body() }
         val cap = (resources.displayMetrics.heightPixels * share).toInt()
+        // Drawn again (the bags changed, a craft went on), the same pop-up stays where it was
+        // scrolled to: it used to jump back to the top while you scrolled (Jesse, 2026-10-20).
+        if (key != sheetKey) { sheetKey = key; sheetY = 0 }
+        var restore = sheetY
         val scroller = object : ScrollView(this) {
             override fun onMeasure(w: Int, h: Int) = super.onMeasure(w, MeasureSpec.makeMeasureSpec(cap, MeasureSpec.AT_MOST))
-        }.apply { isVerticalScrollBarEnabled = false; addView(inner) }
+            override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+                super.onLayout(changed, l, t, r, b)
+                if (restore > 0) { scrollTo(0, restore); restore = 0 }
+            }
+        }.apply {
+            isVerticalScrollBarEnabled = false; addView(inner)
+            setOnScrollChangeListener { _, _, y, _, _ -> if (sheetKey == key) sheetY = y }
+        }
         box.addView(scroller)
         footer.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
     }
@@ -2434,7 +2468,7 @@ class CompanionActivity : Activity() {
     private fun renderRecipe(r: Recipe, row: Int, profession: String, bags: (Int) -> Int, inBank: Map<Int, Int>) {
         val known = names[r.itemId]
         // An enchantment's card is a little taller: its Enchant button also waits under the items it goes on.
-        sheet(if (r.enchantment) "Enchantment" else "Recipe", { craftRecipe = null; render() }, if (r.enchantment) 0.56f else 0.42f) { recipeCard(this, r, row, profession, bags, inBank) }
+        sheet(if (r.enchantment) "Enchantment" else "Recipe", { craftRecipe = null; render() }, if (r.enchantment) 0.56f else 0.42f, "recipe|$profession|${r.name}") { recipeCard(this, r, row, profession, bags, inBank) }
     }
 
     private fun recipeCard(box: LinearLayout, r: Recipe, row: Int, profession: String, bags: (Int) -> Int, inBank: Map<Int, Int>) {
@@ -2489,6 +2523,7 @@ class CompanionActivity : Activity() {
         if (bank == null && r.materials.isNotEmpty()) box.addView(line("Open your bank once to count what is in it too.", DIM, 12f).apply { setPadding(0, dp(2), 0, 0) })
 
         if (r.enchantment) {
+            enchantSwitch(box)
             box.addView(line("When the item already has an enchantment, or isn't bound to you yet, the game asks first: answer with Yes or No here.", DIM, 12f).apply { setPadding(0, dp(6), 0, 0) })
             return
         }
@@ -2557,8 +2592,14 @@ class CompanionActivity : Activity() {
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         if (n <= 0) box.addView(line("Not enough materials in your bags yet: see below.", Theme.WARN, 12f).apply { setPadding(0, dp(4), 0, 0) })
         if (stale) box.addView(line("Some gear changed since Enchanting was last open: open it in the game once to see it all here.", DIM, 12f).apply { setPadding(0, dp(4), 0, 0) })
-        // For skilling (the same item again and again): the Enchant tap also says yes when the
-        // game asks to replace the enchantment on it. Binding an item to you is always asked.
+    }
+
+    /**
+     * For skilling (the same item again and again): the Enchant tap also says yes when the
+     * game asks to replace the enchantment on it. Binding an item to you is always asked.
+     * Below the materials, so they come right under the Enchant button.
+     */
+    private fun enchantSwitch(box: LinearLayout) {
         val replace = replaceWithoutAsking()
         val toggle = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
         toggle.addView(line("Replace an old enchantment without asking", TEXT, 13f).apply { setPadding(0, 0, dp(8), 0) }, LinearLayout.LayoutParams(0, -2, 1f))

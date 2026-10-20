@@ -447,7 +447,10 @@ runEvents:SetScript("OnEvent", function(_, event, a, b, c)
         -- The app's Enchant tap said yes already (its replace switch): answered right here,
         -- still within that key press. Should the game not take it, the question stays, on
         -- its screen and in the app, for a Yes or No as without the switch.
-        if run.replace then
+        -- Once per enchant: should the game ask again, the question stays for the app's Yes or
+        -- No, so nothing can go on by itself over and over.
+        if run.replace and not run.answeredItself then
+            run.answeredItself = true
             local f = (C_Item and C_Item[ANSWERS[event]]) or _G[ANSWERS[event]]
             if f then pcall(f) end
         end

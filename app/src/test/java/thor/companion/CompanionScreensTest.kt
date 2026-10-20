@@ -46,7 +46,7 @@ class CompanionScreensTest {
 
     private fun shoot(name: String, tab: String, loaded: Boolean = true, upTo: Int = messages.size, craft: String? = null, scrolled: Int = 0,
                       byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null, extra: List<String> = emptyList(),
-                      lastEnchant: String? = null, replace: Boolean = false) {
+                      lastEnchant: String? = null, replace: Boolean = false, sheetScrolled: Int = 0) {
         // Run outside Gradle (no app resources): the fonts from their files.
         System.getProperty("companion.fonts.dir")?.let { fonts ->
             Theme.useFonts(Typeface.createFromFile(File(fonts, "cinzel_bold.ttf")), Typeface.createFromFile(File(fonts, "wine_tahoma.ttf")))
@@ -64,10 +64,18 @@ class CompanionScreensTest {
         shadowOf(Looper.getMainLooper()).idle()
         // Further down the tab: the list scrolled by [scrolled] pixels.
         if (scrolled > 0) scrollView(root)?.scrollTo(0, scrolled)
+        // The pop-up at the bottom (a recipe's card) scrolled down by [sheetScrolled] pixels.
+        if (sheetScrolled > 0) scrollViews(root).lastOrNull()?.scrollTo(0, sheetScrolled)
         val picture = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         root.draw(Canvas(picture))
         File(dir, "$name.png").outputStream().use { picture.compress(Bitmap.CompressFormat.PNG, 100, it) }
         controller.destroy()
+    }
+
+    private fun scrollViews(v: View): List<android.widget.ScrollView> = when (v) {
+        is android.widget.ScrollView -> listOf(v) + (0 until v.childCount).flatMap { scrollViews(v.getChildAt(it)) }
+        is android.view.ViewGroup -> (0 until v.childCount).flatMap { scrollViews(v.getChildAt(it)) }
+        else -> emptyList()
     }
 
     private fun scrollView(v: View): android.widget.ScrollView? = when (v) {
@@ -95,6 +103,9 @@ class CompanionScreensTest {
     /** Skilling: Enchant again on the item enchanted last, and the replace switch on its card. */
     @Test fun enchantAgain() = shoot("4f-enchant-again", "CRAFT", craft = "Enchanting", recipe = "Enchant Bracer - Minor Stamina",
         lastEnchant = "Enchanting\t4\tEnchant Bracer - Minor Stamina\t9\t9793", replace = true)
+    /** The same card scrolled down: the materials under the Enchant button, then the switch. */
+    @Test fun enchantAgainMaterials() = shoot("4g-enchant-materials", "CRAFT", craft = "Enchanting", recipe = "Enchant Bracer - Minor Stamina",
+        lastEnchant = "Enchanting\t4\tEnchant Bracer - Minor Stamina\t9\t9793", replace = true, sheetScrolled = 400)
     @Test fun map() = shoot("5-map", "MAP")
     @Test fun chat() = shoot("6-chat", "CHAT")
     /** The start-up card, part way: the status, bags and character are in, the rest still coming. */
