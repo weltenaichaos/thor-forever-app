@@ -46,7 +46,7 @@ class CompanionScreensTest {
 
     private fun shoot(name: String, tab: String, loaded: Boolean = true, upTo: Int = messages.size, craft: String? = null, scrolled: Int = 0,
                       byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null, extra: List<String> = emptyList(),
-                      lastEnchant: String? = null, replace: Boolean = false, sheetScrolled: Int = 0) {
+                      lastEnchant: String? = null, replace: Boolean = false, sheetScrolled: Int = 0, list: List<String> = emptyList(), sheet: String? = null) {
         // Run outside Gradle (no app resources): the fonts from their files.
         System.getProperty("companion.fonts.dir")?.let { fonts ->
             Theme.useFonts(Typeface.createFromFile(File(fonts, "cinzel_bold.ttf")), Typeface.createFromFile(File(fonts, "wine_tahoma.ttf")))
@@ -55,7 +55,7 @@ class CompanionScreensTest {
         controller.get().setTheme(android.R.style.Theme_DeviceDefault_NoActionBar)  // as in the manifest
         controller.create()
         val activity = controller.get()
-        activity.preview(messages.take(upTo) + extra, tab, loaded, craft, byGear, target, recipe, enchanting, lastEnchant, replace)
+        activity.preview(messages.take(upTo) + extra, tab, loaded, craft, byGear, target, recipe, enchanting, lastEnchant, replace, list, sheet)
         shadowOf(Looper.getMainLooper()).idle()
         val root = activity.findViewById<View>(android.R.id.content)
         val w = 1240; val h = 1080
@@ -106,6 +106,9 @@ class CompanionScreensTest {
     /** The same card scrolled down: the materials under the Enchant button, then the switch. */
     @Test fun enchantAgainMaterials() = shoot("4g-enchant-materials", "CRAFT", craft = "Enchanting", recipe = "Enchant Bracer - Minor Stamina",
         lastEnchant = "Enchanting\t4\tEnchant Bracer - Minor Stamina\t9\t9793", replace = true, sheetScrolled = 400)
+    /** Skilling from the list: 5 of the same enchantment on one item, made one tap each. */
+    @Test fun enchantOnList() = shoot("4h-enchant-list", "CRAFT", craft = "Enchanting", sheet = "list",
+        list = listOf("Enchanting\t4\t0\t5\tEnchant Bracer - Minor Stamina\t9\t9793", "Tailoring\t7\t4241\t2\tWoolen Bag"))
     @Test fun map() = shoot("5-map", "MAP")
     @Test fun chat() = shoot("6-chat", "CHAT")
     /** The start-up card, part way: the status, bags and character are in, the rest still coming. */
