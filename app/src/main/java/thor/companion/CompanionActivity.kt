@@ -93,8 +93,10 @@ class CompanionActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var statusDot: View
     private lateinit var loadButton: TextView
-    private lateinit var exitButton: View
-    private lateinit var exitAsk: LinearLayout
+    private lateinit var exitButton: LinearLayout
+    private lateinit var exitIcon: PowerIcon
+    private lateinit var exitLabel: TextView
+    private lateinit var exitAsk: TextView
     private lateinit var content: LinearLayout
     /** Above and below the scrolling part: the chat's tabs and answer keys, item details. */
     private lateinit var toolbar: LinearLayout
@@ -233,23 +235,22 @@ class CompanionActivity : Activity() {
         statusRow.addView(loadButton)
         // Closes the app for good (no task manager needed). Quiet at the end of this line, not
         // a button among the tab's buttons (Jesse, 2026-10-20: it looked out of place and was
-        // easy to hit); a tap asks right here whether to close: Close app, or Stay.
+        // easy to hit). A tap asks in this line and lights Exit up; a second tap closes, another
+        // tab (or a while) puts it back.
+        exitIcon = PowerIcon(this)
+        exitLabel = line("Exit", DIM, 12.5f).apply { setPadding(dp(6), 0, 0, 0) }
         exitButton = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(8), dp(6), dp(8))
-            addView(PowerIcon(context), LinearLayout.LayoutParams(dp(15), dp(15)))
-            addView(line("Exit", DIM, 12.5f).apply { setPadding(dp(6), 0, 0, 0) })
-            setOnClickListener { askExit(true) }
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            addView(exitIcon, LinearLayout.LayoutParams(dp(15), dp(15)))
+            addView(exitLabel)
+            setOnClickListener { if (exitAsk.visibility == View.VISIBLE) quit() else askExit(true) }
         }
-        exitAsk = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; visibility = View.GONE
-            addView(line("Close the Forever Companion? The game keeps running.", Theme.GOLD_TEXT, 13f).apply { setPadding(dp(8), 0, dp(8), 0) },
-                LinearLayout.LayoutParams(0, -2, 1f))
-            addView(chip("Close app") { quit() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
-            addView(chip("Stay") { askExit(false) }.apply { primary(); setPadding(dp(20), dp(9), dp(20), dp(9)) })
+        exitAsk = line("Close the Forever Companion? The game keeps running.", Theme.GOLD_TEXT, 13f).apply {
+            setPadding(dp(8), 0, dp(8), 0); visibility = View.GONE; maxLines = 2
         }
-        statusRow.addView(exitButton, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(4) })
         statusRow.addView(exitAsk, LinearLayout.LayoutParams(0, -2, 1f))
+        statusRow.addView(exitButton, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(4) })
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         toolbar = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         footer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -278,11 +279,13 @@ class CompanionActivity : Activity() {
         }
     }
 
-    /** Exit's question in the status line ([on]), or back to the status; it goes by itself after a while. */
+    /** Exit's question in the status line and Exit lit up ([on]), or back to the status; it goes by itself after a while. */
     private fun askExit(on: Boolean) {
         exitAsk.visibility = if (on) View.VISIBLE else View.GONE
         status.visibility = if (on) View.GONE else View.VISIBLE
-        exitButton.visibility = if (on) View.GONE else View.VISIBLE
+        exitButton.background = if (on) Theme.goldButton(this) else null
+        exitIcon.colour = if (on) Theme.GOLD_TEXT else DIM; exitIcon.invalidate()
+        exitLabel.setTextColor(if (on) Theme.GOLD_TEXT else DIM)
         updateLoadButton()
         exitAsk.removeCallbacks(exitTimeout)
         if (on) exitAsk.postDelayed(exitTimeout, 8000)
@@ -1302,6 +1305,7 @@ class CompanionActivity : Activity() {
 
     private fun show(p: Panel) {
         if (p != Panel.CHAT) closeCompose()
+        if (p != panel && exitAsk.visibility == View.VISIBLE) askExit(false)  // another tab: Exit's question goes
         panel = p
         for ((key, b) in tabs) {
             b.background = Theme.button(this, primary = key == p, radiusDp = Theme.TAB_RADIUS_DP)
