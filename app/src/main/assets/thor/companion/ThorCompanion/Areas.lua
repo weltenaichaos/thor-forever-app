@@ -101,8 +101,8 @@ local function draw(mapID, list)
     frame:SetScale(768 / select(2, GetPhysicalScreenSize()))
     frame:SetSize(GAP + math.min(#list, COLS) * (WIDTH + GAP), GAP + rows * (height + GAP))
     frame:ClearAllPoints()
-    -- Under the data square, like the item icons, out of the way of the middle of the screen.
-    frame:SetPoint("TOPRIGHT", ns.StripFrame(), "BOTTOMRIGHT", 0, -4)
+    -- Under the data square at its tallest, like the item icons, out of the way of the middle of the screen.
+    frame:SetPoint("TOPRIGHT", ns.StripFrame(), "TOPRIGHT", 0, -(ns.StripTallest() + 4))
     frame:Show()
     for i, q in ipairs(list) do
         local b = blobs[i] or newBlob()

@@ -36,7 +36,7 @@ These are written for Thor Forever instead:
   installs the addon (`core/CompanionAddon.java`).
 - `CompanionBridge.kt` connects the companion to the game screen and opens it on the other
   screen.
-- The addon (0.30.3 here) splits what it sends over four small colour squares in the corners
+- The addon (0.30.9 here) splits what it sends over four small colour squares in the corners
   of the screen (`Corners.lua`, the default `/thor shape corners`), each only there while it
   sends: your position (`TP2`) top left, the chat, chat box and tap answers bottom left, the
   status bottom right, everything else top right (the data square, 20 x 16 cells). The app
@@ -69,7 +69,9 @@ These are written for Thor Forever instead:
   profession's number, the recipe's row and the count as ALT-CTRL-NUMPAD digits, ALT-CTRL-F1
   between them and ALT-CTRL-F2, which crafts (nothing typed; an older addon gets `/thor make`).
   A crafting list holds what to make next (Make next, one tap per recipe, as the game wants),
-  and Make again repeats the last one. Item details now
+  and Make again repeats the last one. An enchantment goes on the list with the item picked
+  on its card (+1, +5 or + all); Make next then enchants that item once per tap, as the game's
+  Enchant button does for gear, until the count is done or the materials run out. Item details now
   compare something you can wear with what you wear in that slot (`ItemCompare.kt`).
   `/thor prof` says what the addon found.
 
