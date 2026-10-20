@@ -94,4 +94,29 @@ public class ThorSetupTest {
         assertTrue(BattleNetWindowWatcher.isInstallerRunning(Arrays.asList("wineserver", "Battle.net-Setu")));
         assertFalse(BattleNetWindowWatcher.isInstallerRunning(Arrays.asList("Battle.net.exe", "Agent.exe")));
     }
+
+    @Test
+    public void namesTheShortcutOfAnotherGameVersion() {
+        assertEquals("World of Warcraft Forever Live.desktop", ThorSetup.wowShortcutFileName("Live", new String[] { "World of Warcraft Forever.desktop" }));
+        assertEquals("World of Warcraft Forever Test 2.desktop", ThorSetup.wowShortcutFileName("Test", new String[] { "world of warcraft forever test.desktop" }));
+        assertEquals("World of Warcraft Forever Beta.desktop", ThorSetup.wowShortcutFileName("Beta", null));
+        assertTrue(ThorSetup.isThorWowShortcutFile("World of Warcraft Forever.desktop"));
+        assertTrue(ThorSetup.isThorWowShortcutFile("World of Warcraft Forever Live.desktop"));
+        assertFalse(ThorSetup.isThorWowShortcutFile("World of Warcraft.desktop"));
+        assertFalse(ThorSetup.isThorWowShortcutFile("Battle.net.desktop"));
+        String exe = "C:\\Program Files (x86)\\World of Warcraft\\_classic_beta_\\WowB-ARM64.exe";
+        assertEquals("C:\\Program Files (x86)\\World of Warcraft\\_classic_beta_", ThorSetup.folderOf(exe));
+        assertEquals("_classic_beta_", ThorSetup.flavorName(exe));
+    }
+
+    @Test
+    public void copiesTheSettingsButNotWhatBelongsToOneShortcut() throws java.io.IOException {
+        java.io.File file = java.nio.file.Files.createTempFile("wow", ".desktop").toFile();
+        java.nio.file.Files.write(file.toPath(), ("[Desktop Entry]\nName=World of Warcraft\nExec=env wine C:\\\\x\\\\Wow.exe\n\n[Extra Data]\n"
+                + "envVars=WINEESYNC=1 TU_DEBUG=\nfpsLimit=60\nlastRunAt=1000\nthorChosenAt=5\nuuid=abc\ncustomCoverArtPath=/x.png\n").getBytes());
+        java.util.Map<String, String> extras = ThorSetup.copiedExtras(file);
+        assertEquals("WINEESYNC=1 TU_DEBUG=", extras.get("envVars"));
+        assertEquals("60", extras.get("fpsLimit"));
+        assertEquals(2, extras.size());
+    }
 }

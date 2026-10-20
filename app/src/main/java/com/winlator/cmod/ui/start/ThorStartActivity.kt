@@ -80,6 +80,7 @@ import com.winlator.cmod.MainActivity
 import com.winlator.cmod.R
 import com.winlator.cmod.container.ContainerManager
 import com.winlator.cmod.container.Container
+import com.winlator.cmod.container.Shortcut
 import com.winlator.cmod.core.AddonInstaller
 import com.winlator.cmod.core.AddonStore
 import com.winlator.cmod.core.CompanionAddon
@@ -106,6 +107,10 @@ import kotlin.math.sin
  */
 class ThorStartActivity : ComponentActivity() {
     private var game by mutableStateOf<ThorGame?>(null)
+    /** Every installed game version with its name on the Game button (Live, Test, Beta), in the button's order. */
+    private var games by mutableStateOf<List<Pair<ThorGame, String>>>(emptyList())
+    /** The name of the version the Game button just switched to, for the next status line. */
+    private var switchedTo: String? = null
     private var loaded by mutableStateOf(false)
     private var version by mutableStateOf("")
     /** The version Battle.net would update to, when it differs from the installed one. */
@@ -370,6 +375,16 @@ class ThorStartActivity : ComponentActivity() {
                     else -> Setup.INSTALL_BATTLE_NET
                 }
             }
+            // Another game version next to this one (like the release next to the beta): its own
+            // shortcut with this one's settings. When Battle.net added it after this one, Play starts it.
+            val current = found
+            val newGame: Shortcut? = if (current == null || manager == null || added) null
+                else runCatching { ThorSetup.addNewWowVersions(this, manager, current) }
+                    .onFailure { Log.w("ThorStart", "game versions: $it") }.getOrNull()
+            if (newGame != null && manager != null) found = runCatching { ThorGame.find(manager) }.getOrNull() ?: found
+            val all = runCatching { manager?.let { ThorGame.findAll(it) }.orEmpty() }.getOrDefault(emptyList())
+            val versions = gameNames(all)
+            val switchedToNew = newGame != null && found?.shortcut?.file == newGame.file
             val installed = runCatching { found?.installedVersion() ?: "" }.getOrDefault("")
             val foundAddons = runCatching {
                 AddonInstaller.installed(AddonInstaller.addonsDir(found), AddonStore.interfaceOf(installed))
@@ -379,12 +394,51 @@ class ThorStartActivity : ComponentActivity() {
                 setupContainer = container
                 setup = step
                 addons = foundAddons
-                show(found, installed, added)
+                games = versions
+                show(found, installed, added, if (newGame == null) null else switchedToNew)
             }
         }.start()
     }
 
-    private fun show(found: ThorGame?, installed: String, added: Boolean = false) {
+    /**
+     * The Game button's names for the installed versions: Live, Test or Beta, with a number when
+     * two are the same kind, in the order the button goes through them (Live first).
+     */
+    private fun gameNames(all: List<ThorGame>): List<Pair<ThorGame, String>> {
+        val order = listOf("Live", "Test", "Beta")
+        val kinds = all.map { g -> g to runCatching { g.kind() }.getOrDefault("Live") }
+            .sortedWith(compareBy<Pair<ThorGame, String>>({ order.indexOf(it.second) }, { it.first.flavorDir?.name ?: "" }))
+        val count = HashMap<String, Int>()
+        return kinds.map { (g, kind) ->
+            val n = (count[kind] ?: 0) + 1
+            count[kind] = n
+            g to if (n == 1) kind else "$kind $n"
+        }
+    }
+
+    /** The name of the shown game version on the Game button, or "" with just one version. */
+    private fun gameName(): String {
+        val file = game?.shortcut?.file ?: return ""
+        return if (games.size < 2) "" else games.firstOrNull { it.first.shortcut.file == file }?.second ?: ""
+    }
+
+    /** The Game button: Play starts the next installed version from now on. */
+    private fun nextGame() {
+        val list = games
+        val file = game?.shortcut?.file ?: return
+        if (list.size < 2) return
+        val next = list[(list.indexOfFirst { it.first.shortcut.file == file } + 1) % list.size]
+        Thread {
+            runCatching { next.first.choose() }.onFailure { Log.w("ThorStart", "game switch: $it") }
+            runOnUiThread {
+                switchedTo = next.second
+                load()
+            }
+        }.start()
+    }
+
+    /** versionAdded: null when no game version was added, else whether Play now starts the added one. */
+    private fun show(found: ThorGame?, installed: String, added: Boolean = false, versionAdded: Boolean? = null) {
         run {
             game = found
             version = installed
@@ -392,8 +446,13 @@ class ThorStartActivity : ComponentActivity() {
             overlay = found?.shortcut?.container?.getExtra("hudMode", "")?.toIntOrNull()
                 ?: if (found?.shortcut?.container?.isShowFPS == true) 1 else 0
             val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val switched = switchedTo
+            switchedTo = null
             status = when {
                 added -> "World of Warcraft is installed and set up for the Thor. Press Play."
+                versionAdded == true -> "A new game version is installed and set up for the Thor. Press Play."
+                versionAdded == false -> "Another game version is installed and set up for the Thor. Game switches to it."
+                switched != null && found != null -> "Switched to the $switched version. Press Play."
                 setup == Setup.NO_CONTAINER -> "No container yet. Open More (Winlator) to create one, then come back."
                 setup == Setup.INSTALL_BATTLE_NET && pickInstaller -> "Download Battle.net-Setup.exe from battle.net/download in your browser, then press Choose installer and pick it."
                 setup == Setup.INSTALL_BATTLE_NET -> "Welcome! Press Install Battle.net. Then log in, install World of Warcraft and close Battle.net when it's done."
@@ -438,7 +497,7 @@ class ThorStartActivity : ComponentActivity() {
         }
         // The companion's addon in the version this app carries, so app and addon match.
         Thread {
-            runCatching { CompanionAddon.install(this, addonsDir) }
+            runCatching { CompanionAddon.install(this, addonsDir, AddonStore.interfaceOf(version)) }
                 .onFailure { Log.w("ThorStart", "companion addon: $it") }
             runOnUiThread { startShortcut(g.shortcut.container.id, g.shortcut.file.path, update = false) }
         }.start()
@@ -698,7 +757,7 @@ class ThorStartActivity : ComponentActivity() {
         }
         Thread {
             val result = runCatching {
-                if (on) CompanionAddon.install(this, addonsDir) else CompanionAddon.remove(addonRecord(), addonsDir)
+                if (on) CompanionAddon.install(this, addonsDir, AddonStore.interfaceOf(version)) else CompanionAddon.remove(addonRecord(), addonsDir)
             }
             val list = runCatching { AddonInstaller.installed(addonsDir, AddonStore.interfaceOf(version)) }.getOrDefault(addons)
             runOnUiThread {
@@ -773,10 +832,11 @@ class ThorStartActivity : ComponentActivity() {
                         UpdatePage(offered, u, body)
                         return@Column
                     }
+                    val kind = gameName().let { if (it.isEmpty()) "" else " ($it)" }
                     Text(when {
-                            version.isEmpty() -> "Installed game version: unknown"
-                            newVersion.isNotEmpty() -> "Installed game version: $version (new: $newVersion)"
-                            else -> "Installed game version: $version"
+                            version.isEmpty() -> "Installed game version: unknown$kind"
+                            newVersion.isNotEmpty() -> "Installed game version: $version$kind (new: $newVersion)"
+                            else -> "Installed game version: $version$kind"
                         }, style = body, color = GoldLight, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().height(u))
                     Text(status, style = body, color = TextColor, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().height(u * 2))
                     if (offered != null) {
@@ -789,7 +849,10 @@ class ThorStartActivity : ComponentActivity() {
                     // with Update and Quit beside it.
                     val gap = u / 2
                     val sw = u * 22 / 5
-                    val blockWidth = sw * 5 + gap * 4
+                    // A sixth button, Game, while more than one game version is installed.
+                    val gameButton = gameName()
+                    val slots = if (gameButton.isEmpty()) 5 else 6
+                    val blockWidth = sw * slots + gap * (slots - 1)
                     val pw = u * 9
                     val side = (blockWidth - pw - gap * 2) / 2
                     Row(Modifier.align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.CenterVertically) {
@@ -809,8 +872,9 @@ class ThorStartActivity : ComponentActivity() {
                         StartButton(null, "Quit", u, side, onClick = { finishAndRemoveTask() })
                     }
                     Spacer(Modifier.height(u))
-                    // Five settings, the companion app among them.
+                    // Five settings, the companion app among them (and Game with several game versions).
                     Row(Modifier.align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        if (gameButton.isNotEmpty()) StartButton("Game", gameButton, u, sw, enabled = enabled, onClick = ::nextGame)
                         StartButton("FPS cap", if (fpsCap == 0) "Off" else fpsCap.toString(), u, sw, enabled = enabled, onClick = ::nextFpsCap)
                         StartButton("Overlay", OVERLAYS[overlay.coerceIn(0, OVERLAYS.size - 1)], u, sw, enabled = enabled, onClick = ::nextOverlay)
                         StartButton("Add-ons", addons.size.toString(), u, sw, enabled = enabled, onClick = { addonStatus = ""; showAddons = true })

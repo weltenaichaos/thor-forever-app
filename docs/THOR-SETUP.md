@@ -44,6 +44,19 @@ graphics options into it, and the app never overwrites it. The graphics lines ar
 same as WoW's own Graphics options (the "Low" preset), plus a few view distances. In
 the launcher's tests the complete set fixed a picture glitch in the menu.
 
+## More than one game version
+
+Battle.net installs each game version (beta, stress test, release) into its own folder
+next to the others, like `_classic_beta_`. When the start screen finds a version
+without a shortcut, it adds one (`World of Warcraft Forever Live.desktop` and the like)
+with the settings of the current WoW shortcut: the same variables, start arguments, FPS
+cap and FEXCore preset, and the game settings file above in that version's `WTF` folder.
+A version installed after the current one becomes the one **Play** starts. The **Game**
+button switches between them.
+
+The Forever Companion's add-on gets the interface number of the version it goes into,
+so a game patch doesn't mark it out of date.
+
 ## Not included
 
 These are in the working shortcut, but the app doesn't ship them:
@@ -58,7 +71,7 @@ You can download VKD3D from the app's Contents list.
 
 - The app writes its logs to `Winlator/logs`: `app-exits.txt`, `cpu_*.txt`, `x-windows_*.txt`,
   and `wowb-arm64_*.txt` when Settings, Logs, "Enable Wine debug" is on.
-- WoW writes its own crash reports to the `Errors` folder next to `WowB-ARM64.exe`.
+- WoW writes its own crash reports to the `Errors` folder next to the game's `.exe` (`WowB-ARM64.exe` in the beta).
 
 Logs and WoW's `WTF` and `Account` folders can contain account and character names.
 Don't post them publicly.

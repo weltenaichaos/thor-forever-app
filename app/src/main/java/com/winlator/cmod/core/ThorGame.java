@@ -10,7 +10,11 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Locale;
 
 /**
@@ -34,22 +38,59 @@ public final class ThorGame {
         this.battleNetShortcut = battleNetShortcut;
     }
 
-    /** The WoW shortcut started last (or the first one), or null when there is none yet. */
+    /** Shortcut extra: when the player picked this game version on the start screen (or the app added it). */
+    public static final String EXTRA_CHOSEN_AT = "thorChosenAt";
+
+    /** The WoW shortcut picked or started last (or the first one), or null when there is none yet. */
     public static ThorGame find(ContainerManager manager) {
-        Shortcut best = null;
-        long bestRun = -1;
+        List<ThorGame> all = findAll(manager);
+        return all.isEmpty() ? null : all.get(0);
+    }
+
+    /**
+     * Every installed game version with a WoW shortcut, one per game .exe: the one picked or
+     * started last first. A shortcut whose .exe is gone (an uninstalled version) comes after
+     * the others, so Play starts one that is there.
+     */
+    public static List<ThorGame> findAll(ContainerManager manager) {
         List<Shortcut> shortcuts = manager.loadShortcuts();
+        List<Shortcut> wow = new ArrayList<>();
+        List<Boolean> there = new ArrayList<>();
         for (Shortcut shortcut : shortcuts) {
             if (!isWowExe(shortcut.path)) continue;
-            long lastRun;
-            try { lastRun = Long.parseLong(shortcut.getExtra("lastRunAt", "0")); } catch (NumberFormatException e) { lastRun = 0; }
-            if (lastRun > bestRun) {
-                best = shortcut;
-                bestRun = lastRun;
-            }
+            File exe = toAndroidPath(shortcut.container, shortcut.path);
+            wow.add(shortcut);
+            there.add(exe != null && exe.isFile());
         }
-        if (best == null) return null;
-        // A Battle.net shortcut, the one in the game's container first.
+        Integer[] order = new Integer[wow.size()];
+        for (int i = 0; i < order.length; i++) order[i] = i;
+        Arrays.sort(order, (a, b) -> {
+            if (!there.get(a).equals(there.get(b))) return there.get(a) ? -1 : 1;
+            return Long.compare(lastPicked(wow.get(b)), lastPicked(wow.get(a)));
+        });
+        List<ThorGame> games = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (int i : order) {
+            Shortcut best = wow.get(i);
+            // Two shortcuts for the same .exe are one game version: the one used last counts.
+            if (!seen.add(best.container.id + "|" + best.path.trim().toLowerCase(Locale.ROOT))) continue;
+            File exe = toAndroidPath(best.container, best.path);
+            games.add(new ThorGame(best, exe != null ? exe.getParentFile() : null, battleNetFor(shortcuts, best)));
+        }
+        return games;
+    }
+
+    /** When the shortcut was picked on the start screen or started, whichever was later. */
+    static long lastPicked(Shortcut shortcut) {
+        return Math.max(number(shortcut.getExtra("lastRunAt", "0")), number(shortcut.getExtra(EXTRA_CHOSEN_AT, "0")));
+    }
+
+    private static long number(String text) {
+        try { return Long.parseLong(text.trim()); } catch (NumberFormatException e) { return 0; }
+    }
+
+    /** A Battle.net shortcut, the one in the game's container first. */
+    private static Shortcut battleNetFor(List<Shortcut> shortcuts, Shortcut game) {
         Shortcut battleNet = null;
         for (Shortcut shortcut : shortcuts) {
             if (!isBattleNetExe(shortcut.path) || isBattleNetSetupExe(shortcut.path)) continue;
@@ -57,10 +98,33 @@ public final class ThorGame {
             // Files (x86)"), and Wine then says "File not found": only take one that points to a file.
             File target = toAndroidPath(shortcut.container, shortcut.path);
             if (target == null || !target.isFile()) continue;
-            if (battleNet == null || shortcut.container == best.container) battleNet = shortcut;
+            if (battleNet == null || shortcut.container == game.container) battleNet = shortcut;
         }
-        File exe = toAndroidPath(best.container, best.path);
-        return new ThorGame(best, exe != null ? exe.getParentFile() : null, battleNet);
+        return battleNet;
+    }
+
+    /** Makes this the game version Play starts. */
+    public void choose() {
+        shortcut.putExtra(EXTRA_CHOSEN_AT, String.valueOf(System.currentTimeMillis()));
+        shortcut.saveData();
+    }
+
+    /** What kind of game version this is, for the start screen: Live, Test or Beta. */
+    public String kind() {
+        return kindOf(product(), flavorDir != null ? flavorDir.getName() : "");
+    }
+
+    /**
+     * Live, Test or Beta, from the product name Battle.net gives the version (like
+     * wow_classic_beta) and its folder (like _classic_beta_). Blizzard's test versions are
+     * called ptr, xptr, wowt or livetest; everything else is the game itself.
+     */
+    static String kindOf(String product, String folder) {
+        String p = product == null ? "" : product.toLowerCase(Locale.ROOT);
+        String f = folder == null ? "" : folder.toLowerCase(Locale.ROOT);
+        if (p.contains("beta") || f.contains("beta")) return "Beta";
+        if (p.contains("ptr") || p.equals("wowt") || p.contains("test") || f.contains("ptr") || f.contains("test")) return "Test";
+        return "Live";
     }
 
     /** True for WoW's own .exe (Wow.exe, WowB-ARM64.exe, ...), not its voice chat or other tools. */
