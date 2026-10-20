@@ -444,13 +444,25 @@ runEvents:SetScript("OnEvent", function(_, event, a, b, c)
     elseif event == "REPLACE_ENCHANT" or event == "REPLACE_TRADESKILL_ENCHANT" then
         local okF, text = pcall(string.format, REPLACE_ENCHANT or "Replace \"%s\" with \"%s\"?", tostring(a or ""), tostring(b or ""))
         ask(event, okF and text or "Replace the enchantment that is on it?")
+        -- The app's Enchant tap said yes already (its replace switch): answered right here,
+        -- still within that key press. Should the game not take it, the question stays, on
+        -- its screen and in the app, for a Yes or No as without the switch.
+        if run.replace then
+            local f = (C_Item and C_Item[ANSWERS[event]]) or _G[ANSWERS[event]]
+            if f then pcall(f) end
+        end
     elseif event == "BIND_ENCHANT" then
         ask(event, BIND_ENCHANT or "Enchanting this item will bind it to you.")
     elseif a == "player" and number(c) == run.spell then
         if event == "UNIT_SPELLCAST_START" and run.status == "asking" then
+            -- (The game hides its question when the cast starts; this makes sure.)
+            if StaticPopup_Hide and run.asking then pcall(StaticPopup_Hide, run.asking) end
             run.status, run.reason, run.asking = "making", "", nil
             runChanged()
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+            if run.replace and StaticPopup_Hide then
+                for which in pairs(ANSWERS) do if which ~= "BIND_ENCHANT" then pcall(StaticPopup_Hide, which) end end
+            end
             run.made, run.status, run.reason, run.asking = 1, "done", "", nil
             addResult("Enchanted " .. (run.on or "it") .. ": " .. run.name)
             runChanged()
@@ -600,7 +612,9 @@ end
 -- <profession n> is that profession's open key (ALT-SHIFT-F<n>), <row> the recipe's place in
 -- its TR1 rows (1 first, headings counted). MAKE is the key press that crafts (the game wants
 -- one); the digits before it only say what. One tap in the app, one craft, as with typing.
--- An enchantment also says which item it goes on: its <place> (see <fits> above) and itemID.
+-- An enchantment also says which item it goes on: its <place> (see <fits> above) and itemID,
+-- and a 1 after them when the same tap also says yes to replacing the item's enchantment
+-- (the app's "Replace an old enchantment without asking"; binding an item is always asked).
 -- ALT-CTRL-F3 and ALT-CTRL-F5 answer the game's question about an enchantment: yes and no
 -- (not F4: ALT-F4 closes the game window, so no key near it is used).
 local makeOwner = CreateFrame("Frame")
@@ -625,8 +639,8 @@ local function makeNow()
     if GetTime() - digitsAt > 2 then return end
     local nums = {}
     for v in text:gmatch("[^*]+") do nums[#nums + 1] = tonumber(v) end
-    if not text:match("^[%d*]+$") or (#nums ~= 3 and #nums ~= 5) then nums = {} end
-    local n, row, count, place, item = nums[1], nums[2], nums[3], nums[4], nums[5]
+    if not text:match("^[%d*]+$") or (#nums ~= 3 and #nums ~= 5 and #nums ~= 6) then nums = {} end
+    local n, row, count, place, item, replace = nums[1], nums[2], nums[3], nums[4], nums[5], nums[6] == 1
     local names = {}
     for name in pairs(mine().recipes) do if name ~= "" then names[#names + 1] = name end end
     table.sort(names)
@@ -639,7 +653,7 @@ local function makeNow()
     local f = { strsplit("\t", r) }
     local id = tonumber(f[2]) or 0
     local what = id > 0 and tostring(id) or (f[7] or ""):lower()
-    local on = place and (" @" .. place .. ":" .. (item or 0)) or ""
+    local on = place and (" @" .. place .. ":" .. (item or 0) .. (replace and ":1" or "")) or ""
     print("|cff66ccffForever Companion|r " .. ns.Make(math.max(1, count or 1) .. " " .. what .. on))
 end
 local makeButtons = {}
@@ -839,7 +853,7 @@ end
 -- An enchantment on the item at <place> (see <fits> above), the way the game's own enchanting
 -- window does it: the item has to be one the game offers for it (GetEnchantItems), and when it
 -- moved in the bags since the app saw it, the same item is found where it is now.
-local function enchant(recipeID, name, place, itemID)
+local function enchant(recipeID, name, place, itemID, replace)
     local ui = C_TradeSkillUI
     if not (ui and ui.CraftEnchant and ui.GetEnchantItems) then return "this game can't enchant from the app" end
     local fits = enchantItems(recipeID, itemsByGUID())
@@ -860,7 +874,7 @@ local function enchant(recipeID, name, place, itemID)
     local okN, item = pcall(function() return C_Item.GetItemName and C_Item.GetItemName(loc) end)
     item = okN and type(item) == "string" and not secret(item) and item or ("item " .. pick.id)
     startRun(name, 0, 1, recipeID)
-    run.on = clean(item, MAX_NAME)
+    run.on, run.replace = clean(item, MAX_NAME), replace
     local ok, err = pcall(ui.CraftEnchant, recipeID, 1, nil, loc)
     if not ok then
         stopRun("couldn't enchant: " .. tostring(err))
@@ -874,9 +888,9 @@ function ns.Make(args, again)
     want = want and want:lower():gsub("^%s+", ""):gsub("%s+$", "")
     if not want then return "use: /thor make <count|all> <item id or recipe name> [@place:itemID]" end
     -- An enchantment's item: @<place>:<itemID> at the end.
-    local place, onItem = want:match("%s*@(%d+):?(%d*)$")
-    if place then want = want:gsub("%s*@%d+:?%d*$", "") end
-    place, onItem = tonumber(place), tonumber(onItem) or 0
+    local place, onItem, replace = want:match("%s*@(%d+):?(%d*):?(%d*)$")
+    if place then want = want:gsub("%s*@%d+:?%d*:?%d*$", "") end
+    place, onItem, replace = tonumber(place), tonumber(onItem) or 0, replace == "1"
     local all = count == "all"
     local n = all and 0 or math.max(1, math.min(tonumber(count) or 1, 999))
     -- How many to make: the game's count or the bags' (the larger), and when neither can be
@@ -921,7 +935,7 @@ function ns.Make(args, again)
     if C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs and C_TradeSkillUI.CraftRecipe then
         local okF, id, name, available = pcall(findModern, want)
         if okF and id and place then
-            return enchant(id, name, place, onItem)
+            return enchant(id, name, place, onItem, replace)
         end
         if okF and id then
             local make, said = plan(name, available, nil)

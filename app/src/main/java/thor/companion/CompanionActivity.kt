@@ -833,7 +833,8 @@ class CompanionActivity : Activity() {
      * [recipe] the recipe whose card is open, [enchanting] an item an enchantment is going on.
      */
     internal fun preview(messages: List<String>, tab: String, loaded: Boolean = true, craft: String? = null,
-                         byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null) {
+                         byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null,
+                         lastEnchant: String? = null, replace: Boolean = false) {
         frameAt = SystemClock.uptimeMillis()
         craftProfession = craft
         craftByGear = byGear
@@ -849,6 +850,8 @@ class CompanionActivity : Activity() {
             finishLoading()
             for ((_, b) in tabs) b.alpha = 1f
         }
+        if (lastEnchant != null) getPreferences(MODE_PRIVATE).edit().putString(craftKey("lastEnchant"), lastEnchant).putBoolean(craftKey("lastWasEnchant"), true).apply()
+        if (replace) getPreferences(MODE_PRIVATE).edit().putBoolean("enchantReplace", true).apply()
         if (craft != null && recipe != null) craftRecipe = recipesOf(craft).firstOrNull { it.name == recipe }
         if (craft != null && recipe != null && enchanting != null) craftRunning = CraftRun(CraftJob(craft, 0, 0, recipe, 1), 1, 1, 0, 0, on = enchanting)
         show(Panel.valueOf(tab))
@@ -1998,6 +2001,7 @@ class CompanionActivity : Activity() {
             run != null -> "⏳  Making ${run.job.name}: ${run.made()} of ${run.total()}"
             queue.isNotEmpty() && craftDone.isEmpty() -> "▶  Start the list (${queue.size})"
             queue.isNotEmpty() -> "▶  Next (${craftDone.size + 1} of ${craftDone.size + queue.size}): ${queue.first().label()}"
+            lastWasEnchant() -> lastEnchant()?.let { "↻  Enchant again: ${it.name.substringAfter(" - ", it.name)} on ${targetName(it.on)}" }
             else -> again?.let { "↻  Make again: ${it.label()}" }
         }
         if (main != null) {
@@ -2262,7 +2266,10 @@ class CompanionActivity : Activity() {
     private fun makeNextFromList() {
         val now = craftList()
         val job = now.firstOrNull()
-        if (job == null) { lastJob()?.let { runJob(it) }; return }
+        if (job == null) {
+            if (lastWasEnchant()) enchantAgain() else lastJob()?.let { runJob(it) }
+            return
+        }
         craftRunning?.let { if (!it.finished()) { say("Still making ${it.job.name} (${it.made()} of ${it.total()}): Next works once it is done"); return } }
         val seqBefore = professions?.progress?.seq ?: 0
         val count = runJob(job)
@@ -2526,7 +2533,11 @@ class CompanionActivity : Activity() {
                 else "None of your items takes it right now.", DIM, 13f).apply { setPadding(0, dp(2), 0, 0) })
             return
         }
-        val pick = fits.firstOrNull { it.place == craftTarget } ?: fits.first()
+        // The item picked here, else the one enchanted last (as the game's window keeps it in its slot).
+        val last = lastEnchant()?.on
+        val pick = fits.firstOrNull { it.place == craftTarget }
+            ?: last?.let { l -> fits.firstOrNull { it.place == l.place && it.itemId == l.itemId } ?: fits.firstOrNull { it.itemId == l.itemId } }
+            ?: fits.first()
         for (t in fits) {
             box.addView(targetRow(t, if (t == pick) "✓" else "", t == pick, compact = true) { craftTarget = t.place; render() },
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
@@ -2546,12 +2557,64 @@ class CompanionActivity : Activity() {
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         if (n <= 0) box.addView(line("Not enough materials in your bags yet: see below.", Theme.WARN, 12f).apply { setPadding(0, dp(4), 0, 0) })
         if (stale) box.addView(line("Some gear changed since Enchanting was last open: open it in the game once to see it all here.", DIM, 12f).apply { setPadding(0, dp(4), 0, 0) })
+        // For skilling (the same item again and again): the Enchant tap also says yes when the
+        // game asks to replace the enchantment on it. Binding an item to you is always asked.
+        val replace = replaceWithoutAsking()
+        val toggle = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
+        toggle.addView(line("Replace an old enchantment without asking", TEXT, 13f).apply { setPadding(0, 0, dp(8), 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+        toggle.addView(chip(if (replace) "On" else "Off") { setReplaceWithoutAsking(!replace); render() }.apply {
+            if (replace) primary()
+            setPadding(dp(16), dp(6), dp(16), dp(6))
+        })
+        box.addView(toggle)
+    }
+
+    /** The enchanting switch above (kept on this device): one tap enchants and replaces. */
+    private fun replaceWithoutAsking() = getPreferences(MODE_PRIVATE).getBoolean("enchantReplace", false)
+    private fun setReplaceWithoutAsking(on: Boolean) {
+        getPreferences(MODE_PRIVATE).edit().putBoolean("enchantReplace", on).apply()
+        say(if (on) "Enchant now replaces an old enchantment without asking (binding an item is still asked)" else "The game asks again before replacing an enchantment")
+    }
+
+    /** The last enchantment made from the app and the item it went on, for Enchant again (kept per character). */
+    private data class LastEnchant(val profession: String, val row: Int, val name: String, val on: EnchantTarget) {
+        fun line() = listOf(profession, row, name, on.place, on.itemId).joinToString("\t")
+        companion object {
+            fun parse(text: String): LastEnchant? {
+                val f = text.split('\t')
+                if (f.size < 5) return null
+                return LastEnchant(f[0], f[1].toIntOrNull() ?: return null, f[2], EnchantTarget(f[3].toIntOrNull() ?: return null, f[4].toIntOrNull() ?: 0))
+            }
+        }
+    }
+    private fun lastEnchant(): LastEnchant? = getPreferences(MODE_PRIVATE).getString(craftKey("lastEnchant"), null)?.let { LastEnchant.parse(it) }
+    /** Whether the last thing done was an enchantment (Enchant again) or a craft (Make again). */
+    private fun lastWasEnchant() = getPreferences(MODE_PRIVATE).getBoolean(craftKey("lastWasEnchant"), false) && lastEnchant() != null
+
+    /** Enchant again: the last enchantment on the same item, found again when it moved in the bags. */
+    private fun enchantAgain() {
+        val e = lastEnchant() ?: return
+        craftRunning?.let { if (!it.finished()) { say("Still busy with ${it.job.name}: wait until it is done"); return } }
+        val (row, r) = findJob(CraftJob(e.profession, e.row, 0, e.name, 1))
+            ?: run { say("${e.name} isn't in the ${e.profession} recipes any more: open that window in the game once"); return }
+        val fits = currentFits(r)
+        val on = fits.firstOrNull { it.place == e.on.place && it.itemId == e.on.itemId } ?: fits.firstOrNull { it.itemId == e.on.itemId }
+        if (on == null) {
+            craftProfession = e.profession; craftByGear = false; craftRecipe = r; craftSheet = null; render()
+            say("${targetName(e.on)} doesn't take ${e.name} now: pick an item on the card")
+            return
+        }
+        val have = state?.items.orEmpty().groupBy { it.itemId }.mapValues { g -> g.value.sumOf { it.count } }
+        if ((r.canMake { have[it] ?: 0 } ?: 0) <= 0) { say("Not enough materials for ${e.name} in your bags"); return }
+        runEnchant(e.profession, row, r, on)
     }
 
     /**
      * Enchants [on] with [r], as the game's own enchanting window does (addon 0.30.4): one
      * tap, the Make keys with the item's place, the profession's open key first when its
-     * window is closed. Not kept as the last craft: Make again would put it on the same item.
+     * window is closed. Kept for Enchant again (the same item, as when skilling), not as the
+     * last craft; with the replace switch on (addon 0.30.6) the same tap also says yes when
+     * the game asks to replace the item's enchantment.
      */
     private fun runEnchant(profession: String, row: Int, r: Recipe, on: EnchantTarget) {
         val job = CraftJob(profession, row, 0, r.name, 1)
@@ -2561,11 +2624,15 @@ class CompanionActivity : Activity() {
         val n = openKey?.substringAfterLast("-F")?.toIntOrNull()
         val seqBefore = p?.progress?.seq ?: 0
         val label = "${r.name} on ${targetName(on)}"
+        val replace = replaceWithoutAsking()
         if (p != null && p.makeKeys && openKey != null && n != null) {
-            sendMakeKeys(openKey, Professions.makeKeys(n, at, 1, on), p.open != profession || gameAddon == null, "Enchanting: $label")
+            sendMakeKeys(openKey, Professions.makeKeys(n, at, 1, on, replace), p.open != profession || gameAddon == null, "Enchanting: $label")
         } else {
-            make(label, profession, "1", r.name.lowercase(Locale.ROOT) + " @${on.place}:${on.itemId}")
+            make(label, profession, "1", r.name.lowercase(Locale.ROOT) + " @${on.place}:${on.itemId}" + if (replace) ":1" else "")
         }
+        getPreferences(MODE_PRIVATE).edit().putString(craftKey("lastEnchant"), LastEnchant(profession, at, r.name, on).line())
+            .putBoolean(craftKey("lastWasEnchant"), true).apply()
+        craftTarget = on.place
         craftRunning = CraftRun(job, 1, 1, 0, seqBefore, on = targetName(on))
         render()
     }
@@ -2666,7 +2733,7 @@ class CompanionActivity : Activity() {
         val can = r.canMake { have[it] ?: 0 } ?: 0
         if (can <= 0) { say("Not enough materials for ${job.name} in your bags"); return 0 }
         val count = if (job.count == ALL) can else minOf(job.count, can)
-        getPreferences(MODE_PRIVATE).edit().putString(craftKey("lastCraft"), job.line()).apply()
+        getPreferences(MODE_PRIVATE).edit().putString(craftKey("lastCraft"), job.line()).putBoolean(craftKey("lastWasEnchant"), false).apply()
         val p = professions
         val openKey = p?.openKeys?.get(job.profession)?.let { ActionKeys.forIndex(it) }
         val n = openKey?.substringAfterLast("-F")?.toIntOrNull()

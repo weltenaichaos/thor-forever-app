@@ -45,7 +45,8 @@ class CompanionScreensTest {
     }
 
     private fun shoot(name: String, tab: String, loaded: Boolean = true, upTo: Int = messages.size, craft: String? = null, scrolled: Int = 0,
-                      byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null, extra: List<String> = emptyList()) {
+                      byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null, extra: List<String> = emptyList(),
+                      lastEnchant: String? = null, replace: Boolean = false) {
         // Run outside Gradle (no app resources): the fonts from their files.
         System.getProperty("companion.fonts.dir")?.let { fonts ->
             Theme.useFonts(Typeface.createFromFile(File(fonts, "cinzel_bold.ttf")), Typeface.createFromFile(File(fonts, "wine_tahoma.ttf")))
@@ -54,7 +55,7 @@ class CompanionScreensTest {
         controller.get().setTheme(android.R.style.Theme_DeviceDefault_NoActionBar)  // as in the manifest
         controller.create()
         val activity = controller.get()
-        activity.preview(messages.take(upTo) + extra, tab, loaded, craft, byGear, target, recipe, enchanting)
+        activity.preview(messages.take(upTo) + extra, tab, loaded, craft, byGear, target, recipe, enchanting, lastEnchant, replace)
         shadowOf(Looper.getMainLooper()).idle()
         val root = activity.findViewById<View>(android.R.id.content)
         val w = 1240; val h = 1080
@@ -91,6 +92,9 @@ class CompanionScreensTest {
     @Test fun enchantAsking() = shoot("4e-enchant-asking", "CRAFT", craft = "Enchanting", recipe = "Enchant Bracer - Minor Stamina",
         enchanting = "Ivycloth Bracelets", extra = listOf(messages.first { it.startsWith("TF1|") } +
             "\nc\t1\t0\t1\tasking\tDo you want to replace \"Minor Health\" with \"Minor Stamina\"?\tEnchant Bracer - Minor Stamina"))
+    /** Skilling: Enchant again on the item enchanted last, and the replace switch on its card. */
+    @Test fun enchantAgain() = shoot("4f-enchant-again", "CRAFT", craft = "Enchanting", recipe = "Enchant Bracer - Minor Stamina",
+        lastEnchant = "Enchanting\t4\tEnchant Bracer - Minor Stamina\t9\t9793", replace = true)
     @Test fun map() = shoot("5-map", "MAP")
     @Test fun chat() = shoot("6-chat", "CHAT")
     /** The start-up card, part way: the status, bags and character are in, the rest still coming. */

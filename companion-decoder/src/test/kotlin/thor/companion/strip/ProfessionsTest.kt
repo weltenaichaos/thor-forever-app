@@ -109,6 +109,11 @@ class ProfessionsTest {
         assertEquals(listOf("ALT-CTRL-NUMPAD1", "ALT-CTRL-F1", "ALT-CTRL-NUMPAD2", "ALT-CTRL-F1", "ALT-CTRL-NUMPAD1",
             "ALT-CTRL-F1", "ALT-CTRL-NUMPAD9", "ALT-CTRL-F1", "ALT-CTRL-NUMPAD2", "ALT-CTRL-NUMPAD0", "ALT-CTRL-NUMPAD0",
             "ALT-CTRL-NUMPAD0", "ALT-CTRL-F2"), Professions.makeKeys(1, 2, 1, EnchantTarget(9, 2000)))
+        // ... and a 1 after them when the tap also says yes to replacing the item's enchantment.
+        assertEquals(listOf("ALT-CTRL-NUMPAD1", "ALT-CTRL-F1", "ALT-CTRL-NUMPAD2", "ALT-CTRL-F1", "ALT-CTRL-NUMPAD1",
+            "ALT-CTRL-F1", "ALT-CTRL-NUMPAD9", "ALT-CTRL-F1", "ALT-CTRL-NUMPAD7", "ALT-CTRL-F1", "ALT-CTRL-NUMPAD1",
+            "ALT-CTRL-F2"), Professions.makeKeys(1, 2, 1, EnchantTarget(9, 7), replace = true))
+        assertEquals(Professions.makeKeys(1, 2, 1, EnchantTarget(9, 7)), Professions.makeKeys(1, 2, 1, EnchantTarget(9, 7), replace = false))
 
         // The game asks before replacing an enchantment: still running, and asking.
         val asking = Professions.parse("TF1|5\nc\t4\t0\t1\tasking\tDo you want to replace \"+3 Stamina\" with \"+5 Health\"?\tEnchant Bracer - Minor Health")!!.progress!!

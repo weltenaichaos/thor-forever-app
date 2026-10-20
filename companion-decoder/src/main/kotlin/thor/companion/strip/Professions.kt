@@ -59,9 +59,13 @@ data class Professions(val now: Long, val list: List<Profession>, val results: L
          * TR1 rows (1 first), how many, each number as ALT-CTRL-NUMPAD digits, a separator
          * ALT-CTRL-F1 between them and ALT-CTRL-F2, which crafts, at the end.
          */
-        fun makeKeys(n: Int, row: Int, count: Int, on: EnchantTarget? = null): List<String> {
+        fun makeKeys(n: Int, row: Int, count: Int, on: EnchantTarget? = null, replace: Boolean = false): List<String> {
             fun digits(v: Int) = v.toString().map { "ALT-CTRL-NUMPAD$it" }
-            val target = on?.let { listOf("ALT-CTRL-F1") + digits(it.place) + "ALT-CTRL-F1" + digits(it.itemId) }.orEmpty()
+            // An enchantment's item, and (addon 0.30.6) a 1 when the tap also says yes to replacing its enchantment.
+            val target = on?.let {
+                listOf("ALT-CTRL-F1") + digits(it.place) + "ALT-CTRL-F1" + digits(it.itemId) +
+                    if (replace) listOf("ALT-CTRL-F1") + digits(1) else emptyList()
+            }.orEmpty()
             return digits(n) + "ALT-CTRL-F1" + digits(row) + "ALT-CTRL-F1" + digits(count) + target + "ALT-CTRL-F2"
         }
 
