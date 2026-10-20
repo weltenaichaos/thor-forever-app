@@ -377,11 +377,12 @@ local function stopRun(reason)
 end
 
 -- The game asks before an enchantment replaces another one or binds the item to you
--- (its own dialog on the top screen). Answered there or with the app's Yes and No.
-local function ask(which, text)
+-- (its own dialog on the top screen). Answered there or with the app's Yes and No; with
+-- [hidden] (the game's dialog was hidden already) only with the app's.
+local function ask(which, text, hidden)
     run.status, run.reason, run.asking = "asking", clean(text, 90, true), which
     runChanged()
-    if not (StaticPopup_Visible and C_Timer) then return end
+    if hidden or not (StaticPopup_Visible and C_Timer) then return end
     local seq = run.seq
     local function check()
         if not run or run.seq ~= seq or run.status ~= "asking" then return end
@@ -443,25 +444,39 @@ runEvents:SetScript("OnEvent", function(_, event, a, b, c)
         return
     elseif event == "REPLACE_ENCHANT" or event == "REPLACE_TRADESKILL_ENCHANT" then
         local okF, text = pcall(string.format, REPLACE_ENCHANT or "Replace \"%s\" with \"%s\"?", tostring(a or ""), tostring(b or ""))
-        ask(event, okF and text or "Replace the enchantment that is on it?")
-        -- The app's Enchant tap said yes already (its replace switch): answered right here,
-        -- still within that key press. Should the game not take it, the question stays, on
-        -- its screen and in the app, for a Yes or No as without the switch.
-        -- Once per enchant: should the game ask again, the question stays for the app's Yes or
-        -- No, so nothing can go on by itself over and over.
+        text = okF and text or "Replace the enchantment that is on it?"
         if run.replace and not run.answeredItself then
+            -- The app's Enchant tap said yes already (its replace switch): answered right here,
+            -- still within that key press, and the game's question hidden, so that neither
+            -- screen shows it. Once per enchant: should the game ask again, the question waits
+            -- for the app's Yes or No, so nothing can go on by itself over and over.
             run.answeredItself = true
             local f = (C_Item and C_Item[ANSWERS[event]]) or _G[ANSWERS[event]]
             if f then pcall(f) end
+            local which, seq = event, run.seq
+            local function hide() if StaticPopup_Hide then pcall(StaticPopup_Hide, which) end end
+            hide()
+            if C_Timer then
+                C_Timer.After(0, hide)  -- (the game's own handler of this event may show it after this one)
+                -- Should the game not take the yes (no cast a moment later), the app asks, as without the switch.
+                C_Timer.After(2, function()
+                    if run and run.seq == seq and run.status == "making" and not run.casting then ask(which, text, true) end
+                end)
+            end
+        else
+            ask(event, text)
         end
     elseif event == "BIND_ENCHANT" then
         ask(event, BIND_ENCHANT or "Enchanting this item will bind it to you.")
     elseif a == "player" and number(c) == run.spell then
-        if event == "UNIT_SPELLCAST_START" and run.status == "asking" then
-            -- (The game hides its question when the cast starts; this makes sure.)
-            if StaticPopup_Hide and run.asking then pcall(StaticPopup_Hide, run.asking) end
-            run.status, run.reason, run.asking = "making", "", nil
-            runChanged()
+        if event == "UNIT_SPELLCAST_START" then
+            run.casting = true
+            if run.status == "asking" then
+                -- (The game hides its question when the cast starts; this makes sure.)
+                if StaticPopup_Hide and run.asking then pcall(StaticPopup_Hide, run.asking) end
+                run.status, run.reason, run.asking = "making", "", nil
+                runChanged()
+            end
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             if run.replace and StaticPopup_Hide then
                 for which in pairs(ANSWERS) do if which ~= "BIND_ENCHANT" then pcall(StaticPopup_Hide, which) end end

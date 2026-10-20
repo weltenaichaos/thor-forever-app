@@ -106,9 +106,13 @@ class CompanionScreensTest {
     /** The same card scrolled down: the materials under the Enchant button, then the switch. */
     @Test fun enchantAgainMaterials() = shoot("4g-enchant-materials", "CRAFT", craft = "Enchanting", recipe = "Enchant Bracer - Minor Stamina",
         lastEnchant = "Enchanting\t4\tEnchant Bracer - Minor Stamina\t9\t9793", replace = true, sheetScrolled = 400)
-    /** Skilling from the list: 5 of the same enchantment on one item, made one tap each. */
+    /** Skilling from the list: 5 of the same enchantment on one item, made one tap each; 2 done, it stays first. */
     @Test fun enchantOnList() = shoot("4h-enchant-list", "CRAFT", craft = "Enchanting", sheet = "list",
-        list = listOf("Enchanting\t4\t0\t5\tEnchant Bracer - Minor Stamina\t9\t9793", "Tailoring\t7\t4241\t2\tWoolen Bag"))
+        list = listOf("Enchanting\t4\t0\t5\tEnchant Bracer - Minor Stamina\t9\t9793\t2", "Tailoring\t7\t4241\t2\tWoolen Bag"))
+    /** The same while the game makes the 3rd: the entry counts in place. */
+    @Test fun enchantOnListMaking() = shoot("4i-enchant-list-making", "CRAFT", craft = "Enchanting", sheet = "list",
+        recipe = "Enchant Bracer - Minor Stamina", enchanting = "Ivycloth Bracelets",
+        list = listOf("Enchanting\t4\t0\t5\tEnchant Bracer - Minor Stamina\t9\t9793\t2", "Tailoring\t7\t4241\t2\tWoolen Bag"))
     @Test fun map() = shoot("5-map", "MAP")
     @Test fun chat() = shoot("6-chat", "CHAT")
     /** The start-up card, part way: the status, bags and character are in, the rest still coming. */

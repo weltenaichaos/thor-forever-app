@@ -131,7 +131,7 @@ class CompanionActivity : Activity() {
     private var craftRunning: CraftRun? = null
     private val completeRecipes = HashMap<String, List<Recipe>>()  // per profession, the last complete reading
     private val craftDone = mutableListOf<CraftJob>()  // made from the crafting list since it was started (this session)
-    private var craftSheet: String? = null  // the Craft tab's pop-up: "list", "lately" or none
+    private var craftSheet: String? = null  // the Craft tab's pop-up: "list" or none
     private var sheetKey = ""  // the pop-up shown (see sheet) and how far down it is scrolled
     private var sheetY = 0
     // A finger on the screen: the Craft tab is drawn again only once it lifts (see dispatchTouchEvent).
@@ -866,8 +866,9 @@ class CompanionActivity : Activity() {
         if (replace) getPreferences(MODE_PRIVATE).edit().putBoolean("enchantReplace", true).apply()
         if (list.isNotEmpty()) saveCraftList(list.mapNotNull { CraftJob.parse(it) })
         craftSheet = sheet
-        if (craft != null && recipe != null) craftRecipe = recipesOf(craft).firstOrNull { it.name == recipe }
+        if (craft != null && recipe != null && sheet == null) craftRecipe = recipesOf(craft).firstOrNull { it.name == recipe }
         if (craft != null && recipe != null && enchanting != null) craftRunning = CraftRun(CraftJob(craft, 0, 0, recipe, 1), 1, 1, 0, 0, on = enchanting)
+            .also { if (list.isNotEmpty()) it.listed = Listed.NEXT }  // (the list's first entry being made)
         show(Panel.valueOf(tab))
         saidAt = SystemClock.uptimeMillis() - NOTICE_MS - 1
         connected()
@@ -1960,10 +1961,11 @@ class CompanionActivity : Activity() {
     /**
      * The Craft tab: your professions with their levels, the open one's recipes (what you
      * can make from your bags, grey when nothing), a recipe's materials and Make buttons,
-     * and what you made lately. The recipes are the ones the game showed the last time
+     * and the crafting list. The recipes are the ones the game showed the last time
      * the profession window was open.
      */
     private fun renderCraft(s: GameState) {
+        settleListEnchant()  // an enchantment from the list the game has finished counts on its entry
         val p = professions
         // Recipes kept under a name the skill list doesn't use (the window's own) count as a profession too.
         val list = p?.list.orEmpty().filter { it.name.isNotBlank() }.toMutableList()
@@ -1983,7 +1985,7 @@ class CompanionActivity : Activity() {
         val missing = listOf("First Aid", "Cooking").filter { name -> minor.none { it.name == name } }
 
         // Fixed above the recipes: the professions, then one row for the list.
-        fun profBox(prof: thor.companion.strip.Profession?, name: String, compact: Boolean): View {
+        fun profBox(prof: thor.companion.strip.Profession?, name: String, compact: Boolean, tight: Boolean = false): View {
             val on = prof != null && prof.name == selected.name
             val box = LinearLayout(this).apply {
                 orientation = if (compact) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
@@ -1996,6 +1998,7 @@ class CompanionActivity : Activity() {
                 }
             }
             val level = when {
+                tight -> prof?.level?.toString() ?: ""  // (four to a row: the name needs the room)
                 prof == null -> "not learned"
                 prof.max > 0 -> "${prof.level}/${prof.max}"
                 else -> "${prof.level}"
@@ -2008,19 +2011,25 @@ class CompanionActivity : Activity() {
             if (!compact && prof != null && prof.max > 0) box.addView(Bar(this).apply { value = prof.level.toFloat() / prof.max; colour = ACCENT }, LinearLayout.LayoutParams(-1, dp(4)))
             return box
         }
-        fun rowOf(views: List<View>) {
+        fun rowOf(views: List<View>, wide: Int = maxOf(2, major.size)) {
             val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
             for (v in views) bar.addView(v, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
             // An odd one keeps its half: a row is two wide (three when there are three main ones).
-            val wide = maxOf(2, major.size)
             repeat((wide - views.size % wide) % wide) { bar.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f).apply { setMargins(dp(2), 0, dp(2), 0) }) }
             toolbar.addView(bar)
         }
-        if (major.isNotEmpty()) rowOf(major.map { profBox(it, it.name, false) })
-        val minorViews = minor.map { profBox(it, it.name, true) } + missing.map { profBox(null, it, true) }
-        if (minorViews.isNotEmpty()) minorViews.chunked(maxOf(2, major.size)).forEach { rowOf(it) }
+        if (craftRecipe != null || craftSheet != null) {
+            // A card or the list is open: all professions small, four to a row, so the card has the room.
+            val all = (major + minor).map { profBox(it, it.name, true, tight = true) } + missing.map { profBox(null, it, true, tight = true) }
+            val wide = minOf(4, maxOf(2, all.size))
+            all.chunked(wide).forEach { rowOf(it, wide) }
+        } else {
+            if (major.isNotEmpty()) rowOf(major.map { profBox(it, it.name, false) })
+            val minorViews = minor.map { profBox(it, it.name, true) } + missing.map { profBox(null, it, true) }
+            if (minorViews.isNotEmpty()) minorViews.chunked(maxOf(2, major.size)).forEach { rowOf(it) }
+        }
 
-        // The list row: Make next (or Make again), and the list and what you made lately on a tap.
+        // The list row: Make next (or Make again), and the list on a tap.
         val queue = craftList()
         val again = lastJob()
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, dp(2)) }
@@ -2029,8 +2038,10 @@ class CompanionActivity : Activity() {
         content.removeCallbacks(craftTick)
         if (run != null) content.postDelayed(craftTick, 1000)
         val main = when {
-            run != null && run.on != null -> "⏳  Enchanting ${run.on}"
+            run != null && run.on != null -> queue.firstOrNull()?.takeIf { run.listed == Listed.NEXT && it.on != null }
+                ?.let { j -> enchantStep(j).let { (n, of) -> "⏳  Enchanting $n of $of: ${run.on}" } } ?: "⏳  Enchanting ${run.on}"
             run != null -> "⏳  Making ${run.job.name}: ${run.made()} of ${run.total()}"
+            queue.firstOrNull()?.on != null -> enchantStep(queue.first()).let { (n, of) -> "▶  Enchant $n of $of: ${enchantWhat(queue.first(), short = true)}" }
             queue.isNotEmpty() && craftDone.isEmpty() -> "▶  Start the list (${queue.size})"
             queue.isNotEmpty() -> "▶  Next (${craftDone.size + 1} of ${craftDone.size + queue.size}): ${jobLabel(queue.first(), short = true)}"
             lastWasEnchant() -> lastEnchant()?.let { "↻  Enchant again: ${it.name.substringAfter(" - ", it.name)} on ${targetName(it.on)}" }
@@ -2051,7 +2062,6 @@ class CompanionActivity : Activity() {
             render()
         }.apply { if (craftSheet == which) primary() }
         actions.addView(sheetChip(if (queue.isEmpty()) "List" else "List (${queue.size})", "list"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(4) })
-        if (!p?.results.isNullOrEmpty()) actions.addView(sheetChip("Lately", "lately"))
         toolbar.addView(actions)
         enchantStatus()?.let { toolbar.addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) }) }
 
@@ -2067,12 +2077,11 @@ class CompanionActivity : Activity() {
         val shown = pages.filter { it.readAt == newest }.sortedBy { it.page }
         val recipes = recipesOf(selected.name)
 
-        // Below the recipes, like a small pop-up: the recipe tapped, the list, or what you made lately.
+        // Below the recipes, like a small pop-up: the recipe tapped or the list.
         val open = craftRecipe
         when {
             open != null && recipes.any { it == open } -> renderRecipe(open, recipes.indexOf(open) + 1, selected.name, bags, inBank)
             craftSheet == "list" -> craftListSheet(queue)
-            craftSheet == "lately" && !p?.results.isNullOrEmpty() -> latelySheet(p!!.results)
         }
         if (open != null && recipes.none { it == open }) craftRecipe = null
 
@@ -2318,6 +2327,7 @@ class CompanionActivity : Activity() {
 
     /** Make next: the list's first entry (moved to the made ones), or the last thing made again when the list is empty. */
     private fun makeNextFromList() {
+        settleListEnchant()
         val now = craftList()
         val job = now.firstOrNull()
         if (job == null) {
@@ -2336,7 +2346,7 @@ class CompanionActivity : Activity() {
             craftDone += job
             val r = recipeOf(job)
             craftRunning = if (job.itemId > 0 || professions?.makeKeys == true)
-                CraftRun(job, count, maxOf(1, r?.made ?: 1), haveOf(job.itemId), seqBefore) else null
+                CraftRun(job, count, maxOf(1, r?.made ?: 1), haveOf(job.itemId), seqBefore).also { it.listed = Listed.DONE } else null
             render()
         }
     }
@@ -2345,9 +2355,8 @@ class CompanionActivity : Activity() {
 
     /**
      * Make next on an enchantment entry: one enchantment on its item (found again when it
-     * moved in the bags), as one tap of the game's Enchant button. The entry stays first
-     * until its count is done or the materials for another one are gone; the made ones add
-     * up in one ✓ line.
+     * moved in the bags), as one tap of the game's Enchant button. The entry stays where it
+     * is, counting "3 of 5", until they are all done (see settleListEnchant).
      */
     private fun enchantFromList(now: MutableList<CraftJob>, job: CraftJob) {
         val target = job.on ?: return
@@ -2357,15 +2366,38 @@ class CompanionActivity : Activity() {
             ?: run { say("${targetName(target)} doesn't take ${job.name} now: take it off the list (✕)"); return }
         val have = state?.items.orEmpty().groupBy { it.itemId }.mapValues { g -> g.value.sumOf { it.count } }
         val can = r.canMake { have[it] ?: 0 } ?: 0
-        if (can <= 0) { say("Not enough materials for ${job.name} in your bags"); return }
+        if (can <= 0) {
+            // + all with nothing left for another one: that entry is done.
+            if (job.count == ALL && job.made > 0) { now.removeAt(0); saveCraftList(now); craftDone += job.copy(count = job.made); render(); return }
+            say("Not enough materials for ${job.name} in your bags"); return
+        }
         if (!runEnchant(job.profession, row, r, on)) return
-        val left = if (job.count == ALL) ALL else job.count - 1
-        if (left == 0 || can <= 1) now.removeAt(0) else now[0] = job.copy(row = row, count = left, on = on)
-        saveCraftList(now)
-        val last = craftDone.lastOrNull()
-        if (last != null && last.on == on && last.name == job.name && last.profession == job.profession) craftDone[craftDone.size - 1] = last.copy(count = last.count + 1)
-        else craftDone += job.copy(row = row, count = 1, on = on)
+        if (job.row != row || job.on != on) { now[0] = job.copy(row = row, on = on); saveCraftList(now) }
+        craftRunning?.listed = Listed.NEXT
         render()
+    }
+
+    /**
+     * An enchantment from the list that the game finished: counted on its entry when it
+     * went on (not when the game said no or stopped it), and the entry moves to the made
+     * ones (✓) once they are all done, or with + all once the materials for another are gone.
+     */
+    private fun settleListEnchant() {
+        val run = craftRunning ?: return
+        if (run.listed != Listed.NEXT || run.settled || !run.finished()) return
+        run.settled = true
+        if ((run.game()?.made ?: 0) < 1) return
+        val now = craftList()
+        val head = now.firstOrNull() ?: return
+        if (head.on == null || head.name != run.job.name || head.profession != run.job.profession) return
+        val made = head.made + 1
+        val have = state?.items.orEmpty().groupBy { it.itemId }.mapValues { g -> g.value.sumOf { it.count } }
+        val gone = head.count == ALL && (recipeOf(head)?.canMake { have[it] ?: 0 } ?: 0) <= 0
+        if ((head.count != ALL && made >= head.count) || gone) {
+            now.removeAt(0)
+            craftDone += head.copy(count = made, made = made)
+        } else now[0] = head.copy(made = made)
+        saveCraftList(now)
     }
 
     /**
@@ -2376,6 +2408,9 @@ class CompanionActivity : Activity() {
      */
     private inner class CraftRun(val job: CraftJob, val count: Int, val each: Int, val before: Int, val seqBefore: Int, val on: String? = null) {
         val started = SystemClock.uptimeMillis()
+        /** Which list entry it makes: the last made one (a craft) or the next one (an enchantment, counted when done). */
+        var listed: Listed? = null
+        var settled = false
         var last = before
         var lastMade = -1
         var lastStatus = ""
@@ -2414,6 +2449,8 @@ class CompanionActivity : Activity() {
         }
     }
 
+    private enum class Listed { DONE, NEXT }
+
     /** Redraws the Craft tab while an entry of the list is being made, for its progress. */
     private var craftShown = ""
     private val craftTick: Runnable = Runnable {
@@ -2435,7 +2472,7 @@ class CompanionActivity : Activity() {
         return queue.map { job ->
             val r = recipeOf(job) ?: return@map "not in the recipes now"
             val n = r.canMake { left[it] ?: 0 } ?: return@map null
-            val want = if (job.count == ALL) n else job.count
+            val want = if (job.count == ALL) n else job.count - job.made
             val made = minOf(n, want)
             for (m in r.materials) left[m.itemId] = (left[m.itemId] ?: 0) - made * m.count
             when {
@@ -2452,24 +2489,23 @@ class CompanionActivity : Activity() {
 
     /** The crafting list as a pop-up: what was made already (✓), the next one marked, the rest, and the start button. */
     private fun craftListSheet(queue: List<CraftJob>) = sheet(when {
-        craftRunning?.finished() == false -> "Crafting list: making ${craftDone.size} of ${craftDone.size + queue.size}"
         queue.isEmpty() && craftDone.isNotEmpty() -> "Crafting list: all made ✓"
         craftDone.isNotEmpty() -> "Crafting list: ${craftDone.size} of ${craftDone.size + queue.size} made"
         else -> "Crafting list"
-    }, { craftSheet = null; render() }) {
+    }, { craftSheet = null; render() }, key = "craft-list") {
         if (queue.isEmpty() && craftDone.isEmpty()) {
-            addView(line("Empty. Tap a recipe, then +1, +5 or + all under \"To the list\". Then Start makes them one by one: one tap for each entry.", DIM, 13f))
+            addView(line("Empty. Tap a recipe, then +1, +5 or + all under \"To the list\". Then the ▶ button above makes them one by one: one tap each.", DIM, 13f))
             return@sheet
         }
         var n = 0
         val run = craftRunning
+        val busy = run != null && !run.finished()
         for ((i, job) in craftDone.withIndex()) {
             n++
-            val making = run != null && i == craftDone.size - 1 && !run.finished()
-            if (making) addView(line(if (job.on != null) "⏳  $n.  ${jobLabel(job)}: enchanting, the game is on it"
-                else "⏳  $n.  ${job.name}: ${run!!.made()} of ${run.total()} made, the game is on it", ACCENT, 13f, bold = true).apply { setPadding(0, dp(2), 0, dp(2)) })
+            val mine = run != null && run.listed == Listed.DONE && i == craftDone.size - 1
+            if (mine && busy) addView(line("⏳  $n.  ${job.name}: ${run!!.made()} of ${run.total()} made, the game is on it", ACCENT, 13f, bold = true).apply { setPadding(0, dp(2), 0, dp(2)) })
             else {
-                val why = if (run != null && i == craftDone.size - 1) run.stopped() else null
+                val why = if (mine) run!!.stopped() else null
                 addView(line("✓  $n.  ${jobLabel(job)}" + if (why != null) "  (stopped at ${run!!.made()} of ${run.total()}: $why)" else "", if (why != null) Theme.WARN else DIM, 13f).apply { setPadding(0, dp(2), 0, dp(2)) })
             }
         }
@@ -2477,42 +2513,36 @@ class CompanionActivity : Activity() {
         for ((i, job) in queue.withIndex()) {
             n++
             val next = i == 0
-            val note = short.getOrNull(i)
+            // An enchantment being made stays here, counting: "⏳ 3 of 5", then "3 of 5 done".
+            val making = next && busy && run!!.listed == Listed.NEXT
+            val step = job.on?.let { enchantStep(job) }
+            val note = short.getOrNull(i) ?: when {
+                making && step != null -> "⏳ ${step.first} of ${step.second}"
+                step != null && job.made > 0 -> "${job.made} of ${step.second} done"
+                next -> "next"
+                else -> job.profession
+            }
             val row = LinearLayout(this@CompanionActivity).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(if (next) 8 else 0), dp(3), 0, dp(3))
                 if (next) background = Theme.panel(context, RAISED, ACCENT)
             }
             row.addView(line("$n.  ${jobLabel(job)}", if (next) ACCENT else TEXT, 14f, bold = next).apply { setPadding(0, 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
-            row.addView(line(note ?: if (next) "next" else job.profession, if (note != null) Theme.BAD else if (next) ACCENT else DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
+            row.addView(line(note, if (short.getOrNull(i) != null) Theme.BAD else if (next) ACCENT else DIM, 12f).apply { setPadding(dp(6), 0, dp(6), 0) })
             row.addView(chip("✕") { saveCraftList(craftList().also { if (i < it.size) it.removeAt(i) }); render() }.apply { setPadding(dp(10), dp(4), dp(10), dp(4)) })
             addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+            // The last enchantment of this entry didn't go on (a no, or the game stopped it): not counted.
+            val why = if (next && run != null && run.listed == Listed.NEXT && !busy) run.stopped() else null
+            if (why != null) addView(line("The last one wasn't done ($why), so it isn't counted.", Theme.WARN, 12f).apply { setPadding(dp(8), dp(2), 0, dp(2)) })
         }
         if (queue.isNotEmpty()) {
-            val busy = run != null && !run.finished()
-            addView(chip(when {
-                busy -> "Next: ${jobLabel(queue.first(), short = true)} (when this one is done)"
-                craftDone.isEmpty() -> "▶  Start: ${jobLabel(queue.first(), short = true)}"
-                else -> "▶  Make next: ${jobLabel(queue.first(), short = true)}"
-            }) { makeNextFromList() }.apply {
-                background = Theme.button(context, primary = !busy, enabled = !busy); setTextColor(if (busy) Theme.OFF_INK else Color.WHITE); textSize = 14f
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             if (short.any { it != null }) addView(line("Red: not enough materials left once the entries before it are made.", Theme.BAD, 12f).apply { gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER })
-            addView(line(if (queue.any { it.on != null }) "One tap makes one entry. An enchantment is one tap each, as in the game." else "One tap makes one entry.", DIM, 12f).apply { gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER })
+            addView(line(if (queue.any { it.on != null }) "The ▶ button above makes the next one. An enchantment is one tap each, as in the game."
+                else "The ▶ button above makes the next entry, one tap each.", DIM, 12f).apply { gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER; setPadding(0, dp(6), 0, dp(2)) })
         }
         addView(chip("Clear the list") { saveCraftList(emptyList()); craftDone.clear(); craftRunning = null; render() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
     }
 
-    /** What the game said lately (things made, skill points), as a pop-up. */
-    private fun latelySheet(results: List<thor.companion.strip.CraftResult>) = sheet("Lately", { craftSheet = null; render() }) {
-        val now = System.currentTimeMillis() / 1000
-        for (r in results.reversed()) {
-            val ago = (now - r.at).coerceAtLeast(0)
-            addView(line("${if (ago < 60) "now" else duration(ago) + " ago"}  ·  ${r.text}", if (r.text.startsWith("Your skill")) ACCENT else TEXT, 13f).apply { setPadding(0, dp(2), 0, dp(2)) })
-        }
-    }
 
     /** A recipe's card: what it makes, its materials (have / need, grey when missing) and the Make buttons. */
     private fun renderRecipe(r: Recipe, row: Int, profession: String, bags: (Int) -> Int, inBank: Map<Int, Int>) {
@@ -2760,17 +2790,20 @@ class CompanionActivity : Activity() {
     /**
      * Something to make: a recipe (its [row] in the profession's recipes, 1 first) and how many
      * ([ALL]: as many as the bags allow). An enchantment also says the item it goes [on]; it is
-     * made one tap each, as the game's window enchants an item once per tap.
+     * made one tap each, as the game's window enchants an item once per tap, and [made] counts
+     * the ones the game did so far (the entry stays where it is until they are all done).
      */
-    private data class CraftJob(val profession: String, val row: Int, val itemId: Int, val name: String, val count: Int, val on: EnchantTarget? = null) {
+    private data class CraftJob(val profession: String, val row: Int, val itemId: Int, val name: String, val count: Int,
+                                val on: EnchantTarget? = null, val made: Int = 0) {
         fun label() = (if (count == ALL) "all" else "$count") + " × " + name
-        fun line() = (listOf(profession, row, itemId, count, name) + listOfNotNull(on?.place, on?.itemId)).joinToString("\t")
+        fun line() = (listOf(profession, row, itemId, count, name) + (on?.let { listOf(it.place, it.itemId, made) } ?: emptyList())).joinToString("\t")
         companion object {
             fun parse(s: String): CraftJob? {
                 val f = s.split('\t')
                 if (f.size < 5) return null
                 val on = if (f.size >= 7) EnchantTarget(f[5].toIntOrNull() ?: return null, f[6].toIntOrNull() ?: 0) else null
-                return CraftJob(f[0], f[1].toIntOrNull() ?: return null, f[2].toIntOrNull() ?: 0, f[4], f[3].toIntOrNull() ?: return null, on)
+                val made = f.getOrNull(7)?.toIntOrNull() ?: 0
+                return CraftJob(f[0], f[1].toIntOrNull() ?: return null, f[2].toIntOrNull() ?: 0, f[4], f[3].toIntOrNull() ?: return null, on, made)
             }
         }
     }
@@ -2778,8 +2811,18 @@ class CompanionActivity : Activity() {
     /** A list entry as it is shown: "5 × Enchant Chest - Lesser Health on Gray Woolen Robe" (shorter: without "Enchant Chest - "). */
     private fun jobLabel(job: CraftJob, short: Boolean = false): String {
         val on = job.on ?: return job.label()
-        val name = if (short) job.name.substringAfter(" - ", job.name) else job.name
-        return (if (job.count == ALL) "all" else "${job.count}") + " × " + name + " on " + targetName(on)
+        return (if (job.count == ALL) "all" else "${job.count}") + " × " + enchantWhat(job, short)
+    }
+    private fun enchantWhat(job: CraftJob, short: Boolean) =
+        (if (short) job.name.substringAfter(" - ", job.name) else job.name) + (job.on?.let { " on " + targetName(it) } ?: "")
+
+    /** An enchantment entry's next one and how many in all: (3, 5) for "3 of 5"; with + all, what the bags still allow. */
+    private fun enchantStep(job: CraftJob): Pair<Int, Int> {
+        val total = if (job.count != ALL) job.count else {
+            val have = state?.items.orEmpty().groupBy { it.itemId }.mapValues { g -> g.value.sumOf { it.count } }
+            job.made + maxOf(1, recipeOf(job)?.canMake { have[it] ?: 0 } ?: 0)
+        }
+        return minOf(job.made + 1, total) to total
     }
 
     /** The crafting list (made one by one with Make next) and the last thing made, kept per character. */
@@ -2798,7 +2841,7 @@ class CompanionActivity : Activity() {
         val i = list.indexOfFirst { it.profession == job.profession && it.row == job.row && it.name == job.name && it.on == job.on }
         if (i >= 0) {
             val old = list[i]
-            list[i] = old.copy(count = if (old.count == ALL || job.count == ALL) ALL else old.count + job.count)
+            list[i] = old.copy(count = if (old.count == ALL || job.count == ALL) ALL else old.count + job.count)  // (made stays)
         } else list += job
         saveCraftList(list)
         say("On the crafting list: ${jobLabel(if (i >= 0) list[i] else job)}")
