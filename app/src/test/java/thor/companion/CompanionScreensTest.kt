@@ -47,7 +47,7 @@ class CompanionScreensTest {
     private fun shoot(name: String, tab: String, loaded: Boolean = true, upTo: Int = messages.size, craft: String? = null, scrolled: Int = 0,
                       byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null, extra: List<String> = emptyList(),
                       lastEnchant: String? = null, replace: Boolean = false, sheetScrolled: Int = 0, list: List<String> = emptyList(), sheet: String? = null,
-                      done: List<String> = emptyList()) {
+                      done: List<String> = emptyList(), exitAsked: Boolean = false) {
         // Run outside Gradle (no app resources): the fonts from their files.
         System.getProperty("companion.fonts.dir")?.let { fonts ->
             Theme.useFonts(Typeface.createFromFile(File(fonts, "cinzel_bold.ttf")), Typeface.createFromFile(File(fonts, "wine_tahoma.ttf")))
@@ -56,7 +56,7 @@ class CompanionScreensTest {
         controller.get().setTheme(android.R.style.Theme_DeviceDefault_NoActionBar)  // as in the manifest
         controller.create()
         val activity = controller.get()
-        activity.preview(messages.take(upTo) + extra, tab, loaded, craft, byGear, target, recipe, enchanting, lastEnchant, replace, list, sheet, done)
+        activity.preview(messages.take(upTo) + extra, tab, loaded, craft, byGear, target, recipe, enchanting, lastEnchant, replace, list, sheet, done, exitAsked)
         shadowOf(Looper.getMainLooper()).idle()
         val root = activity.findViewById<View>(android.R.id.content)
         val w = 1240; val h = 1080
@@ -118,6 +118,9 @@ class CompanionScreensTest {
     @Test fun enchantOnListDone() = shoot("4j-enchant-list-done", "CRAFT", craft = "Enchanting", sheet = "list",
         done = listOf("Enchanting\t4\t0\t4\tEnchant Bracer - Minor Stamina\t9\t9793\t4"),
         list = listOf("Enchanting\t8\t0\t5\tEnchant Chest - Lesser Health\t5\t6264\t0", "Tailoring\t7\t4241\t2\tWoolen Bag"))
+    /** Exit asks in the status line before it closes the app. */
+    @Test fun exitAsks() = shoot("7-exit-asks", "CRAFT", craft = "Enchanting", sheet = "list", exitAsked = true,
+        list = listOf("Enchanting\t4\t0\t5\tEnchant Bracer - Minor Stamina\t9\t9793\t2", "Tailoring\t7\t4241\t2\tWoolen Bag"))
     @Test fun map() = shoot("5-map", "MAP")
     @Test fun chat() = shoot("6-chat", "CHAT")
     /** The start-up card, part way: the status, bags and character are in, the rest still coming. */

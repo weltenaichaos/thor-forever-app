@@ -227,3 +227,21 @@ class Flow(context: Context, private val gap: Int) : android.view.ViewGroup(cont
         }
     }
 }
+
+/** The usual "off" sign (a ring open at the top with a stroke through the gap), for Exit. */
+class PowerIcon(context: Context) : View(context) {
+    var colour = Theme.DIM
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val ring = RectF()
+
+    override fun onDraw(canvas: Canvas) {
+        val s = minOf(width, height).toFloat()
+        val cx = width / 2f; val cy = height / 2f + s * 0.05f
+        val r = s * 0.34f
+        paint.color = colour
+        paint.strokeWidth = s * 0.1f
+        ring.set(cx - r, cy - r, cx + r, cy + r)
+        canvas.drawArc(ring, -55f, 290f, false, paint)
+        canvas.drawLine(cx, cy - r - s * 0.1f, cx, cy - s * 0.04f, paint)
+    }
+}

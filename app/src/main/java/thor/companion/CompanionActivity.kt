@@ -93,6 +93,8 @@ class CompanionActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var statusDot: View
     private lateinit var loadButton: TextView
+    private lateinit var exitButton: View
+    private lateinit var exitAsk: LinearLayout
     private lateinit var content: LinearLayout
     /** Above and below the scrolling part: the chat's tabs and answer keys, item details. */
     private lateinit var toolbar: LinearLayout
@@ -229,11 +231,25 @@ class CompanionActivity : Activity() {
         statusRow.addView(statusDot, LinearLayout.LayoutParams(dp(10), dp(10)))
         statusRow.addView(status, LinearLayout.LayoutParams(0, -2, 1f))
         statusRow.addView(loadButton)
-        // Closes the app for good (no task manager needed): a second tap within 3 s confirms.
-        statusRow.addView(chip("Exit") {
-            val now = SystemClock.uptimeMillis()
-            if (now - closeAskedAt < 3000) quit() else { closeAskedAt = now; say("Tap Exit again to close the Forever Companion") }
-        }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
+        // Closes the app for good (no task manager needed). Quiet at the end of this line, not
+        // a button among the tab's buttons (Jesse, 2026-10-20: it looked out of place and was
+        // easy to hit); a tap asks right here whether to close: Close app, or Stay.
+        exitButton = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(8), dp(6), dp(8))
+            addView(PowerIcon(context), LinearLayout.LayoutParams(dp(15), dp(15)))
+            addView(line("Exit", DIM, 12.5f).apply { setPadding(dp(6), 0, 0, 0) })
+            setOnClickListener { askExit(true) }
+        }
+        exitAsk = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; visibility = View.GONE
+            addView(line("Close the Forever Companion? The game keeps running.", Theme.GOLD_TEXT, 13f).apply { setPadding(dp(8), 0, dp(8), 0) },
+                LinearLayout.LayoutParams(0, -2, 1f))
+            addView(chip("Close app") { quit() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+            addView(chip("Stay") { askExit(false) }.apply { primary(); setPadding(dp(20), dp(9), dp(20), dp(9)) })
+        }
+        statusRow.addView(exitButton, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(4) })
+        statusRow.addView(exitAsk, LinearLayout.LayoutParams(0, -2, 1f))
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         toolbar = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         footer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -262,7 +278,16 @@ class CompanionActivity : Activity() {
         }
     }
 
-    private var closeAskedAt = -10_000L
+    /** Exit's question in the status line ([on]), or back to the status; it goes by itself after a while. */
+    private fun askExit(on: Boolean) {
+        exitAsk.visibility = if (on) View.VISIBLE else View.GONE
+        status.visibility = if (on) View.GONE else View.VISIBLE
+        exitButton.visibility = if (on) View.GONE else View.VISIBLE
+        updateLoadButton()
+        exitAsk.removeCallbacks(exitTimeout)
+        if (on) exitAsk.postDelayed(exitTimeout, 8000)
+    }
+    private val exitTimeout = Runnable { askExit(false) }
 
     /** Exits: saves what it shows, stops reading the screen and removes the app from the recent apps (after any key still on its way). */
     private fun quit() {
@@ -847,7 +872,7 @@ class CompanionActivity : Activity() {
     internal fun preview(messages: List<String>, tab: String, loaded: Boolean = true, craft: String? = null,
                          byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null,
                          lastEnchant: String? = null, replace: Boolean = false, list: List<String> = emptyList(), sheet: String? = null,
-                         done: List<String> = emptyList()) {
+                         done: List<String> = emptyList(), exitAsked: Boolean = false) {
         frameAt = SystemClock.uptimeMillis()
         craftProfession = craft
         craftByGear = byGear
@@ -872,6 +897,7 @@ class CompanionActivity : Activity() {
         if (craft != null && recipe != null && enchanting != null) craftRunning = CraftRun(CraftJob(craft, 0, 0, recipe, 1), 1, 1, 0, 0, on = enchanting)
             .also { if (list.isNotEmpty()) it.listed = Listed.NEXT }  // (the list's first entry being made)
         show(Panel.valueOf(tab))
+        if (exitAsked) askExit(true)
         saidAt = SystemClock.uptimeMillis() - NOTICE_MS - 1
         connected()
     }
@@ -1511,7 +1537,7 @@ class CompanionActivity : Activity() {
     private fun updateLoadButton() {
         // While the start-up card shows, its own button does this.
         val missing = ready && (state == null || state?.freeSlots == null || !bagsFresh || character == null || gear.isEmpty())
-        loadButton.visibility = if (missing) View.VISIBLE else View.GONE
+        loadButton.visibility = if (missing && exitAsk.visibility != View.VISIBLE) View.VISIBLE else View.GONE
     }
 
     /** Name, level, experience, item level, stats and what you wear. */
