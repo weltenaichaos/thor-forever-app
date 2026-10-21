@@ -48,6 +48,9 @@ abstract class GameView(context: Context) : View(context) {
         if (isAttachedToWindow && windowVisibility == VISIBLE) postDelayed(tick, 1000)
     }
 
+    /** Starts the clock again after [pause] (a new game). */
+    fun resume() = startClock()
+
     /** Stops the clock and counts the time since its last tick. */
     fun pause() {
         removeCallbacks(tick)

@@ -106,4 +106,73 @@ class GamesRulesTest {
         }
         assertTrue("won $wins", wins > 0)
     }
+
+    @Test fun sudoku() {
+        for (level in 0..2) {
+            val g = Sudoku.new(level, Random(level))
+            assertEquals(1, Sudoku.solutions(IntArray(81) { if (g.given[it]) g.values[it] else 0 }, 2))
+            val i = g.given.indexOfFirst { !it }
+            val wrong = (1..9).first { it != g.solution[i] }
+            assertTrue(g.set(i, wrong)); assertTrue(g.wrong(i)); assertEquals(1, g.mistakes)
+            assertFalse(g.set(g.given.indexOfFirst { it }, 1))
+            for (k in 0 until 81) if (!g.given[k]) g.set(k, g.solution[k])
+            assertTrue(g.won)
+            assertEquals(g.save(), Sudoku.load(g.save())!!.save())
+        }
+    }
+
+    @Test fun nonogram() {
+        for (size in Nonogram.SIZES) {
+            val g = Nonogram.new(size, Random(size))
+            assertTrue(Nonogram.lineSolvable(g))
+            assertFalse(g.won)
+            for (i in g.marks.indices) g.marks[i] = if (g.picture[i]) 1 else 2
+            assertTrue(g.won)
+            assertEquals(g.save(), Nonogram.load(g.save())!!.save())
+        }
+        assertEquals(listOf(2, 1), Nonogram.runs(listOf(true, true, false, true)))
+    }
+
+    @Test fun mahjong() {
+        for (seed in 0 until 30) {
+            val m = Mahjong.new(Random(seed))
+            for (k in 0 until Mahjong.KINDS) assertEquals(4, m.faces.count { it == k })
+            // A simple player: any free pair, Shuffle when there is none. Every game gets cleared.
+            var guard = 0
+            while (!m.won && guard < 2000) {
+                guard++
+                val h = m.hint()
+                if (h != null) assertTrue(m.match(h.first, h.second)) else m.shuffle(Random(seed + guard))
+            }
+            assertTrue("seed $seed", m.won)
+            assertEquals(m.save(), Mahjong.load(m.save())!!.save())
+        }
+        val m = Mahjong.new(Random(1))
+        val h = m.hint()!!
+        assertTrue(m.match(h.first, h.second))
+        assertEquals(70, m.left)
+        assertTrue(m.undo())
+        assertEquals(72, m.left)
+    }
+
+    @Test fun blockDrop() {
+        val b = BlockDrop(Random(2))
+        var turns = 0
+        while (!b.over && turns < 10000) {
+            val k = (0 until 3).first { b.offer[it] != null && b.fitsAnywhere(b.offer[it]!!) }
+            val shape = b.offer[k]!!
+            val spot = (0 until 64).first { b.fits(shape, it % 8, it / 8) }
+            assertTrue(b.place(k, spot % 8, spot / 8))
+            turns++
+        }
+        assertTrue(b.over)
+        assertEquals(b.save(), BlockDrop.load(b.save())!!.save())
+        // A full row clears.
+        val c = BlockDrop(Random(3))
+        for (x in 0 until 7) c.cells[x] = 1
+        c.offer[0] = 0
+        assertTrue(c.place(0, 7, 0))
+        assertEquals(listOf(0), c.lastCleared)
+        assertTrue(c.cells.take(8).all { it == 0 })
+    }
 }

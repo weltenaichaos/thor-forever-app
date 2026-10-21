@@ -154,8 +154,8 @@ class Arcade(
         view.onChange = { changed(id, view) }
         val top = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(6)) }
         top.addView(chip("◀ Games") { leave(); open = null; render() })
-        // Minesweeper's own buttons take the title's room (the screen is only so wide).
-        if (view !is MinesView) top.addView(title(entry.name), LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) })
+        // Games with several buttons of their own leave out the title (the screen is only so wide).
+        if (view !is MinesView && view !is MahjongView && view !is NonogramView) top.addView(title(entry.name), LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) })
         val line = TextView(context).apply {
             setTextColor(Theme.TEXT); textSize = 13.5f; typeface = Theme.body(context); gravity = Gravity.END
             maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(dp(8), 0, dp(8), 0)
@@ -180,6 +180,23 @@ class Arcade(
                 }
                 top.addView(size, gapParams())
             }
+            is SudokuView -> top.addView(sizeChip("sudoku_level", Sudoku.LEVELS, line, { !inProgress(view) }) { newGame(id, view) }, gapParams())
+            is NonogramView -> {
+                val mode = chip("■ Fill") {}
+                fun lit() {
+                    mode.text = if (view.markMode) "✕ Mark" else "■ Fill"
+                    mode.background = Theme.button(context, primary = true); mode.setTextColor(Color.WHITE)
+                }
+                mode.setOnClickListener { view.markMode = !view.markMode; lit() }
+                lit()
+                top.addView(mode, gapParams())
+                top.addView(sizeChip("nonogram_size", Nonogram.SIZE_NAMES, line, { !inProgress(view) }) { newGame(id, view) }, gapParams())
+            }
+            is MahjongView -> {
+                top.addView(chip("Hint") { view.hint() }, gapParams())
+                top.addView(chip("Shuffle") { view.shuffle() }, gapParams())
+                top.addView(chip("Undo") { view.undo() }, gapParams())
+            }
             else -> {}
         }
         val again = chip("New game") {}
@@ -198,12 +215,29 @@ class Arcade(
     private fun gapParams() = LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(5) }
 
     private fun minesSize() = prefs.getInt("mines_size", 1).coerceIn(0, MineField.SIZES.size - 1)
+    private fun choice(key: String, count: Int, default: Int = 1) = prefs.getInt(key, default).coerceIn(0, count - 1)
+
+    /** A chip that steps through [names] (kept under [key]); it starts a new game at once when [now] says so. */
+    private fun sizeChip(key: String, names: List<String>, line: TextView, now: () -> Boolean, restart: () -> Unit): TextView {
+        val c = chip(names[choice(key, names.size)]) {}
+        c.setOnClickListener {
+            val next = (choice(key, names.size) + 1) % names.size
+            prefs.edit().putInt(key, next).apply()
+            c.text = names[next]
+            if (now()) restart() else line.text = "${names[next]} from the next New game"
+        }
+        return c
+    }
 
     private fun inProgress(v: GameView) = when (v) {
         is GemView -> v.board.score > 0
         is TilesView -> !v.game.over && v.game.score > 0
         is MinesView -> v.field.laid && !v.field.over
         is SolitaireView -> !v.game.won && v.game.moves > 0
+        is SudokuView -> !v.game.won && v.game.values.indices.any { !v.game.given[it] && (v.game.values[it] != 0 || v.game.notes[it] != 0) }
+        is NonogramView -> !v.game.won && v.game.marks.any { it != 0 }
+        is MahjongView -> !v.game.won && v.game.left < Mahjong.SPOTS.size
+        is BlockDropView -> !v.game.over && v.game.score > 0
         else -> false
     }
 
@@ -213,7 +247,12 @@ class Arcade(
             is TilesView -> v.game = Tiles2048()
             is MinesView -> { v.pause(); v.field = MineField.SIZES[minesSize()].let { (w, h, m) -> MineField(w, h, m) } }
             is SolitaireView -> { v.pause(); v.game = Klondike() }
+            is SudokuView -> { v.pause(); v.game = Sudoku.new(choice("sudoku_level", 3)) }
+            is NonogramView -> { v.pause(); v.game = Nonogram.new(Nonogram.SIZES[choice("nonogram_size", 3)]) }
+            is MahjongView -> { v.pause(); v.game = Mahjong.new() }
+            is BlockDropView -> v.game = BlockDrop()
         }
+        v.resume()
         counted = null
         changed(id, v)
         v.invalidate()
@@ -239,12 +278,35 @@ class Arcade(
                 val best = prefs.getLong("best_solitaire", 0L)
                 if (best == 0L || v.game.millis < best) e.putLong("best_solitaire", v.game.millis)
             }
+            is SudokuView -> if (v.game.won && counted !== v.game) {
+                counted = v.game
+                fastest(e, "best_sudoku_${v.game.level}", v.game.millis)
+            }
+            is NonogramView -> if (v.game.won && counted !== v.game) {
+                counted = v.game
+                fastest(e, "best_nonogram_${Nonogram.SIZES.indexOf(v.game.size)}", v.game.millis)
+            }
+            is MahjongView -> if (v.game.won && counted !== v.game) {
+                counted = v.game
+                e.putInt("wins_mahjong", prefs.getInt("wins_mahjong", 0) + 1)
+                fastest(e, "best_mahjong", v.game.millis)
+            }
+            is BlockDropView -> if (v.game.score > prefs.getInt("best_blocks", 0)) e.putInt("best_blocks", v.game.score)
         }
         e.apply()
     }
 
+    private fun fastest(e: android.content.SharedPreferences.Editor, key: String, ms: Long) {
+        val best = prefs.getLong(key, 0L)
+        if (best == 0L || ms < best) e.putLong(key, ms)
+    }
+
     private fun keep(v: GameView) {
-        val id = when (v) { is GemView -> "gems"; is TilesView -> "2048"; is MinesView -> "mines"; is SolitaireView -> "solitaire"; else -> return }
+        val id = when (v) {
+            is GemView -> "gems"; is TilesView -> "2048"; is MinesView -> "mines"; is SolitaireView -> "solitaire"
+            is SudokuView -> "sudoku"; is NonogramView -> "nonogram"; is MahjongView -> "mahjong"; is BlockDropView -> "blocks"
+            else -> return
+        }
         prefs.edit().putString("save_$id", v.save()).apply()
     }
 
@@ -256,6 +318,10 @@ class Arcade(
             "2048" -> TilesView(context, saved?.let { Tiles2048.load(it) } ?: Tiles2048())
             "mines" -> MinesView(context, saved?.let { MineField.load(it) } ?: MineField.SIZES[minesSize()].let { (w, h, m) -> MineField(w, h, m) })
                 .also { if (it.field.won) counted = it.field }
+            "sudoku" -> SudokuView(context, saved?.let { Sudoku.load(it) } ?: Sudoku.new(choice("sudoku_level", 3))).also { if (it.game.won) counted = it.game }
+            "nonogram" -> NonogramView(context, saved?.let { Nonogram.load(it) } ?: Nonogram.new(Nonogram.SIZES[choice("nonogram_size", 3)])).also { if (it.game.won) counted = it.game }
+            "mahjong" -> MahjongView(context, saved?.let { Mahjong.load(it) } ?: Mahjong.new()).also { if (it.game.won) counted = it.game }
+            "blocks" -> BlockDropView(context, saved?.let { BlockDrop.load(it) } ?: BlockDrop()) { prefs.getInt("best_blocks", 0) }
             else -> SolitaireView(context, saved?.let { Klondike.load(it) } ?: Klondike()).also { if (it.game.won) counted = it.game }
         }
     }
@@ -268,6 +334,10 @@ class Arcade(
             "2048" -> Tiles2048.load(saved)?.takeIf { !it.over && it.score > 0 }?.let { "Score ${GameView.number(it.score)} · biggest tile ${it.cells.max()}" }
             "mines" -> MineField.load(saved)?.takeIf { it.laid && !it.over }?.let { "${MineField.SIZE_NAMES[MineField.SIZES.indexOfFirst { s -> s.first == it.width }.coerceAtLeast(0)]} field · ${it.flagsLeft} mines left · ${GameView.clock(it.millis)}" }
             "solitaire" -> Klondike.load(saved)?.takeIf { !it.won && it.moves > 0 }?.let { "${it.moves} moves · ${GameView.clock(it.millis)}" }
+            "sudoku" -> Sudoku.load(saved)?.takeIf { !it.won }?.let { g -> "${Sudoku.LEVELS[g.level]} · ${g.values.count { it == 0 }} squares to go · ${GameView.clock(g.millis)}" }
+            "nonogram" -> Nonogram.load(saved)?.takeIf { !it.won && it.marks.any { m -> m != 0 } }?.let { "${it.size} x ${it.size} picture · ${GameView.clock(it.millis)}" }
+            "mahjong" -> Mahjong.load(saved)?.takeIf { !it.won && it.left < Mahjong.SPOTS.size }?.let { "${it.left} tiles left · ${GameView.clock(it.millis)}" }
+            "blocks" -> BlockDrop.load(saved)?.takeIf { !it.over && it.score > 0 }?.let { "Score ${GameView.number(it.score)}" }
             else -> null
         }
     }
@@ -278,6 +348,10 @@ class Arcade(
         "2048" -> prefs.getInt("best_2048", 0).let { if (it > 0) "Best ${GameView.number(it)}" else "Play" }
         "mines" -> prefs.getLong("best_mines_${minesSize()}", 0L).let { if (it > 0) "Best ${GameView.clock(it)}" else "Play" }
         "solitaire" -> prefs.getInt("wins_solitaire", 0).let { w -> if (w > 0) "$w won · best ${GameView.clock(prefs.getLong("best_solitaire", 0L))}" else "Play" }
+        "sudoku" -> prefs.getLong("best_sudoku_${choice("sudoku_level", 3)}", 0L).let { if (it > 0) "Best ${GameView.clock(it)}" else "Play" }
+        "nonogram" -> prefs.getLong("best_nonogram_${choice("nonogram_size", 3)}", 0L).let { if (it > 0) "Best ${GameView.clock(it)}" else "Play" }
+        "mahjong" -> prefs.getInt("wins_mahjong", 0).let { w -> if (w > 0) "$w cleared · best ${GameView.clock(prefs.getLong("best_mahjong", 0L))}" else "Play" }
+        "blocks" -> prefs.getInt("best_blocks", 0).let { if (it > 0) "Best ${GameView.number(it)}" else "Play" }
         else -> "Play"
     }
 
@@ -294,10 +368,10 @@ class Arcade(
             Entry("solitaire", "Solitaire", true, true),
             Entry("mines", "Minesweeper", true, true),
             Entry("2048", "2048", true, true),
-            Entry("sudoku", "Sudoku", true, false),
-            Entry("nonogram", "Nonogram", true, false),
-            Entry("mahjong", "Mahjong", true, false),
-            Entry("blocks", "Block Drop", true, false),
+            Entry("sudoku", "Sudoku", true, true),
+            Entry("nonogram", "Nonogram", true, true),
+            Entry("mahjong", "Mahjong", true, true),
+            Entry("blocks", "Block Drop", true, true),
             Entry("pipes", "Pipe Connect", true, false),
             Entry("slide", "Slide Puzzle", true, false),
             Entry("words", "Word Search", true, false),

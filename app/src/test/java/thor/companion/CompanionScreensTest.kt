@@ -127,6 +127,10 @@ class CompanionScreensTest {
     @Test fun solitaire() = shoot("8b-solitaire", "BAGS", more = "games", playing = "solitaire")
     @Test fun minesweeper() = shoot("8c-minesweeper", "BAGS", more = "games", playing = "mines")
     @Test fun tiles2048() = shoot("8d-2048", "BAGS", more = "games", playing = "2048")
+    @Test fun sudoku() = shoot("8e-sudoku", "BAGS", more = "games", playing = "sudoku")
+    @Test fun nonogram() = shoot("8f-nonogram", "BAGS", more = "games", playing = "nonogram")
+    @Test fun mahjong() = shoot("8g-mahjong", "BAGS", more = "games", playing = "mahjong")
+    @Test fun blockDrop() = shoot("8h-block-drop", "BAGS", more = "games", playing = "blocks")
     @Test fun settings() = shoot("9-settings", "BAGS", more = "settings")
     @Test fun chat() = shoot("6-chat", "CHAT")
     /** The start-up card, part way: the status, bags and character are in, the rest still coming. */

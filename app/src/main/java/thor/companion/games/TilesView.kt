@@ -47,10 +47,9 @@ class TilesView(context: Context, var game: Tiles2048) : GameView(context) {
 
     override fun onDraw(canvas: Canvas) {
         val now = SystemClock.uptimeMillis()
-        val hintRoom = 30 * d
-        val size = minOf(width.toFloat(), height - hintRoom)
+        val size = minOf(width, height).toFloat()
         var x0 = (width - size) / 2f
-        val y0 = (height - hintRoom - size) / 2f
+        val y0 = (height - size) / 2f
         // A swipe that moved nothing: a short shake.
         val shake = now - shookAt
         if (shookAt != 0L && shake < SHAKE_MS) { x0 += (Math.sin(shake / 22.0) * 7 * d * (1 - shake / SHAKE_MS.toFloat())).toFloat(); postInvalidateOnAnimation() }
@@ -83,10 +82,21 @@ class TilesView(context: Context, var game: Tiles2048) : GameView(context) {
             }
             if (settling) postInvalidateOnAnimation()
         }
-        // Until the first swipe: how to play, under the board.
+        // Until the first swipe: how to play, in a box across the board's middle.
         if (game.score == 0 && !game.over) {
-            text.color = Theme.DIM; text.textSize = 14 * d
-            canvas.drawText("Swipe up, down, left or right: all tiles slide, two equal tiles become one", width / 2f, y0 + size + 21 * d, text)
+            text.textSize = 15 * d
+            val words = "all tiles slide, two equal tiles become one"
+            val half = maxOf(text.measureText(words) / 2 + 16 * d, size * 0.4f)
+            r.set(width / 2f - half, y0 + size / 2 - 40 * d, width / 2f + half, y0 + size / 2 + 40 * d)
+            paint.color = Theme.withAlpha(Theme.SURFACE, 230)
+            canvas.drawRoundRect(r, 11 * d, 11 * d, paint)
+            paint.style = android.graphics.Paint.Style.STROKE; paint.strokeWidth = 1.5f * d; paint.color = Theme.ACCENT
+            canvas.drawRoundRect(r, 11 * d, 11 * d, paint)
+            paint.style = android.graphics.Paint.Style.FILL
+            text.color = Theme.GOLD_TEXT
+            canvas.drawText("Swipe up, down, left or right:", width / 2f, r.centerY() - 5 * d, text)
+            text.color = Theme.TEXT
+            canvas.drawText(words, width / 2f, r.centerY() + 19 * d, text)
         }
         if (game.over) veil(canvas, "No more moves", "Score ${number(game.score)} · tap New game")
     }
