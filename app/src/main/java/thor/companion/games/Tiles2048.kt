@@ -15,6 +15,17 @@ class Tiles2048(private val random: Random = Random.Default) {
 
     enum class Dir { LEFT, RIGHT, UP, DOWN }
 
+    /** A tile of the last swipe, from one square to another (for drawing it gliding there). */
+    class Move(val from: Int, val to: Int, val value: Int)
+
+    /** The last swipe: every tile's way, the squares where two tiles became one, and the new tile's square. */
+    var lastMoves: List<Move> = emptyList()
+        private set
+    var lastMerged: Set<Int> = emptySet()
+        private set
+    var lastSpawn = -1
+        private set
+
     init { start() }
 
     fun start() {
@@ -31,18 +42,23 @@ class Tiles2048(private val random: Random = Random.Default) {
 
     /** Swipes [dir]; false when nothing could move (then nothing new appears). */
     fun move(dir: Dir): Boolean {
-        val (moved, points) = slide(cells, dir)
+        val moves = mutableListOf<Move>()
+        val merged = HashSet<Int>()
+        val (moved, points) = slide(cells, dir, moves, merged)
         if (!moved) return false
         score += points
         if (cells.any { it >= 2048 }) won = true
-        spawn()
+        lastMoves = moves; lastMerged = merged
+        lastSpawn = spawn()
         return true
     }
 
-    private fun spawn() {
+    private fun spawn(): Int {
         val free = cells.indices.filter { cells[it] == 0 }
-        if (free.isEmpty()) return
-        cells[free[random.nextInt(free.size)]] = if (random.nextInt(10) == 0) 4 else 2
+        if (free.isEmpty()) return -1
+        val at = free[random.nextInt(free.size)]
+        cells[at] = if (random.nextInt(10) == 0) 4 else 2
+        return at
     }
 
     fun save(): String = "$score,${if (won) 1 else 0};" + cells.joinToString(",")
@@ -51,7 +67,7 @@ class Tiles2048(private val random: Random = Random.Default) {
         const val SIZE = 4
 
         /** Slides [b] in place; whether anything moved, and the points of the merges. */
-        fun slide(b: IntArray, dir: Dir): Pair<Boolean, Int> {
+        fun slide(b: IntArray, dir: Dir, moves: MutableList<Move>? = null, merged: MutableSet<Int>? = null): Pair<Boolean, Int> {
             var moved = false; var points = 0
             for (line in 0 until SIZE) {
                 val idx = IntArray(SIZE) { pos ->
@@ -62,13 +78,17 @@ class Tiles2048(private val random: Random = Random.Default) {
                         Dir.DOWN -> (SIZE - 1 - pos) * SIZE + line
                     }
                 }
-                val values = idx.map { b[it] }.filter { it != 0 }
+                val from = idx.filter { b[it] != 0 }
+                val values = from.map { b[it] }
                 val out = mutableListOf<Int>()
                 var i = 0
                 while (i < values.size) {
+                    val to = idx[out.size]
                     if (i + 1 < values.size && values[i] == values[i + 1]) {
+                        moves?.add(Move(from[i], to, values[i])); moves?.add(Move(from[i + 1], to, values[i]))
+                        merged?.add(to)
                         out += values[i] * 2; points += values[i] * 2; i += 2
-                    } else { out += values[i]; i++ }
+                    } else { moves?.add(Move(from[i], to, values[i])); out += values[i]; i++ }
                 }
                 for (pos in 0 until SIZE) {
                     val v = out.getOrElse(pos) { 0 }
