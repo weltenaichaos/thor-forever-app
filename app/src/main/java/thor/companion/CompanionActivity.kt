@@ -377,13 +377,14 @@ class CompanionActivity : Activity() {
             content.addView(box, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
             return box
         }
-        fun row(box: LinearLayout, words: String, detail: String?, control: View) {
+        fun row(box: LinearLayout, words: String, detail: String?, control: View?) {
             val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
             val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             texts.addView(line(words, TEXT, 14f).apply { setPadding(0, 0, 0, 0) })
             if (detail != null) texts.addView(line(detail, DIM, 12f).apply { setPadding(0, dp(1), 0, 0) })
             r.addView(texts, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(10) })
-            r.addView(control, LinearLayout.LayoutParams(-2, -2))
+            // No empty placeholder view: a bare View with wrap_content takes the whole width (build 208's empty Help).
+            if (control != null) r.addView(control, LinearLayout.LayoutParams(-2, -2))
             box.addView(r)
         }
         /** An On/Off switch, lit while on. */
@@ -428,10 +429,10 @@ class CompanionActivity : Activity() {
         val help = group("Help")
         val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
         val build = com.winlator.cmod.BuildConfig.CI_BUILD_NUMBER
-        row(help, "App", "Thor Forever $version" + (if (build > 0) " · build $build" else ""), View(this))
+        row(help, "App", "Thor Forever $version" + (if (build > 0) " · build $build" else ""), null)
         val bundled = AddonInstaller.version(this) ?: "?"
         val inGame = state?.addonVersion
-        row(help, "Forever Companion addon", "This app has $bundled" + (inGame?.let { " · the game runs $it" } ?: ""), View(this))
+        row(help, "Forever Companion addon", "This app has $bundled" + (inGame?.let { " · the game runs $it" } ?: ""), null)
         row(help, "Log for a bug report", "Saves the Thor's recent log and the game's picture in Download", chip("Save log") { saveLog() })
     }
 
