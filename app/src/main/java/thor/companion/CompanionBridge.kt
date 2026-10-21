@@ -20,6 +20,12 @@ object CompanionBridge {
     /** The shortcut that starts WoW Forever; Battle.net gets no companion. */
     private const val WOW_SHORTCUT_FILE = "World of Warcraft Forever.desktop"
 
+    /** True for the app's WoW shortcuts: WOW_SHORTCUT_FILE, and "World of Warcraft Forever Live.desktop" and the like for other game versions. */
+    internal fun isWowShortcut(path: String?): Boolean {
+        val name = path?.substringAfterLast('/') ?: return false
+        return name == WOW_SHORTCUT_FILE || (name.startsWith("World of Warcraft Forever ") && name.endsWith(".desktop"))
+    }
+
     @Volatile var view: SurfaceView? = null
         private set
     @Volatile var xServer: XServer? = null
@@ -57,7 +63,7 @@ object CompanionBridge {
         this.xServer = xServer
         this.view = view
         gameTaskId = activity.taskId
-        if (!enabled(activity) || shortcutPath?.endsWith("/$WOW_SHORTCUT_FILE") != true) return
+        if (!enabled(activity) || !isWowShortcut(shortcutPath)) return
         runCatching { open(activity) }
     }
 

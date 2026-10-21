@@ -925,7 +925,7 @@ public class XServerDisplayActivity extends AppCompatActivity {
     }
 
     private boolean isWowForeverShortcut() {
-        return shortcut != null && shortcut.file.getPath().endsWith("/World of Warcraft Forever.desktop");
+        return shortcut != null && com.winlator.cmod.core.ThorSetup.isThorWowShortcutFile(shortcut.file.getName());
     }
 
     /**
