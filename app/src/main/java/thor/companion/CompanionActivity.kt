@@ -159,8 +159,23 @@ class CompanionActivity : Activity() {
     private var movedAt = 0L
     /** Start time and duration (ms) of each capture in the last minute, for the battery check. */
     private val captures = java.util.ArrayDeque<LongArray>()
-    /** Key presses go out one at a time, in the order they were tapped. */
-    private val keys = java.util.concurrent.Executors.newSingleThreadExecutor()
+    /**
+     * Key presses go out one at a time, in the order they were tapped. A mistake while
+     * sending them is written to app-exits.txt and shown, and never closes the app: the
+     * game runs in this app too and would close with it.
+     */
+    private val keys = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
+        Thread(task, "companion-keys").apply {
+            setUncaughtExceptionHandler { t, e ->
+                android.util.Log.e("ThorCompanion", "keys: error while sending keys", e)
+                runCatching {
+                    com.winlator.cmod.core.CrashReasonLogger.note("Companion key error in thread \"${t.name}\" (the app and the game kept running)\n" +
+                        android.util.Log.getStackTraceString(e))
+                }
+                runOnUiThread { say("Keys not sent: an error (written to app-exits.txt)") }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
