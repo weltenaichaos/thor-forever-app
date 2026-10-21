@@ -154,7 +154,8 @@ class Arcade(
         view.onChange = { changed(id, view) }
         val top = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(6)) }
         top.addView(chip("◀ Games") { leave(); open = null; render() })
-        top.addView(title(entry.name), LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) })
+        // Minesweeper's own buttons take the title's room (the screen is only so wide).
+        if (view !is MinesView) top.addView(title(entry.name), LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) })
         val line = TextView(context).apply {
             setTextColor(Theme.TEXT); textSize = 13.5f; typeface = Theme.body(context); gravity = Gravity.END
             maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(dp(8), 0, dp(8), 0)
