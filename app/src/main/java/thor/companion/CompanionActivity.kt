@@ -311,20 +311,28 @@ class CompanionActivity : Activity() {
             setPadding(dp(6), dp(6), dp(6), dp(6))
         }
         val menu = android.widget.PopupWindow(box, dp(240), LinearLayout.LayoutParams.WRAP_CONTENT, false)
-        fun item(mark: String, words: String, onTap: () -> Unit) {
-            box.addView(TextView(this).apply {
-                text = "$mark   $words"
+        /** One line of the menu: a small mark (a symbol, or a drawn [icon] where the font has no symbol), then its words. */
+        fun item(mark: String, words: String, icon: View? = null, onTap: () -> Unit) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(11), dp(12), dp(11))
+                setOnClickListener { menu.dismiss(); onTap() }
+            }
+            if (icon != null) row.addView(icon, LinearLayout.LayoutParams(dp(18), dp(18)))
+            else row.addView(TextView(this).apply { text = mark; textSize = 15f; gravity = Gravity.CENTER; setTextColor(Theme.GOLD_TEXT) }, LinearLayout.LayoutParams(dp(18), -2))
+            row.addView(TextView(this).apply {
+                text = words
                 textSize = 15f
                 typeface = Theme.heading(context)
                 setTextColor(Theme.GOLD_TEXT)
-                setPadding(dp(12), dp(11), dp(12), dp(11))
-                background = Theme.button(context).also { it.alpha = 0 }
-                setOnClickListener { menu.dismiss(); onTap() }
+                setPadding(dp(12), 0, 0, 0)
             })
+            box.addView(row)
         }
         item("🎲", "Games") { openPage("games") }
         item("⚙", "Settings") { openPage("settings") }
-        item("⏻", "Exit companion") { askExit(true) }
+        // The power symbol is drawn: the fonts on the Thor have no ⏻ (Jesse saw a straight line, build 206).
+        item("", "Exit companion", PowerIcon(this).apply { colour = Theme.GOLD_TEXT }) { askExit(true) }
         menu.isOutsideTouchable = true
         menu.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
         menu.elevation = dp(8).toFloat()
