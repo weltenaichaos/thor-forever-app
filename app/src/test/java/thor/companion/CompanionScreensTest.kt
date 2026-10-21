@@ -47,7 +47,7 @@ class CompanionScreensTest {
     private fun shoot(name: String, tab: String, loaded: Boolean = true, upTo: Int = messages.size, craft: String? = null, scrolled: Int = 0,
                       byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null, extra: List<String> = emptyList(),
                       lastEnchant: String? = null, replace: Boolean = false, sheetScrolled: Int = 0, list: List<String> = emptyList(), sheet: String? = null,
-                      done: List<String> = emptyList(), exitAsked: Boolean = false) {
+                      done: List<String> = emptyList(), exitAsked: Boolean = false, more: String? = null, playing: String? = null) {
         // Run outside Gradle (no app resources): the fonts from their files.
         System.getProperty("companion.fonts.dir")?.let { fonts ->
             Theme.useFonts(Typeface.createFromFile(File(fonts, "cinzel_bold.ttf")), Typeface.createFromFile(File(fonts, "wine_tahoma.ttf")))
@@ -56,7 +56,7 @@ class CompanionScreensTest {
         controller.get().setTheme(android.R.style.Theme_DeviceDefault_NoActionBar)  // as in the manifest
         controller.create()
         val activity = controller.get()
-        activity.preview(messages.take(upTo) + extra, tab, loaded, craft, byGear, target, recipe, enchanting, lastEnchant, replace, list, sheet, done, exitAsked)
+        activity.preview(messages.take(upTo) + extra, tab, loaded, craft, byGear, target, recipe, enchanting, lastEnchant, replace, list, sheet, done, exitAsked, more, playing)
         shadowOf(Looper.getMainLooper()).idle()
         val root = activity.findViewById<View>(android.R.id.content)
         val w = 1240; val h = 1080
@@ -122,6 +122,16 @@ class CompanionScreensTest {
     @Test fun exitAsks() = shoot("7-exit-asks", "CRAFT", craft = "Enchanting", sheet = "list", exitAsked = true,
         list = listOf("Enchanting\t4\t0\t5\tEnchant Bracer - Minor Stamina\t9\t9793\t2", "Tailoring\t7\t4241\t2\tWoolen Bag"))
     @Test fun map() = shoot("5-map", "MAP")
+    @Test fun games() = shoot("8-games", "BAGS", more = "games")
+    @Test fun gemMatch() = shoot("8a-gem-match", "BAGS", more = "games", playing = "gems")
+    @Test fun solitaire() = shoot("8b-solitaire", "BAGS", more = "games", playing = "solitaire")
+    @Test fun minesweeper() = shoot("8c-minesweeper", "BAGS", more = "games", playing = "mines")
+    @Test fun tiles2048() = shoot("8d-2048", "BAGS", more = "games", playing = "2048")
+    @Test fun sudoku() = shoot("8e-sudoku", "BAGS", more = "games", playing = "sudoku")
+    @Test fun nonogram() = shoot("8f-nonogram", "BAGS", more = "games", playing = "nonogram")
+    @Test fun mahjong() = shoot("8g-mahjong", "BAGS", more = "games", playing = "mahjong")
+    @Test fun blockDrop() = shoot("8h-block-drop", "BAGS", more = "games", playing = "blocks")
+    @Test fun settings() = shoot("9-settings", "BAGS", more = "settings")
     @Test fun chat() = shoot("6-chat", "CHAT")
     /** The start-up card, part way: the status, bags and character are in, the rest still coming. */
     @Test fun loading() = shoot("0-loading", "BAGS", loaded = false, upTo = 4)
