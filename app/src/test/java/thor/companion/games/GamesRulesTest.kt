@@ -175,4 +175,71 @@ class GamesRulesTest {
         assertEquals(listOf(0), c.lastCleared)
         assertTrue(c.cells.take(8).all { it == 0 })
     }
+
+    @Test fun pipes() {
+        for ((k, size) in Pipes.SIZES.withIndex()) {
+            val g = Pipes.new(size, Random(k))
+            assertFalse(g.won)
+            // Every tile has a turn that solves it: try them all, tile by tile, from the well out (BFS over turns).
+            val start = g.save()
+            assertEquals(start, Pipes.load(start)!!.save())
+            // Four quarter turns bring a tile back.
+            val before = g.pipes[0]
+            repeat(4) { g.turn(0) }
+            assertEquals(before, g.pipes[0])
+            assertEquals(4, g.moves)
+        }
+        assertEquals(2, Pipes.rotate(1))
+        assertEquals(1, Pipes.rotate(8))
+    }
+
+    @Test fun slidePuzzle() {
+        for (size in SlidePuzzle.SIZES) {
+            val p = SlidePuzzle.new(size, Random(size))
+            assertFalse(p.won)
+            assertEquals(p.save(), SlidePuzzle.load(p.save())!!.save())
+        }
+        val p = SlidePuzzle.new(3, Random(9))
+        val g = p.gap
+        val far = if (g % 3 == 0) g + 2 else if (g % 3 == 2) g - 2 else g - 1
+        assertTrue(p.tap(far))
+        assertEquals(far, p.gap)
+        val diagonal = (0 until 9).first { it / 3 != p.gap / 3 && it % 3 != p.gap % 3 }
+        assertFalse(p.tap(diagonal))
+    }
+
+    @Test fun wordSearch() {
+        for (level in 0..2) {
+            val w = WordSearch.new(level, Random(level))
+            for (p in w.words) {
+                val spelled = String(CharArray(p.word.length) { w.letters[p.cell(it, w.size)] })
+                assertEquals(p.word, spelled)
+                if (level < 2) assertTrue(p.dx >= 0)
+            }
+            // Backwards works too.
+            val p = w.words.first()
+            assertEquals(p, w.select(p.cell(p.word.length - 1, w.size), p.cell(0, w.size)))
+            assertNull(w.select(p.cell(0, w.size), p.cell(p.word.length - 1, w.size)))
+            for (q in w.words) w.select(q.cell(0, w.size), q.cell(q.word.length - 1, w.size))
+            assertTrue(w.won)
+            assertEquals(w.save(), WordSearch.load(w.save())!!.save())
+        }
+    }
+
+    @Test fun memory() {
+        val m = Memory.new(6, 4, Random(4))
+        assertEquals(12, m.pairs)
+        val a = 0
+        val twin = (1 until 24).first { m.faces[it] == m.faces[a] }
+        val other = (1 until 24).first { m.faces[it] != m.faces[a] }
+        assertTrue(m.flip(a)); assertTrue(m.flip(other))
+        assertTrue(m.missed)
+        assertTrue(m.flip(a))
+        assertTrue(m.flip(twin))
+        assertEquals(1, m.found)
+        assertFalse(m.flip(a))
+        for (i in 0 until 24) for (j in i + 1 until 24) if (!m.matched[i] && !m.matched[j] && m.faces[i] == m.faces[j]) { m.flip(i); m.flip(j) }
+        assertTrue(m.won)
+        assertEquals(m.save(), Memory.load(m.save())!!.save())
+    }
 }
