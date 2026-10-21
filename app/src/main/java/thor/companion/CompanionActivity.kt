@@ -3663,7 +3663,7 @@ class CompanionActivity : Activity() {
         if (panel != Panel.CHAT) show(Panel.CHAT)
         composing = label to command
         footer.removeAllViews()
-        val field = android.widget.EditText(this).apply {
+        val field = KeyboardField(this).apply {
             hint = "$label…"
             setHintTextColor(DIM)
             setTextColor(TEXT)
@@ -3742,7 +3742,7 @@ class CompanionActivity : Activity() {
     private fun typeInGame() {
         composing = "Type" to ""
         footer.removeAllViews()
-        val field = android.widget.EditText(this).apply {
+        val field = KeyboardField(this).apply {
             hint = "Type here, then tap Type it"
             setHintTextColor(DIM)
             setTextColor(TEXT)
