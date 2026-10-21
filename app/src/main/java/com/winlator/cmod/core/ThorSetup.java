@@ -372,19 +372,78 @@ public final class ThorSetup {
         }
     }
 
-    /** Returns true when the file was written. */
+    /**
+     * Returns true when the file was written. Its login portal fits the game version: "test"
+     * (the beta's login servers, as in the template) for a beta or test version, the region
+     * Battle.net installed the game from (like EU) for the game itself.
+     */
     static boolean seedWowConfig(File wowDir, InputStream template) throws IOException {
         File config = new File(wowDir, "WTF/" + WOW_CONFIG);
         if (config.exists()) return false;
         File wtf = config.getParentFile();
         if (!wtf.isDirectory() && !wtf.mkdirs()) throw new IOException("Could not create " + wtf);
-        File part = new File(wtf, WOW_CONFIG + ".part");
-        try (OutputStream out = new FileOutputStream(part)) {
-            byte[] buffer = new byte[8192];
-            for (int n; (n = template.read(buffer)) > 0; ) out.write(buffer, 0, n);
-        }
-        if (!part.renameTo(config)) throw new IOException("Could not write " + config);
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        for (int n; (n = template.read(buffer)) > 0; ) bytes.write(buffer, 0, n);
+        String text = withPortal(bytes.toString("UTF-8"), portalFor(wowDir));
+        write(config, text);
         return true;
+    }
+
+    /**
+     * Fixes the login portal in the game settings an earlier build seeded: it always wrote the
+     * beta's "test", so the game itself (stress test, release) logged in to the beta's servers
+     * and offered only the beta's account. Only that one line changes, and only from "test".
+     * Returns true when the file was changed.
+     */
+    static boolean fixWowConfigPortal(File wowDir) throws IOException {
+        if (wowDir == null) return false;
+        File config = new File(wowDir, "WTF/" + WOW_CONFIG);
+        if (!config.isFile()) return false;
+        String portal = portalFor(wowDir);
+        if (portal == null || portal.equals("test")) return false;
+        String text = new String(java.nio.file.Files.readAllBytes(config.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        if (!java.util.regex.Pattern.compile("(?m)^SET portal \"test\"").matcher(text).find()) return false;
+        write(config, withPortal(text, portal));
+        return true;
+    }
+
+    /**
+     * The login portal for the game version in wowDir: "test" for a beta or test version, the
+     * region from .build.info (like EU) for the game itself, "" when that region is unknown (the
+     * line is left out), or null when the version is unknown (the settings stay as they are).
+     */
+    static String portalFor(File wowDir) {
+        String product = productIn(new File(wowDir, "x.exe"));
+        if (product.isEmpty()) return null;
+        if (!ThorGame.kindOf(product, wowDir.getName()).equals("Live")) return "test";
+        String buildInfo;
+        try {
+            buildInfo = new String(java.nio.file.Files.readAllBytes(new File(wowDir.getParentFile(), ".build.info").toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            buildInfo = "";
+        }
+        String region = ThorGame.fieldFromBuildInfo(buildInfo, product, "Branch");
+        return region.matches("[A-Za-z]{2}") ? region.toUpperCase(Locale.ROOT) : "";
+    }
+
+    /** The settings with their portal line set to portal, without it for "", unchanged for null. */
+    static String withPortal(String config, String portal) {
+        if (portal == null) return config;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?m)^SET portal \"[^\"\r\n]*\"(\r?\n)?").matcher(config);
+        if (!m.find()) return portal.isEmpty() ? config : "SET portal \"" + portal + "\"\n" + config;
+        String end = m.group(1) != null ? m.group(1) : "";
+        String line = portal.isEmpty() ? "" : "SET portal \"" + portal + "\"" + end;
+        return config.substring(0, m.start()) + line + config.substring(m.end());
+    }
+
+    /** Writes text next to file and renames it over it. */
+    private static void write(File file, String text) throws IOException {
+        File part = new File(file.getParentFile(), file.getName() + ".part");
+        try (OutputStream out = new FileOutputStream(part)) {
+            out.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        if (!part.renameTo(file)) throw new IOException("Could not write " + file);
     }
 
     /** Writes a shortcut that runs a Windows program in the container, into the app's cache. */
@@ -433,7 +492,9 @@ public final class ThorSetup {
             // Empty, or "-d3d11" from the build before the game settings came along.
             boolean execArgs = oldArgs.isEmpty() || oldArgs.trim().equals("-d3d11");
             if (shortcut.getExtra("execArgs", WOW_EXEC_ARGS).contains(WOW_CONFIG) || execArgs) {
-                seedWowConfig(manager.getContext(), ThorGame.toAndroidPath(shortcut.container, shortcut.path).getParentFile());
+                File wowDir = ThorGame.toAndroidPath(shortcut.container, shortcut.path).getParentFile();
+                seedWowConfig(manager.getContext(), wowDir);
+                try { fixWowConfigPortal(wowDir); } catch (IOException ignored) {}
             }
             String before = envVars.toString();
             if (!envVars.has("TU_DEBUG")) envVars.put("TU_DEBUG", "");

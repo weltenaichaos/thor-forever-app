@@ -31,7 +31,7 @@ These are Android and Thor settings. The app can't change them.
 | Esync | on (`WINEESYNC=1`) | Lower CPU overhead |
 | Start | one core first, then all cores | Avoids a blank-window crash at start with esync |
 | WoW start arguments | `-d3d11 -config Config-Thor-Forever.wtf` | Direct3D 11, and the game settings below |
-| Game settings | `WTF/Config-Thor-Forever.wtf` | Portal, language, allocator fix, screen narration off, D3D11 and a low graphics starting point |
+| Game settings | `WTF/Config-Thor-Forever.wtf` | Portal (`test` for the beta, your Battle.net region like `EU` for the game itself), language, allocator fix, screen narration off, D3D11 and a low graphics starting point |
 | Present mode | mailbox | As in the working shortcut |
 | `DXVK_CONFIG` | `dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False;d3d11.relaxedBarriers=True` | GPL on crashed after login; tiler off was faster |
 | `TU_DEBUG`, `DXVK_HUD` | empty | Turnip's autotuner (`TU_AUTOTUNE_ALGO=profiled`) picks the rendering mode; no overlay |
@@ -53,6 +53,11 @@ with the settings of the current WoW shortcut: the same variables, start argumen
 cap and FEXCore preset, and the game settings file above in that version's `WTF` folder.
 A version installed after the current one becomes the one **Play** starts. The **Game**
 button switches between them.
+
+Each version logs in to its own servers. The beta and test versions use the portal `test`.
+The game itself (stress test, release) uses the region Battle.net installed it from, so
+the login offers the right account. Builds before 202 wrote `test` for every version.
+The app changes that one line from `test` to the region, and leaves every other value alone.
 
 The Forever Companion's add-on gets the interface number of the version it goes into,
 so a game patch doesn't mark it out of date.
