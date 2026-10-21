@@ -242,4 +242,99 @@ class GamesRulesTest {
         assertTrue(m.won)
         assertEquals(m.save(), Memory.load(m.save())!!.save())
     }
+
+    @Test fun snake() {
+        val s = Snake(Random(1))
+        s.step(5f)
+        assertEquals(4, s.length)  // waits for the first swipe
+        s.turn(3)                  // straight back: ignored
+        s.turn(0)
+        s.move()
+        assertEquals(0, s.dir)
+        // Running up into the edge ends it.
+        repeat(Snake.H) { if (s.alive) s.move() }
+        assertFalse(s.alive)
+        // Eating: put the gem right ahead.
+        val t = Snake(Random(2))
+        t.turn(2); t.turn(1)
+        val head = t.body.first()
+        val field = Snake::class.java.getDeclaredField("gem").apply { isAccessible = true }
+        field.setInt(t, head + Snake.W)
+        t.move()
+        assertEquals(5, t.length)
+    }
+
+    @Test fun bricks() {
+        val b = Bricks()
+        b.launch()
+        // A paddle that always follows the ball never drops it.
+        var t = 0f
+        while (t < 120f && b.level == 1) { b.movePaddle(b.ballX); b.step(1 / 240f); t += 1 / 240f }
+        assertEquals(3, b.lives)
+        assertTrue(b.score > 0)
+        // A paddle that stays away loses all three.
+        val c = Bricks()
+        repeat(3) {
+            c.launch()
+            var k = 0
+            while (!c.stuck && k < 240 * 60) { c.movePaddle(if (c.ballX < 500) 925f else 75f); c.step(1 / 240f); k++ }
+        }
+        assertTrue(c.over)
+    }
+
+    @Test fun glide() {
+        val g = Glide(Random(3))
+        g.step(1f)
+        assertTrue(g.alive)          // waits for the first flap
+        g.flap()
+        while (g.alive) g.step(1 / 240f)
+        assertFalse(g.alive)         // no more flaps: it falls
+        // A simple pilot that flaps when below the next gap's middle gets well past the start.
+        val h = Glide(Random(4))
+        h.flap()
+        var t = 0f
+        while (h.alive && t < 60f) {
+            val next = h.peaks.firstOrNull { it.x + Glide.PEAK_W / 2 > Glide.X - Glide.R }
+            val target = next?.let { (it.top + it.bottom) / 2 + 25 } ?: (Glide.H / 2)
+            if (h.y > target && h.vy > -60f) h.flap()
+            h.step(1 / 240f); t += 1 / 240f
+        }
+        assertTrue("flew ${h.metres}", h.metres > 300f)
+    }
+
+    @Test fun fishing() {
+        val f = Fishing(Random(5))
+        f.step(10f)
+        assertEquals(Fishing.State.READY, f.state)   // the round starts with the first cast
+        f.tap()
+        assertEquals(Fishing.State.WAITING, f.state)
+        f.tap()
+        assertEquals(Fishing.State.EARLY, f.state)
+        var t = 0
+        while (f.state != Fishing.State.READY && t < 1000) { f.step(0.01f); t++ }
+        f.tap()
+        while (f.state != Fishing.State.BITE && t < 2000) { f.step(0.01f); t++ }
+        f.tap()
+        assertEquals(Fishing.State.CAUGHT, f.state)
+        assertEquals(1, f.catch.size)
+        f.step(200f)
+        assertEquals(Fishing.State.OVER, f.state)
+    }
+
+    @Test fun pegs() {
+        val p = Pegs(Random(6))
+        val all = p.pegs.size
+        assertEquals(22, p.orangeLeft)
+        var shots = 0
+        while (!p.over && shots < 40) {
+            p.aimAt(100f + (shots * 137) % 800, 400f)
+            p.shoot(); shots++
+            var k = 0
+            while (p.flying && k < 240 * 60) { p.step(1 / 240f); k++ }
+            assertFalse("ball stuck", p.flying)
+        }
+        assertTrue(p.over)
+        assertTrue(p.pegs.size < all)
+        assertTrue(p.score > 0)
+    }
 }

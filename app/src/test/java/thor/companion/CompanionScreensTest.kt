@@ -135,6 +135,11 @@ class CompanionScreensTest {
     @Test fun slide() = shoot("8j-slide-puzzle", "BAGS", more = "games", playing = "slide")
     @Test fun words() = shoot("8k-word-search", "BAGS", more = "games", playing = "words")
     @Test fun memory() = shoot("8l-memory-pairs", "BAGS", more = "games", playing = "memory")
+    @Test fun pegs() = shoot("8m-peg-bounce", "BAGS", more = "games", playing = "pegs")
+    @Test fun gryphon() = shoot("8n-gryphon-glide", "BAGS", more = "games", playing = "gryphon")
+    @Test fun fishing() = shoot("8o-fishing-bobber", "BAGS", more = "games", playing = "fishing")
+    @Test fun snake() = shoot("8p-snake", "BAGS", more = "games", playing = "snake")
+    @Test fun bricks() = shoot("8q-brick-breaker", "BAGS", more = "games", playing = "bricks")
     @Test fun settings() = shoot("9-settings", "BAGS", more = "settings")
     @Test fun chat() = shoot("6-chat", "CHAT")
     /** The start-up card, part way: the status, bags and character are in, the rest still coming. */
