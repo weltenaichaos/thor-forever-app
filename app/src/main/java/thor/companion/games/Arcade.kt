@@ -197,6 +197,10 @@ class Arcade(
                 top.addView(chip("Shuffle") { view.shuffle() }, gapParams())
                 top.addView(chip("Undo") { view.undo() }, gapParams())
             }
+            is PipesView -> top.addView(sizeChip("pipes_size", Pipes.SIZE_NAMES, line, { !inProgress(view) }) { newGame(id, view) }, gapParams())
+            is SlideView -> top.addView(sizeChip("slide_size", SlidePuzzle.SIZE_NAMES, line, { !inProgress(view) }) { newGame(id, view) }, gapParams())
+            is WordSearchView -> top.addView(sizeChip("words_level", WordSearch.LEVELS, line, { !inProgress(view) }) { newGame(id, view) }, gapParams())
+            is MemoryView -> top.addView(sizeChip("memory_size", Memory.SIZE_NAMES, line, { !inProgress(view) }) { newGame(id, view) }, gapParams())
             else -> {}
         }
         val again = chip("New game") {}
@@ -238,6 +242,10 @@ class Arcade(
         is NonogramView -> !v.game.won && v.game.marks.any { it != 0 }
         is MahjongView -> !v.game.won && v.game.left < Mahjong.SPOTS.size
         is BlockDropView -> !v.game.over && v.game.score > 0
+        is PipesView -> !v.game.won && v.game.moves > 0
+        is SlideView -> !v.game.won && v.game.moves > 0
+        is WordSearchView -> !v.game.won && v.game.foundCount > 0
+        is MemoryView -> !v.game.won && v.game.turns > 0
         else -> false
     }
 
@@ -251,6 +259,10 @@ class Arcade(
             is NonogramView -> { v.pause(); v.game = Nonogram.new(Nonogram.SIZES[choice("nonogram_size", 3)]) }
             is MahjongView -> { v.pause(); v.game = Mahjong.new() }
             is BlockDropView -> v.game = BlockDrop()
+            is PipesView -> { v.pause(); v.game = Pipes.new(Pipes.SIZES[choice("pipes_size", 3)]) }
+            is SlideView -> { v.pause(); v.game = SlidePuzzle.new(SlidePuzzle.SIZES[choice("slide_size", 3)]) }
+            is WordSearchView -> { v.pause(); v.game = WordSearch.new(choice("words_level", 3)) }
+            is MemoryView -> { v.pause(); v.game = Memory.SIZES[choice("memory_size", 3)].let { (c, r) -> Memory.new(c, r) } }
         }
         v.resume()
         counted = null
@@ -292,6 +304,15 @@ class Arcade(
                 fastest(e, "best_mahjong", v.game.millis)
             }
             is BlockDropView -> if (v.game.score > prefs.getInt("best_blocks", 0)) e.putInt("best_blocks", v.game.score)
+            is PipesView -> if (v.game.won && counted !== v.game) { counted = v.game; fastest(e, "best_pipes_${Pipes.SIZES.indexOf(v.game.size)}", v.game.millis) }
+            is SlideView -> if (v.game.won && counted !== v.game) { counted = v.game; fastest(e, "best_slide_${SlidePuzzle.SIZES.indexOf(v.game.size)}", v.game.millis) }
+            is WordSearchView -> if (v.game.won && counted !== v.game) { counted = v.game; fastest(e, "best_words_${v.game.level}", v.game.millis) }
+            is MemoryView -> if (v.game.won && counted !== v.game) {
+                counted = v.game
+                val key = "best_memory_${Memory.SIZES.indexOf(v.game.cols to v.game.rows)}"
+                val best = prefs.getInt(key, 0)
+                if (best == 0 || v.game.turns < best) e.putInt(key, v.game.turns)
+            }
         }
         e.apply()
     }
@@ -305,6 +326,7 @@ class Arcade(
         val id = when (v) {
             is GemView -> "gems"; is TilesView -> "2048"; is MinesView -> "mines"; is SolitaireView -> "solitaire"
             is SudokuView -> "sudoku"; is NonogramView -> "nonogram"; is MahjongView -> "mahjong"; is BlockDropView -> "blocks"
+            is PipesView -> "pipes"; is SlideView -> "slide"; is WordSearchView -> "words"; is MemoryView -> "memory"
             else -> return
         }
         prefs.edit().putString("save_$id", v.save()).apply()
@@ -321,6 +343,10 @@ class Arcade(
             "sudoku" -> SudokuView(context, saved?.let { Sudoku.load(it) } ?: Sudoku.new(choice("sudoku_level", 3))).also { if (it.game.won) counted = it.game }
             "nonogram" -> NonogramView(context, saved?.let { Nonogram.load(it) } ?: Nonogram.new(Nonogram.SIZES[choice("nonogram_size", 3)])).also { if (it.game.won) counted = it.game }
             "mahjong" -> MahjongView(context, saved?.let { Mahjong.load(it) } ?: Mahjong.new()).also { if (it.game.won) counted = it.game }
+            "pipes" -> PipesView(context, saved?.let { Pipes.load(it) } ?: Pipes.new(Pipes.SIZES[choice("pipes_size", 3)])).also { if (it.game.won) counted = it.game }
+            "slide" -> SlideView(context, saved?.let { SlidePuzzle.load(it) } ?: SlidePuzzle.new(SlidePuzzle.SIZES[choice("slide_size", 3)])).also { if (it.game.won) counted = it.game }
+            "words" -> WordSearchView(context, saved?.let { WordSearch.load(it) } ?: WordSearch.new(choice("words_level", 3))).also { if (it.game.won) counted = it.game }
+            "memory" -> MemoryView(context, saved?.let { Memory.load(it) } ?: Memory.SIZES[choice("memory_size", 3)].let { (c, r) -> Memory.new(c, r) }).also { if (it.game.won) counted = it.game }
             "blocks" -> BlockDropView(context, saved?.let { BlockDrop.load(it) } ?: BlockDrop()) { prefs.getInt("best_blocks", 0) }
             else -> SolitaireView(context, saved?.let { Klondike.load(it) } ?: Klondike()).also { if (it.game.won) counted = it.game }
         }
@@ -338,6 +364,10 @@ class Arcade(
             "nonogram" -> Nonogram.load(saved)?.takeIf { !it.won && it.marks.any { m -> m != 0 } }?.let { "${it.size} x ${it.size} picture · ${GameView.clock(it.millis)}" }
             "mahjong" -> Mahjong.load(saved)?.takeIf { !it.won && it.left < Mahjong.SPOTS.size }?.let { "${it.left} tiles left · ${GameView.clock(it.millis)}" }
             "blocks" -> BlockDrop.load(saved)?.takeIf { !it.over && it.score > 0 }?.let { "Score ${GameView.number(it.score)}" }
+            "pipes" -> Pipes.load(saved)?.takeIf { !it.won && it.moves > 0 }?.let { "${it.size} x ${it.size} · ${it.moves} turns · ${GameView.clock(it.millis)}" }
+            "slide" -> SlidePuzzle.load(saved)?.takeIf { !it.won && it.moves > 0 }?.let { "${it.size} x ${it.size} · ${it.moves} moves · ${GameView.clock(it.millis)}" }
+            "words" -> WordSearch.load(saved)?.takeIf { !it.won && it.foundCount > 0 }?.let { "${it.foundCount} of ${it.words.size} words · ${GameView.clock(it.millis)}" }
+            "memory" -> Memory.load(saved)?.takeIf { !it.won && it.turns > 0 }?.let { "${it.found} of ${it.pairs} pairs · ${it.turns} turns" }
             else -> null
         }
     }
@@ -351,6 +381,10 @@ class Arcade(
         "sudoku" -> prefs.getLong("best_sudoku_${choice("sudoku_level", 3)}", 0L).let { if (it > 0) "Best ${GameView.clock(it)}" else "Play" }
         "nonogram" -> prefs.getLong("best_nonogram_${choice("nonogram_size", 3)}", 0L).let { if (it > 0) "Best ${GameView.clock(it)}" else "Play" }
         "mahjong" -> prefs.getInt("wins_mahjong", 0).let { w -> if (w > 0) "$w cleared · best ${GameView.clock(prefs.getLong("best_mahjong", 0L))}" else "Play" }
+        "pipes" -> prefs.getLong("best_pipes_${choice("pipes_size", 3)}", 0L).let { if (it > 0) "Best ${GameView.clock(it)}" else "Play" }
+        "slide" -> prefs.getLong("best_slide_${choice("slide_size", 3)}", 0L).let { if (it > 0) "Best ${GameView.clock(it)}" else "Play" }
+        "words" -> prefs.getLong("best_words_${choice("words_level", 3)}", 0L).let { if (it > 0) "Best ${GameView.clock(it)}" else "Play" }
+        "memory" -> prefs.getInt("best_memory_${choice("memory_size", 3)}", 0).let { if (it > 0) "Best $it turns" else "Play" }
         "blocks" -> prefs.getInt("best_blocks", 0).let { if (it > 0) "Best ${GameView.number(it)}" else "Play" }
         else -> "Play"
     }
@@ -372,10 +406,10 @@ class Arcade(
             Entry("nonogram", "Nonogram", true, true),
             Entry("mahjong", "Mahjong", true, true),
             Entry("blocks", "Block Drop", true, true),
-            Entry("pipes", "Pipe Connect", true, false),
-            Entry("slide", "Slide Puzzle", true, false),
-            Entry("words", "Word Search", true, false),
-            Entry("memory", "Memory Pairs", true, false),
+            Entry("pipes", "Pipe Connect", true, true),
+            Entry("slide", "Slide Puzzle", true, true),
+            Entry("words", "Word Search", true, true),
+            Entry("memory", "Memory Pairs", true, true),
             Entry("pegs", "Peg Bounce", false, false),
             Entry("gryphon", "Gryphon Glide", false, false),
             Entry("fishing", "Fishing Bobber", false, false),
