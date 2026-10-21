@@ -104,6 +104,16 @@ class ChatLogTest {
     }
 
     @Test
+    fun keepsTheChannelsWhileMessagesLeaveThemOut() {
+        // From addon 0.31.0 the channels only come when they changed (and every 30 s).
+        val log = ChatLog()
+        log.add("TH1|1\t\t1 General,2 Trade\n1\tsay\tBo-Realm\t\thi")
+        assertEquals(true, log.add("TH1|1\t\n2\tsay\tBo-Realm\t\tagain"))
+        assertEquals(listOf(1 to "General", 2 to "Trade"), log.channels)
+        assertEquals(listOf("hi", "again"), log.lines.map { it.text })
+    }
+
+    @Test
     fun putsLateLinesInWritingOrder() {
         assertEquals(null, ChatFile.parse("10/7 20:33:01.000  Left Channel: |Hchannel:1140896|h[(null)]|h"))
         assertEquals(ChatLine("system", "", "Joined Channel: [2. Trade - City]"), ChatFile.parse("10/7 20:33:01.000  Joined Channel: |Hchannel:CHANNEL:2|h[2. Trade - City]|h"))

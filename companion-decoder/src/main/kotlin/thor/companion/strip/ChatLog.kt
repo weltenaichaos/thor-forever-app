@@ -14,6 +14,8 @@ data class ChatLine(val kind: String, val sender: String, val text: String, val 
  * The chat lines the app has received, oldest first, from the addon's
  * `TH1|<session>\t<names>\t<channels>\n<id>\t<kind>\t<sender>\t<channel>\t<text>[\t<class>]\n...`
  * messages. <class> is the game's class number (8 is a mage, see [CLASSES]); addons before 0.30.3 leave it out.
+ * From addon 0.31.0 <names> is empty and <channels> (with the tab before it) only comes when
+ * the channels changed and now and then: a message without it keeps the last ones.
  * Lines sent again (after a refresh) are recognised by session and number and kept once.
  * The addon may send a group line before an older Trade line; lines are kept in the
  * order of their numbers, so the chat reads as it was written.
