@@ -38,6 +38,8 @@ class Arcade(
     var open: String? = null
         private set
     private var board: GameView? = null
+    /** Action rounds aren't saved as text; their boards are kept while the app runs (paused). */
+    private val rounds = HashMap<String, ActionView>()
     private var header: TextView? = null
     /** A second tap on New game within 3 s starts over (a game in the middle of it). */
     private var newAskedAt = -10_000L
@@ -150,12 +152,12 @@ class Arcade(
     private fun renderGame(id: String) {
         fill(true)
         val entry = ENTRIES.first { it.id == id }
-        val view = board ?: load(id).also { board = it }
+        val view = board ?: (rounds[id] ?: load(id)).also { board = it; if (it is ActionView) rounds[id] = it }
         view.onChange = { changed(id, view) }
         val top = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(6)) }
         top.addView(chip("◀ Games") { leave(); open = null; render() })
         // Games with several buttons of their own leave out the title (the screen is only so wide).
-        if (view !is MinesView && view !is MahjongView && view !is NonogramView) top.addView(title(entry.name), LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) })
+        if (view !is MinesView && view !is MahjongView && view !is NonogramView && view !is GlideView && view !is FishingView) top.addView(title(entry.name), LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) })
         val line = TextView(context).apply {
             setTextColor(Theme.TEXT); textSize = 13.5f; typeface = Theme.body(context); gravity = Gravity.END
             maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(dp(8), 0, dp(8), 0)
@@ -201,6 +203,13 @@ class Arcade(
             is SlideView -> top.addView(sizeChip("slide_size", SlidePuzzle.SIZE_NAMES, line, { !inProgress(view) }) { newGame(id, view) }, gapParams())
             is WordSearchView -> top.addView(sizeChip("words_level", WordSearch.LEVELS, line, { !inProgress(view) }) { newGame(id, view) }, gapParams())
             is MemoryView -> top.addView(sizeChip("memory_size", Memory.SIZE_NAMES, line, { !inProgress(view) }) { newGame(id, view) }, gapParams())
+            is ActionView -> {
+                val pause = chip(if (view.paused) "Go on" else "Pause") {}
+                pause.setOnClickListener { view.paused = !view.paused; pause.text = if (view.paused) "Go on" else "Pause" }
+                top.addView(pause, gapParams())
+                val was = view.onChange
+                view.onChange = { was(); pause.text = if (view.paused) "Go on" else "Pause" }
+            }
             else -> {}
         }
         val again = chip("New game") {}
@@ -246,6 +255,11 @@ class Arcade(
         is SlideView -> !v.game.won && v.game.moves > 0
         is WordSearchView -> !v.game.won && v.game.foundCount > 0
         is MemoryView -> !v.game.won && v.game.turns > 0
+        is SnakeView -> v.game.alive && v.game.started
+        is BricksView -> !v.game.over && v.game.score > 0
+        is GlideView -> v.game.alive && v.game.started
+        is FishingView -> v.game.started && v.game.state != Fishing.State.OVER
+        is PegsView -> !v.game.over && v.game.balls < 10
         else -> false
     }
 
@@ -263,7 +277,13 @@ class Arcade(
             is SlideView -> { v.pause(); v.game = SlidePuzzle.new(SlidePuzzle.SIZES[choice("slide_size", 3)]) }
             is WordSearchView -> { v.pause(); v.game = WordSearch.new(choice("words_level", 3)) }
             is MemoryView -> { v.pause(); v.game = Memory.SIZES[choice("memory_size", 3)].let { (c, r) -> Memory.new(c, r) } }
+            is SnakeView -> v.game = Snake()
+            is BricksView -> v.game = Bricks()
+            is GlideView -> v.game = Glide()
+            is FishingView -> v.game = Fishing()
+            is PegsView -> v.game = Pegs()
         }
+        if (v is ActionView) v.paused = false
         v.resume()
         counted = null
         changed(id, v)
@@ -313,6 +333,11 @@ class Arcade(
                 val best = prefs.getInt(key, 0)
                 if (best == 0 || v.game.turns < best) e.putInt(key, v.game.turns)
             }
+            is SnakeView -> if (v.game.length > prefs.getInt("best_snake", 0)) e.putInt("best_snake", v.game.length)
+            is BricksView -> if (v.game.score > prefs.getInt("best_bricks", 0)) e.putInt("best_bricks", v.game.score)
+            is GlideView -> if (!v.game.alive && v.game.metres.toInt() > prefs.getInt("best_gryphon", 0)) e.putInt("best_gryphon", v.game.metres.toInt())
+            is FishingView -> if (v.game.kg > prefs.getFloat("best_fishing", 0f)) e.putFloat("best_fishing", v.game.kg)
+            is PegsView -> if (v.game.over && v.game.score > prefs.getInt("best_pegs", 0)) e.putInt("best_pegs", v.game.score)
         }
         e.apply()
     }
@@ -347,6 +372,11 @@ class Arcade(
             "slide" -> SlideView(context, saved?.let { SlidePuzzle.load(it) } ?: SlidePuzzle.new(SlidePuzzle.SIZES[choice("slide_size", 3)])).also { if (it.game.won) counted = it.game }
             "words" -> WordSearchView(context, saved?.let { WordSearch.load(it) } ?: WordSearch.new(choice("words_level", 3))).also { if (it.game.won) counted = it.game }
             "memory" -> MemoryView(context, saved?.let { Memory.load(it) } ?: Memory.SIZES[choice("memory_size", 3)].let { (c, r) -> Memory.new(c, r) }).also { if (it.game.won) counted = it.game }
+            "snake" -> SnakeView(context, Snake()) { prefs.getInt("best_snake", 0) }
+            "bricks" -> BricksView(context, Bricks()) { prefs.getInt("best_bricks", 0) }
+            "gryphon" -> GlideView(context, Glide()) { prefs.getInt("best_gryphon", 0) }
+            "fishing" -> FishingView(context, Fishing()) { prefs.getFloat("best_fishing", 0f) }
+            "pegs" -> PegsView(context, Pegs()) { prefs.getInt("best_pegs", 0) }
             "blocks" -> BlockDropView(context, saved?.let { BlockDrop.load(it) } ?: BlockDrop()) { prefs.getInt("best_blocks", 0) }
             else -> SolitaireView(context, saved?.let { Klondike.load(it) } ?: Klondike()).also { if (it.game.won) counted = it.game }
         }
@@ -385,6 +415,11 @@ class Arcade(
         "slide" -> prefs.getLong("best_slide_${choice("slide_size", 3)}", 0L).let { if (it > 0) "Best ${GameView.clock(it)}" else "Play" }
         "words" -> prefs.getLong("best_words_${choice("words_level", 3)}", 0L).let { if (it > 0) "Best ${GameView.clock(it)}" else "Play" }
         "memory" -> prefs.getInt("best_memory_${choice("memory_size", 3)}", 0).let { if (it > 0) "Best $it turns" else "Play" }
+        "snake" -> prefs.getInt("best_snake", 0).let { if (it > 0) "Best length $it" else "Play" }
+        "bricks" -> prefs.getInt("best_bricks", 0).let { if (it > 0) "Best ${GameView.number(it)}" else "Play" }
+        "gryphon" -> prefs.getInt("best_gryphon", 0).let { if (it > 0) "Best ${GameView.number(it)} m" else "Play" }
+        "fishing" -> prefs.getFloat("best_fishing", 0f).let { if (it > 0f) "Best %.1f kg".format(it) else "Play" }
+        "pegs" -> prefs.getInt("best_pegs", 0).let { if (it > 0) "Best ${GameView.number(it)}" else "Play" }
         "blocks" -> prefs.getInt("best_blocks", 0).let { if (it > 0) "Best ${GameView.number(it)}" else "Play" }
         else -> "Play"
     }
@@ -410,11 +445,11 @@ class Arcade(
             Entry("slide", "Slide Puzzle", true, true),
             Entry("words", "Word Search", true, true),
             Entry("memory", "Memory Pairs", true, true),
-            Entry("pegs", "Peg Bounce", false, false),
-            Entry("gryphon", "Gryphon Glide", false, false),
-            Entry("fishing", "Fishing Bobber", false, false),
-            Entry("snake", "Snake", false, false),
-            Entry("bricks", "Brick Breaker", false, false),
+            Entry("pegs", "Peg Bounce", false, true),
+            Entry("gryphon", "Gryphon Glide", false, true),
+            Entry("fishing", "Fishing Bobber", false, true),
+            Entry("snake", "Snake", false, true),
+            Entry("bricks", "Brick Breaker", false, true),
         )
     }
 }
