@@ -23,6 +23,8 @@ class GlideView(context: Context, var game: Glide, private val best: () -> Int) 
         val m = game.metres.toInt() / 10; val c = game.coinsTaken; val alive = game.alive
         game.step(dt)
         drift += dt * 20f
+        if (game.coinsTaken != c) popup("+1", Glide.X + 30, game.y - 30)
+        if (!game.alive && alive) burst(Glide.X, game.y, Theme.ACCENT, 16)
         if (game.metres.toInt() / 10 != m || game.coinsTaken != c || game.alive != alive) onChange()
     }
 
@@ -61,6 +63,7 @@ class GlideView(context: Context, var game: Glide, private val best: () -> Int) 
             paint.color = Color.rgb(232, 240, 248); canvas.drawPath(path, paint)
         }
         for (c in game.coins) if (!c.taken) {
+            glow(canvas, c.x, c.y, 34f, Theme.GOLD, 140)
             paint.color = Theme.GOLD; canvas.drawCircle(c.x, c.y, 15f, paint)
             paint.style = Paint.Style.STROKE; paint.strokeWidth = 3.5f; paint.color = Color.rgb(176, 122, 20)
             canvas.drawCircle(c.x, c.y, 15f, paint); paint.style = Paint.Style.FILL

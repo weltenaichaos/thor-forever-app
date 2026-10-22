@@ -324,7 +324,7 @@ class GamesRulesTest {
     @Test fun pegs() {
         val p = Pegs(Random(6))
         val all = p.pegs.size
-        assertEquals(22, p.orangeLeft)
+        assertEquals(16, p.orangeLeft)
         var shots = 0
         while (!p.over && shots < 40) {
             p.aimAt(100f + (shots * 137) % 800, 400f)

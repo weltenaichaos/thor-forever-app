@@ -13,6 +13,8 @@ import kotlin.random.Random
  */
 class Pegs(private val random: Random = Random.Default) {
     class Peg(val x: Float, val y: Float, val orange: Boolean) { var lit = false }
+    /** A peg just hit, for the board to show its points. */
+    class Hit(val x: Float, val y: Float, val points: Int, val orange: Boolean)
 
     val pegs = mutableListOf<Peg>()
     var balls = 10
@@ -37,22 +39,45 @@ class Pegs(private val random: Random = Random.Default) {
         private set
     var freeBall = false
         private set
+    /** Hits since the board last looked (it empties this). */
+    val hits = mutableListOf<Hit>()
+    private var oranges = 0
 
     val orangeLeft get() = pegs.count { it.orange }
     val won get() = orangeLeft == 0
     val over get() = won || (balls == 0 && !flying)
 
     init {
-        // Rows of pegs in a wave; a fifth of them orange.
         val spots = mutableListOf<Pair<Float, Float>>()
-        for (row in 0 until 7) for (c in 0 until 13) {
-            val x = 80f + c * 70f + (if (row % 2 == 1) 35f else 0f)
-            val y = 170f + row * 52f + sin(c * 0.7f + row) * 12f
-            if (x < W - 50) spots += x to y
+        if (random.nextBoolean()) {
+            // An arc over two rings, a row between them and a wave below.
+            for (k in 0 until 15) {
+                val a = Math.PI * (0.12 + 0.76 * k / 14)
+                spots += (W / 2 - cos(a).toFloat() * 300f) to (250f - sin(a).toFloat() * 110f)
+            }
+            for (k in 0 until 12) {
+                val a = k / 12.0 * Math.PI * 2
+                spots += (290f + cos(a).toFloat() * 68f) to (380f + sin(a).toFloat() * 68f)
+                spots += (W - 290f + cos(a).toFloat() * 68f) to (380f + sin(a).toFloat() * 68f)
+            }
+            for (k in 0 until 6) spots += (W / 2 - 125f + k * 50f) to 360f
+            for (k in 0 until 9) spots += (W / 2 - 200f + k * 50f) to (500f + sin(k.toFloat()) * 10f)
+        } else {
+            // Rows in a gentle wave, every other one shifted.
+            for (row in 0 until 6) for (c in 0 until 11) {
+                val x = 150f + c * 70f + (if (row % 2 == 1) 35f else 0f)
+                val y = 170f + row * 62f + sin(c * 0.7f + row) * 14f
+                if (x < W - 140) spots += x to y
+            }
         }
-        val oranges = spots.indices.shuffled(random).take(22).toSet()
-        for ((i, s) in spots.withIndex()) pegs += Peg(s.first, s.second, i in oranges)
+        val pick = spots.indices.shuffled(random).take(16).toSet()
+        for ((i, s) in spots.withIndex()) pegs += Peg(s.first, s.second, i in pick)
+        oranges = pegs.count { it.orange }
     }
+
+    /** How much of the orange is cleared (0..1), and the points multiplier it brings. */
+    val fever get() = if (oranges == 0) 1f else 1f - orangeLeft.toFloat() / oranges
+    val multiplier get() = when { fever >= 0.75f -> 5; fever >= 0.5f -> 3; fever >= 0.25f -> 2; else -> 1 }
 
     /** Points the launcher at world point [x], [y] (below it). */
     fun aimAt(x: Float, y: Float) {
@@ -86,7 +111,13 @@ class Pegs(private val random: Random = Random.Default) {
             ballX = p.x + nx * (R + PEG_R); ballY = p.y + ny * (R + PEG_R)
             val along = vx * nx + vy * ny
             if (along < 0) { vx -= 1.75f * along * nx; vy -= 1.75f * along * ny }
-            if (!p.lit) { p.lit = true; lastShot += points(p) }
+            if (!p.lit) {
+                p.lit = true
+                val pts = points(p)
+                lastShot += pts
+                hits += Hit(p.x, p.y, pts, p.orange)
+                if (hits.size > 50) hits.removeAt(0)
+            }
         }
         slow = if (hypot(vx, vy) < 40f) slow + dt else 0f
         if (slow > 1.5f) { clearLit(); slow = 0f }
@@ -96,7 +127,7 @@ class Pegs(private val random: Random = Random.Default) {
         } else if (ballY > H + R) land()
     }
 
-    private fun points(p: Peg) = if (p.orange) 100 * (1 + (22 - orangeLeft) / 5) else 10
+    private fun points(p: Peg) = (if (p.orange) 100 else 10) * multiplier
 
     private fun clearLit() {
         pegs.removeAll { it.lit }

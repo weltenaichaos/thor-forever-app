@@ -20,6 +20,8 @@ class SnakeView(context: Context, var game: Snake, private val best: () -> Int) 
     override fun step(dt: Float) {
         val was = game.length; val alive = game.alive
         game.step(dt)
+        if (game.length != was) { val h = game.body.first(); popup("+1", (h % Snake.W + 0.5f) * WORLD_W / Snake.W, (h / Snake.W) * WORLD_H / Snake.H, Theme.GOOD) }
+        if (!game.alive && alive) { val h = game.body.first(); burst((h % Snake.W + 0.5f) * WORLD_W / Snake.W, (h / Snake.W + 0.5f) * WORLD_H / Snake.H, Theme.TEAL, 14) }
         if (game.length != was || game.alive != alive) onChange()
     }
 
@@ -46,6 +48,8 @@ class SnakeView(context: Context, var game: Snake, private val best: () -> Int) 
         for (y in 0 until Snake.H) for (x in 0 until Snake.W) if ((x + y) % 2 == 1) canvas.drawRect(x * cw, y * ch, (x + 1) * cw, (y + 1) * ch, paint)
         if (game.gem >= 0) {
             val gx = (game.gem % Snake.W) * cw + cw / 2; val gy = (game.gem / Snake.W) * ch + ch / 2
+            glow(canvas, gx, gy, cw * 1.1f, Color.rgb(255, 120, 90), (160 + 60 * Math.sin(android.os.SystemClock.uptimeMillis() / 250.0)).toInt())
+            if (moving()) postInvalidateOnAnimation()
             path.reset(); path.moveTo(gx, gy - ch * 0.38f); path.lineTo(gx + cw * 0.36f, gy); path.lineTo(gx, gy + ch * 0.38f); path.lineTo(gx - cw * 0.36f, gy); path.close()
             paint.color = Color.rgb(212, 85, 61); canvas.drawPath(path, paint)
             paint.style = android.graphics.Paint.Style.STROKE; paint.strokeWidth = 2.5f; paint.color = Color.rgb(255, 210, 160)

@@ -10,7 +10,12 @@ import kotlin.math.hypot
  * (three); clearing the bricks starts the next level, a little faster.
  */
 class Bricks {
-    class Brick(val x: Float, val y: Float, val colour: Int, var hits: Int)
+    class Brick(val x: Float, val y: Float, val colour: Int, var hits: Int) { val strong = hits > 1 }
+    /** A brick hit: where, its colour, the points, and whether it broke. */
+    class Hit(val x: Float, val y: Float, val colour: Int, val points: Int, val broke: Boolean)
+
+    /** Hits since the board last looked (it empties this). */
+    val hits = mutableListOf<Hit>()
 
     val bricks = mutableListOf<Brick>()
     var paddle = W / 2
@@ -80,10 +85,12 @@ class Bricks {
             if (fromSide) vx = if (ballX < nx) -abs(vx) else abs(vx) else vy = if (ballY < ny) -abs(vy) else abs(vy)
             b.hits--
             score += 10 * level
+            hits += Hit(b.x + BW / 2, b.y + BH / 2, b.colour, 10 * level, b.hits <= 0)
             if (b.hits <= 0) bricks.remove(b)
             break
         }
         if (bricks.isEmpty()) { level++; score += 100 * level; build() }
+        if (hits.size > 50) hits.clear()
     }
 
     companion object {
@@ -91,8 +98,8 @@ class Bricks {
         const val H = 620f
         const val COLS = 12
         const val BW = W / COLS
-        const val BH = 26f
-        const val TOP = 46f
+        const val BH = 30f
+        const val TOP = 64f
         const val PW = 150f
         const val PADDLE_Y = 580f
         const val R = 9f

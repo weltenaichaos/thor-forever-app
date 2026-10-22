@@ -28,6 +28,7 @@ class FishingView(context: Context, var game: Fishing, private val best: () -> F
         time += dt
         if (game.state != s || game.left.toInt() != sec) {
             if (game.state == Fishing.State.BITE) performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            if (game.state == Fishing.State.CAUGHT) game.last?.let { if (it.kg > 0) burst(520f, 400f, if (it.rare) Theme.GOLD else Color.rgb(156, 196, 240), 14) }
             onChange()
         }
     }
@@ -62,6 +63,7 @@ class FishingView(context: Context, var game: Fishing, private val best: () -> F
             r.set(bx - 40, by - 9, bx + 40, by + 9); canvas.drawOval(r, paint)
             if (state == Fishing.State.BITE) { r.set(bx - 70, by - 16, bx + 70, by + 16); canvas.drawOval(r, paint) }
             paint.style = Paint.Style.FILL; paint.alpha = 255
+            if (state == Fishing.State.BITE) glow(canvas, bx, by, 90f, Theme.GOLD, 150)
             canvas.save(); canvas.clipRect(0f, 0f, WORLD_W, by + 2)
             paint.color = Color.rgb(212, 85, 61); r.set(bx - 14, by - 14 + dip, bx + 14, by + 14 + dip); canvas.drawArc(r, 180f, 180f, true, paint)
             paint.color = Color.rgb(246, 236, 212); canvas.drawArc(r, 0f, 180f, true, paint)
