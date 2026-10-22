@@ -411,6 +411,17 @@ function ns.StripFrame()
     return frame
 end
 
+-- The square's height at its tallest (the data square has only the rows each part needs, so
+-- its bottom edge moves up and down): pictures under it hang from its top by this much, so
+-- they stay still while the square changes (the item icons jumped, Jesse 2026-10-20).
+function ns.StripTallest()
+    if not cells then build() end
+    local cell = settings()
+    local _, rows = barSize()
+    if barShape() then return rows * cell end
+    return frame:GetHeight()
+end
+
 -- Largest message in bytes (split over up to MAX_PARTS parts).
 function ns.StripCapacity()
     return PART_BYTES * MAX_PARTS   -- the same for the bar (it needs fewer parts for it)
