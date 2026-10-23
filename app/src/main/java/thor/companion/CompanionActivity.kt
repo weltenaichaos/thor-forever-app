@@ -983,6 +983,9 @@ class CompanionActivity : Activity() {
             else -> return
         }
         gameAt = now
+        // The game moved on (the login done, into the world, back out): a Type in the game box
+        // still open closes, so no keyboard is left over the game's next screen.
+        if (game != was) runOnUiThread { if (composing?.first == "Type") closeCompose() }
         if (game == was && what != "L" && what != "A") return
         // Out of the world: the card stands in for the tabs until the next character is in.
         if (game != Game.UNKNOWN && game != Game.IN_WORLD && (was == Game.IN_WORLD || was == Game.UNKNOWN || what == "L")) {
@@ -1624,7 +1627,7 @@ class CompanionActivity : Activity() {
         // The login screen (and the character screen): type there from this screen, with the
         // keyboard down here, and fix typos before they go in.
         if ((g == Game.STARTING || g == Game.OUT) && composing == null) {
-            box.addView(chip("⌨  Type in the game (password, names)") { typeInGame() }.apply {
+            box.addView(chip("⌨  Type in the game: login, names") { typeInGame() }.apply {
                 primary()
             }, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(10) })
         }
@@ -3744,72 +3747,145 @@ class CompanionActivity : Activity() {
     }
 
     /**
-     * A box on this screen for what goes into the game's own fields (the password at the login
-     * screen, a new character's name): typed and fixed here with the keyboard on this screen,
-     * then typed into the game key by key. Its buttons delete in the game's field too.
+     * What the Type in the game box is for (Jesse, 2026-10-23: at the login the keyboard's ✓
+     * typed the email with Enter and logged in with no password): the login's email (typed,
+     * then Tab to the password field, never Enter), its password (typed, then Enter, and the
+     * box closes so no keyboard is left open on the next screen), or a name or other text
+     * (typed, never Enter: a new character has a first and a last name).
      */
-    private fun typeInGame() {
+    private enum class TypeMode { EMAIL, PASSWORD, TEXT }
+
+    /**
+     * A box on this screen for what goes into the game's own fields (the login, a new
+     * character's name): typed and fixed here with the keyboard on this screen, then typed
+     * into the game key by key. Its buttons delete in the game's field too.
+     */
+    private fun typeInGame(start: TypeMode? = null) {
         composing = "Type" to ""
         footer.removeAllViews()
+        val prefs = getPreferences(MODE_PRIVATE)
+        // At the login: the email first until one was typed from here, then the password
+        // (the game can keep the email). Anywhere else: a name.
+        var mode = start ?: if (game != Game.STARTING) TypeMode.TEXT
+            else if (prefs.getBoolean("typedEmail", false)) TypeMode.PASSWORD else TypeMode.EMAIL
+        var shown = false
         val field = KeyboardField(this).apply {
-            hint = "Type here, then tap Type it"
             setHintTextColor(DIM)
             setTextColor(TEXT)
             textSize = 15f
             typeface = Theme.body(context)
             isSingleLine = true
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE or
-                android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
             background = Theme.panel(context, gold = true)
             setPadding(dp(12), dp(10), dp(12), dp(10))
         }
-        val target = gameDisplay()
+        val target by lazy { gameDisplay() }
         fun pressKeys(vararg what: String) {
             lastKeyAt = SystemClock.uptimeMillis()
             keys.execute { for (k in what) KeySender.send(this, target, k) }
         }
-        /** What is in the box into the game, then Enter when [enter]; the box is emptied. */
-        fun typeIt(enter: Boolean) {
+        /** What is in the box into the game, then [after] (a key, or none); the box is emptied. */
+        fun typeIt(after: String?) {
             val text = field.text.toString()
             field.setText("")
             lastKeyAt = SystemClock.uptimeMillis()
             keys.execute {
                 if (text.isNotEmpty()) KeySender.type(this, target, text)
-                if (enter) KeySender.send(this, target, "ENTER")
+                if (after != null) KeySender.send(this, target, after)
             }
-            say(if (enter) "Typed in the game, with Enter" else "Typed in the game")
         }
+        val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val eye = chip("👁") {}
+        val main = chip("") {}.apply { primary() }
+        lateinit var use: (TypeMode) -> Unit
+        fun act() {
+            val empty = field.text.isEmpty()
+            when (mode) {
+                TypeMode.EMAIL -> {
+                    if (empty) { say("Type your email first, then tap ${main.text}"); return }
+                    typeIt("TAB")
+                    prefs.edit().putBoolean("typedEmail", true).apply()
+                    say("Email typed; now the password")
+                    use(TypeMode.PASSWORD)
+                }
+                TypeMode.PASSWORD -> {
+                    if (empty) { say("Type your password first, then tap ${main.text}"); return }
+                    typeIt("ENTER")
+                    say("Password typed, logging in")
+                    closeCompose()
+                }
+                TypeMode.TEXT -> {
+                    if (empty) { say("Type a name first, then tap ${main.text}"); return }
+                    typeIt(null)
+                    say("Typed in the game (no Enter)")
+                }
+            }
+        }
+        main.setOnClickListener { act() }
         field.setOnEditorActionListener { _, action, _ ->
-            if (action == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) { typeIt(true); true } else false
+            // The keyboard's own ✓ / Next / Go key does what the box's main button does.
+            if (action != android.view.inputmethod.EditorInfo.IME_NULL) { act(); true } else false
         }
-        var shown = false
+        fun showLetters() {
+            val at = field.selectionEnd
+            field.inputType = when {
+                mode == TypeMode.EMAIL -> android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS or
+                    android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                mode == TypeMode.TEXT -> android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PERSON_NAME or
+                    android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                shown -> android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                else -> android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+            field.setSelection(at.coerceIn(0, field.text.length))
+        }
+        eye.setOnClickListener { shown = !shown; showLetters() }
+        use = { m ->
+            mode = m
+            shown = false
+            field.setText("")
+            field.hint = when (m) {
+                TypeMode.EMAIL -> "Your Battle.net email"
+                TypeMode.PASSWORD -> "Your password (not saved)"
+                TypeMode.TEXT -> "A name, or other text"
+            }
+            field.imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING or when (m) {
+                TypeMode.EMAIL -> android.view.inputmethod.EditorInfo.IME_ACTION_NEXT
+                TypeMode.PASSWORD -> android.view.inputmethod.EditorInfo.IME_ACTION_GO
+                TypeMode.TEXT -> android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+            }
+            showLetters()
+            main.text = when (m) {
+                TypeMode.EMAIL -> "Type email, go to password"
+                TypeMode.PASSWORD -> "Type password and log in"
+                TypeMode.TEXT -> "Type it"
+            }
+            eye.visibility = if (m == TypeMode.PASSWORD) View.VISIBLE else View.GONE
+            for (k in 0 until modes.childCount - 1) {
+                val c = modes.getChildAt(k) as TextView
+                if (k == m.ordinal) c.primary() else { c.background = Theme.button(this); c.setTextColor(TEXT) }
+            }
+            // The keyboard follows the new kind of text (an @ key for the email, hidden letters for the password).
+            getSystemService(android.view.inputmethod.InputMethodManager::class.java).restartInput(field)
+        }
+        for ((m, label) in listOf(TypeMode.EMAIL to "Email", TypeMode.PASSWORD to "Password", TypeMode.TEXT to "Name / text"))
+            modes.addView(chip(label) { if (mode != m) use(m) }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        modes.addView(chip("✕") { closeCompose() }, LinearLayout.LayoutParams(dp(44), -2))
+        footer.addView(modes)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
         row.addView(field, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
-        // Show or hide the letters (hidden first: it is usually a password).
-        row.addView(chip("👁") {
-            shown = !shown
-            val at = field.selectionEnd
-            field.inputType = android.text.InputType.TYPE_CLASS_TEXT or
-                (if (shown) android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD else android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
-            field.setSelection(at.coerceIn(0, field.text.length))
-        }, LinearLayout.LayoutParams(dp(48), -2).apply { marginEnd = dp(6) })
-        row.addView(chip("✕") { closeCompose() }, LinearLayout.LayoutParams(dp(44), -2))
+        row.addView(eye, LinearLayout.LayoutParams(dp(48), -2).apply { marginEnd = dp(6) })
+        row.addView(main, LinearLayout.LayoutParams(-2, -2))
         footer.addView(row)
-        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(6), 0, 0) }
-        fun button(label: String, accent: Boolean = false, onTap: () -> Unit) =
-            buttons.addView(chip(label, onTap).apply { if (accent) primary() },
-                LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
-        button("Type it + Enter", accent = true) { typeIt(true) }
-        button("Type it") { typeIt(false) }
-        // In the game's field: one letter back, or all of it (more Backspaces than any password has).
-        button("⌫ in game") { pressKeys("BACKSPACE") }
-        button("Clear game field") { pressKeys(*Array(40) { "BACKSPACE" }); say("Cleared the game's field") }
-        footer.addView(buttons)
-        val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0) }
-        more.addView(chip("Tab (next field)") { pressKeys("TAB") }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
-        more.addView(chip("Enter") { pressKeys("ENTER") }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        // Moving around in the game's fields, and fixing what is already in one.
+        val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(6), 0, 0) }
+        fun small(label: String, onTap: () -> Unit) =
+            more.addView(chip(label, onTap), LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        small("Tab: next field") { pressKeys("TAB") }
+        small("⌫ in game") { pressKeys("BACKSPACE") }
+        // More Backspaces than any password or name has.
+        small("Clear in game") { pressKeys(*Array(40) { "BACKSPACE" }); say("Cleared the game's field") }
+        small("Enter") { pressKeys("ENTER") }
         footer.addView(more)
+        use(mode)
         // The keyboard needs a window that can take focus; the app's normally can't (so the game keeps the controller).
         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         field.requestFocus()
