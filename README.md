@@ -10,7 +10,7 @@ It is a fork of Winlator Bionic (Winlator Ludashi) and comes with Wine, DXVK and
 ## Status
 
 This is a test version (alpha). It is tested on one AYN Thor.
-The newest release is [v0.5.0](https://github.com/weltenaichaos/thor-forever-app/releases/tag/v0.5.0).
+The newest release is [v0.6.0](https://github.com/weltenaichaos/thor-forever-app/releases/tag/v0.6.0).
 What changed in each release: [docs/RELEASE-NOTES.md](docs/RELEASE-NOTES.md).
 
 Works, and was confirmed on the device:
@@ -31,6 +31,9 @@ New, still in testing:
 - [ ] The companion's **Craft** tab (a first version)
 - [ ] The map leads you back to your corpse after you die
 - [ ] The map's **Turn with me** (the map turns with you, like the minimap)
+- [ ] Each game version (beta, stress test, release) gets its own Thor settings, and a **Game** button on the start screen switches which one **Play** starts
+- [ ] Enchanting on the companion's **Craft** tab
+- [ ] 17 mini games in the companion (**☰ More** > **Games**)
 
 Not done yet:
 
@@ -73,6 +76,18 @@ No game files are included. The game comes from Battle.net, as usual.
 
 Later game updates: press **Update with Battle.net**. The start screen tells you when an update is waiting.
 
+### A new game version (stress test, release day)
+
+Battle.net lists each version of the game in its game version menu above **Play**: the beta, a stress test, and later the release. Each one is its own install.
+
+1. On the start screen, press **Update with Battle.net**.
+2. In Battle.net, open the game version menu above **Play**, pick the new version and press **Install**. For the stress test it is **World of Warcraft: Forever Stress Test** under **In Development**.
+3. Keep Battle.net open until the download is done. Then close Battle.net.
+4. Back on the start screen, the app finds the new version and sets it up with the settings of your current one. **Play** now starts the new version.
+5. With more than one version installed, the start screen has a **Game** button (Live, Test or Beta). One tap switches the version **Play** starts.
+
+Each version has its own add-ons, key bindings and game settings, as on Windows. Install your add-ons for the new version again from the store. The Forever Companion's add-on is put in by itself.
+
 ### Android settings you set yourself
 
 The app cannot change these. Set them once before you play:
@@ -93,6 +108,7 @@ Thor Forever is its own app (`com.thorforever.app`). It installs next to any Win
 - **Loading screen:** it stays until the game shows its login screen, and comes back when you quit.
 - **First setup by itself:** Wine, DXVK, the graphics driver, a container and the WoW shortcut with the settings that run well on the Thor. See [docs/THOR-SETUP.md](docs/THOR-SETUP.md) for the full list.
 - **Battle.net:** install it from the start screen, and update the game with it.
+- **Game versions:** a version Battle.net installs next to yours (a stress test, the release) gets the same Thor settings, and the **Game** button switches between them.
 - **Update check:** the start screen asks Blizzard's version server and says when a game update is waiting.
 - **FPS cap:** Off, 30, 40, 45 or 60. The frames are timed to the screen refresh.
 - **Overlay:** Off, FPS, or FPS with a graph.
@@ -130,13 +146,17 @@ Its tabs:
 - **Bags:** everything in your bags. Tap an item to use it. Hold it to see its details; gear is compared with what you wear.
 - **Character:** your level, gold, item level and gear, with a warning when your gear needs repair, and the spells waiting at your trainer.
 - **Quests:** your quests and what is left to do. **Errands** groups the finished quests by the place where you hand them in.
-- **Craft:** your professions and recipes, and what you can make from your bags. **Make one**, **Make 5** and **Make all** start the game's own crafting. A crafting list makes several recipes one after another.
+- **Craft:** your professions and recipes, and what you can make from your bags. **Make one**, **Make 5** and **Make all** start the game's own crafting. A crafting list makes several recipes one after another. For enchanting, pick an enchantment or a piece of your gear, then **Enchant**. **Enchant again** repeats the last one.
 - **Map:** the zone with you on it, over the whole bottom screen. Drag, pinch or use **+** and **−**. Tap a pin or a quest area to see how far and which way it is, and **Lead me there**. After you die, the map opens by itself and leads you back to your corpse.
 - **Chat:** the game's chat in tabs (All, Group, Whispers, Guild, General). Type or speak a line, and it goes into the game.
 
-At the login screen, a **Type in the game** box lets you type your account name or password on the bottom screen. The password is never shown or saved.
+At the login screen and at character creation, the **Type in the game** box types for you from the bottom screen. Pick what you type: **Email** (then it moves on to the password field), **Password** (then it logs in and the box closes), or **Name** (no Enter, so nothing is sent too early). The **In game** keys (Tab, ⌫, Clear, Enter) work on the game's own field. It goes in letter by letter, with Shift for capitals, like a keyboard. The password is never shown or saved. If Android's keyboard leaves too little room, make it lower in the keyboard's own settings (in Gboard: Settings, Preferences, Keyboard height).
 
-**Exit** closes only the companion. The game keeps running.
+**☰ More**, at the end of the status line, opens:
+
+- **Games:** 17 small games for a flight or a wait: Gem Match, Solitaire, Minesweeper, 2048, Sudoku, Nonogram, Mahjong, Block Drop, Pipe Connect, Slide Puzzle, Word Search, Memory Pairs, Peg Bounce, Gryphon Glide, Fishing Bobber, Snake and Brick Breaker. They run only in the companion, never touch the game, and keep where you stopped.
+- **Settings:** the companion's switches (Map, Chat, Craft, Games) and Help.
+- **Exit:** closes only the companion, after asking. The game keeps running.
 
 How it works: the add-on draws small colour squares in the corners of the game's screen, and the companion reads them from the picture. It also follows the game through its files. Everything the companion does in the game starts with a tap from you.
 
@@ -145,7 +165,7 @@ The companion started as [thor-companion](https://github.com/weltenaichaos/thor-
 ## Troubleshooting and logs
 
 - The app writes its logs to the `Winlator/logs` folder.
-- WoW writes its own crash reports to the `Errors` folder next to `WowB-ARM64.exe`. The app copies them to `Winlator/logs/wow-errors`, where you can open them.
+- WoW writes its own crash reports to the `Errors` folder next to the game's `.exe` (`WowB-ARM64.exe` in the beta). The app copies them to `Winlator/logs/wow-errors`, where you can open them.
 - Something wrong in the companion? Hold its status line (the line with the coloured dot, near the top). It saves the Thor's recent log and a picture of the game's screen in `Download` (`ForeverCompanion-log.txt` and `ForeverCompanion-screen.png`).
 - Logs and WoW's `WTF` and `Account` folders can contain account and character names. Don't post them publicly.
 

@@ -2,10 +2,13 @@ package thor.companion.strip
 
 /**
  * What the game is making after a Make (`c\t<seq>\t<made>\t<wanted>\t<status>\t<reason>\t<name>`):
- * [seq] counts the Makes, [status] is making, done or stopped ([reason]: what the game said, as "Inventory is full.").
+ * [seq] counts the Makes, [status] is making, done or stopped ([reason]: what the game said, as "Inventory is full."),
+ * or asking while the game asks something before an enchantment (addon 0.30.4; [reason] is its question, as
+ * "Do you want to replace ... with ...?"), answered with [Professions.YES] or [Professions.NO].
  */
 data class CraftProgress(val seq: Int, val made: Int, val wanted: Int, val status: String, val reason: String, val name: String) {
-    val running: Boolean get() = status == "making"
+    val running: Boolean get() = status == "making" || asking
+    val asking: Boolean get() = status == "asking"
 }
 
 /** A profession and its level, as the game's skill list says. */
@@ -56,10 +59,19 @@ data class Professions(val now: Long, val list: List<Profession>, val results: L
          * TR1 rows (1 first), how many, each number as ALT-CTRL-NUMPAD digits, a separator
          * ALT-CTRL-F1 between them and ALT-CTRL-F2, which crafts, at the end.
          */
-        fun makeKeys(n: Int, row: Int, count: Int): List<String> {
+        fun makeKeys(n: Int, row: Int, count: Int, on: EnchantTarget? = null, replace: Boolean = false): List<String> {
             fun digits(v: Int) = v.toString().map { "ALT-CTRL-NUMPAD$it" }
-            return digits(n) + "ALT-CTRL-F1" + digits(row) + "ALT-CTRL-F1" + digits(count) + "ALT-CTRL-F2"
+            // An enchantment's item, and (addon 0.30.6) a 1 when the tap also says yes to replacing its enchantment.
+            val target = on?.let {
+                listOf("ALT-CTRL-F1") + digits(it.place) + "ALT-CTRL-F1" + digits(it.itemId) +
+                    if (replace) listOf("ALT-CTRL-F1") + digits(1) else emptyList()
+            }.orEmpty()
+            return digits(n) + "ALT-CTRL-F1" + digits(row) + "ALT-CTRL-F1" + digits(count) + target + "ALT-CTRL-F2"
         }
+
+        /** The keys that answer the game's question about an enchantment ([CraftProgress.asking]): yes and no. */
+        const val YES = "ALT-CTRL-F3"
+        const val NO = "ALT-CTRL-F5"  // (not F4: ALT-F4 closes the game window)
 
         /** The spell that opens a profession's window (for /cast): Mining's is Smelting. */
         fun windowSpell(profession: String): String = when (profession) {
@@ -73,16 +85,29 @@ data class Professions(val now: Long, val list: List<Profession>, val results: L
 data class Material(val itemId: Int, val count: Int, val name: String = "")
 
 /**
+ * An item an enchantment can go on (addon 0.30.4, as the game's own enchanting window offers
+ * it): [place] is a worn item's slot (1 to 19) or 1000 + bag * 100 + slot for one in the bags.
+ */
+data class EnchantTarget(val place: Int, val itemId: Int) {
+    val worn: Boolean get() = place < 1000
+    /** The bag (0 the backpack) and the slot in it, for an item in the bags. */
+    val bag: Int? get() = if (worn) null else (place - 1000) / 100
+    val bagSlot: Int? get() = if (worn) null else (place - 1000) % 100
+}
+
+/**
  * One line of a profession window: a heading, or a recipe that makes [itemId] (0 for an
  * enchantment), [made]..[madeMax] at a time. [colour] is the game's o, m, e or t (orange,
  * yellow, green, grey: how sure a skill point is). [readyAt] is when a recipe with a cooldown
- * can be made again (game time, 0: now).
+ * can be made again (game time, 0: now). [fits]: for an enchantment, the items it can go on
+ * when the window was read (null: not an enchantment, or an addon before 0.30.4).
  */
 data class Recipe(
     val colour: Char, val itemId: Int, val made: Int, val madeMax: Int, val readyAt: Long,
-    val materials: List<Material>, val name: String,
+    val materials: List<Material>, val name: String, val fits: List<EnchantTarget>? = null,
 ) {
     val heading: Boolean get() = colour == 'h'
+    val enchantment: Boolean get() = fits != null
 
     /** How many times you can make it with what [have] says you have of each item (null when a material isn't known yet). */
     fun canMake(have: (Int) -> Int): Int? {
@@ -115,8 +140,13 @@ data class RecipePage(
                     val id = p[0].toIntOrNull() ?: return@mapNotNull null
                     Material(id, p.getOrNull(1)?.toIntOrNull() ?: 1, p.getOrNull(2).orEmpty())
                 }
+                // An enchantment's items (`place:itemID,...`, maybe none) after the name.
+                val fits = f.getOrNull(7)?.split(',')?.filter { it.isNotEmpty() }?.mapNotNull { e ->
+                    val p = e.split(':')
+                    EnchantTarget(p[0].toIntOrNull() ?: return@mapNotNull null, p.getOrNull(1)?.toIntOrNull() ?: 0)
+                }
                 Recipe(f[0][0], f[1].toIntOrNull() ?: 0, f[2].toIntOrNull() ?: 1, f[3].toIntOrNull() ?: 1,
-                    f[4].toLongOrNull() ?: 0, materials, f[6])
+                    f[4].toLongOrNull() ?: 0, materials, f[6], fits)
             }
             return RecipePage(h[0], h[1].toIntOrNull() ?: 0, h[2].toIntOrNull() ?: 0, h[3].toIntOrNull() ?: 1,
                 h[4].toIntOrNull() ?: 1, h[5].toLongOrNull() ?: 0, recipes)

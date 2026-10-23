@@ -95,4 +95,26 @@ public class CompanionAddonTest {
         }
         assertTrue(keep.isFile());
     }
+
+    @Test
+    public void takesTheInterfaceNumberOfTheGame() throws IOException {
+        File addons = tempAddons();
+        Map<String, String> files = new HashMap<>();
+        files.put("ThorCompanion.toc", "## Interface: 16001\n## Version: 0.30.9\n\nStrip.lua\n");
+        files.put("Strip.lua", "-- strip");
+        String[] names = files.keySet().toArray(new String[0]);
+        File toc = new File(addons, "ThorCompanion/ThorCompanion.toc");
+        assertTrue(CompanionAddon.install(addons, names, source(files), 16001));
+        assertEquals("## Interface: 16001\n## Version: 0.30.9\n\nStrip.lua\n", new String(Files.readAllBytes(toc.toPath()), StandardCharsets.UTF_8));
+        assertFalse(CompanionAddon.install(addons, names, source(files), 16001));
+        // Unknown game version: what is there stays.
+        assertFalse(CompanionAddon.install(addons, names, source(files), 0));
+        // A game patch: the .toc gets the new number, once.
+        assertTrue(CompanionAddon.install(addons, names, source(files), 16002));
+        assertEquals("## Interface: 16002\n## Version: 0.30.9\n\nStrip.lua\n", new String(Files.readAllBytes(toc.toPath()), StandardCharsets.UTF_8));
+        assertFalse(CompanionAddon.install(addons, names, source(files), 16002));
+        assertEquals("0.30.9", CompanionAddon.installedVersion(addons));
+        assertEquals("## Interface: 16100\n## Title: x\n", CompanionAddon.withInterface("## Title: x\n", 16100));
+        assertEquals("## Title: x\r\n## Interface: 16100\r\n", CompanionAddon.withInterface("## Title: x\r\n## Interface: 16001, 16002\r\n", 16100));
+    }
 }

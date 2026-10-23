@@ -1,7 +1,28 @@
-# Thor Forever v0.5.0 (alpha, pre-release)
+# Thor Forever v0.6.0 (alpha, pre-release)
 
 Thor Forever is an Android app that starts World of Warcraft: Forever on the AYN Thor with one tap.
 It is a fork of Winlator Bionic (Winlator Ludashi). This is a test release, tested on one AYN Thor.
+
+## New in v0.6.0
+
+Ready for the game's release on November 4:
+- Battle.net puts each game version (beta, stress test, release) in its own folder. The start screen now gives each one its own Thor settings. A version installed later becomes the one **Play** starts.
+- With two or more versions, a **Game** button on the start screen switches which one **Play** starts.
+- Each version logs in to its own servers. Before, the stress test (and the release) went to the beta's login when started with **Play**, and only the beta's account was offered.
+
+The Forever Companion:
+- **Enchanting** on the Craft tab. Pick an enchantment, or tap a piece of your gear to see what fits it. One tap on **Enchant** puts it on. **Enchant again** repeats the last one, for skilling. A switch in Settings replaces an old enchantment without asking. Binding an item is always asked.
+- Enchantments can go on the crafting list (+1, +5, + all). The list is now a page of its own.
+- **☰ More** at the end of the status line holds **Games**, **Settings** and **Exit**. Exit asks first and closes only the companion.
+- **Games:** 17 small games for a flight or a wait: Gem Match, Solitaire, Minesweeper, 2048, Sudoku, Nonogram, Mahjong, Block Drop, Pipe Connect, Slide Puzzle, Word Search, Memory Pairs, Peg Bounce, Gryphon Glide, Fishing Bobber, Snake and Brick Breaker. They run only in the companion, never touch the game, and keep where you stopped.
+- **Settings** gathers the switches under Map, Chat, Craft and Games, with Help at the end.
+- Typing into the game (the login, a new character's name) no longer crashes the game. Each letter goes in on its own key, with Shift for capitals.
+- The **Type in the game** box has three modes: **Email** (moves on to the password, never logs in early), **Password** (logs in, then the box closes) and **Name** (no Enter). It now sits above Android's keyboard instead of under it.
+- **⌫** and **Enter** work in the companion's text boxes.
+- Chat keeps up in busy places. Whispers, group and guild lines and your own come first, in about a second.
+- Item icons no longer jump while **Get icons** runs.
+
+Coming from v0.1.1 or later: the start screen's **New version** button (or Settings > **Check for updates**) installs it. Coming from v0.1.0: install this APK over it. Your setup, the game and your add-ons stay. The companion add-on updates itself to 0.31.0 the next time the companion starts.
 
 ## New in v0.5.0
 

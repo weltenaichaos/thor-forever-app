@@ -46,4 +46,17 @@ public class ThorGameTest {
         assertFalse(ThorGame.isBattleNetExe("E:\\World of Warcraft\\_classic_beta_\\WowB-ARM64.exe"));
         assertFalse(ThorGame.isBattleNetExe(null));
     }
+
+    @Test
+    public void namesTheKindOfGameVersion() {
+        assertEquals("Beta", ThorGame.kindOf("wow_classic_beta", "_classic_beta_"));
+        assertEquals("Beta", ThorGame.kindOf("", "_beta_"));
+        assertEquals("Test", ThorGame.kindOf("wow_classic_ptr", "_classic_ptr_"));
+        assertEquals("Test", ThorGame.kindOf("wowt", "_ptr_"));
+        assertEquals("Test", ThorGame.kindOf("wowxptr", "_xptr_"));
+        assertEquals("Test", ThorGame.kindOf("wowlivetest", "_other_"));
+        assertEquals("Live", ThorGame.kindOf("wowf", "_forever_"));
+        assertEquals("Live", ThorGame.kindOf("wow", "_retail_"));
+        assertEquals("Live", ThorGame.kindOf(null, null));
+    }
 }

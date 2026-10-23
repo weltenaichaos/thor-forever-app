@@ -93,6 +93,11 @@ function ns.CornerCapacity(name)
     return partBytes(KINDS[name].rows) * 4
 end
 
+-- The bytes one part of a corner's message takes.
+function ns.CornerPartBytes(name)
+    return partBytes(KINDS[name].rows)
+end
+
 -- True while the corner's message has not been up for its time, or has parts still to show.
 -- The last part of a longer message stays up as long as the others: written over at once,
 -- the app missed it, and with it the whole message (your own chat line, with the next one
