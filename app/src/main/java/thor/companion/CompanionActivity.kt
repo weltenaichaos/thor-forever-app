@@ -97,6 +97,12 @@ class CompanionActivity : Activity() {
     private lateinit var exitIcon: PowerIcon
     private lateinit var exitLabel: TextView
     private lateinit var exitAsk: TextView
+    /** The page opened from the More menu in place of a tab ("games" or "settings"), or null. */
+    private var page: String? = null
+    private lateinit var arcade: thor.companion.games.Arcade
+    private var moreMenu: android.widget.PopupWindow? = null
+    /** A second tap on Settings' "Reset" within 3 s forgets the games' best scores. */
+    private var resetAskedAt = -10_000L
     private lateinit var content: LinearLayout
     /** Above and below the scrolling part: the chat's tabs and answer keys, item details. */
     private lateinit var toolbar: LinearLayout
@@ -248,18 +254,18 @@ class CompanionActivity : Activity() {
         statusRow.addView(statusDot, LinearLayout.LayoutParams(dp(10), dp(10)))
         statusRow.addView(status, LinearLayout.LayoutParams(0, -2, 1f))
         statusRow.addView(loadButton)
-        // Closes the app for good (no task manager needed). Quiet at the end of this line, not
-        // a button among the tab's buttons (Jesse, 2026-10-20: it looked out of place and was
-        // easy to hit). A tap asks in this line and lights Exit up; a second tap closes, another
-        // tab (or a while) puts it back.
-        exitIcon = PowerIcon(this)
-        exitLabel = line("Exit", DIM, 12.5f).apply { setPadding(dp(6), 0, 0, 0) }
+        // More, quiet at the end of this line: Games, Settings and Exit (Jesse, 2026-10-21: the
+        // screen is full enough). Exit there asks in this line and lights this button up as
+        // Exit (Jesse, 2026-10-20: a quiet Exit that asks); a second tap closes, another tab
+        // (or a while) puts More back.
+        exitIcon = PowerIcon(this).apply { visibility = View.GONE }
+        exitLabel = line(MORE, DIM, 12.5f).apply { setPadding(dp(6), 0, 0, 0); typeface = Theme.heading(context) }
         exitButton = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
             addView(exitIcon, LinearLayout.LayoutParams(dp(15), dp(15)))
             addView(exitLabel)
-            setOnClickListener { if (exitAsk.visibility == View.VISIBLE) quit() else askExit(true) }
+            setOnClickListener { if (exitAsk.visibility == View.VISIBLE) quit() else openMore(this) }
         }
         exitAsk = line("Close the Forever Companion? The game keeps running.", Theme.GOLD_TEXT, 13f).apply {
             setPadding(dp(8), 0, dp(8), 0); visibility = View.GONE; maxLines = 2
@@ -276,6 +282,8 @@ class CompanionActivity : Activity() {
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(footer)
         pageRoot = root
+        arcade = thor.companion.games.Arcade(this, toolbar, content, fill = { scroll.isFillViewport = it },
+            chip = { words, onClick -> chip(words, onClick) }, primary = { it.primary() }, onBack = { show(panel) })
         setContentView(root)
         runCatching { trail.load(trailFile().readText()) }
         loadLast()
@@ -301,11 +309,147 @@ class CompanionActivity : Activity() {
         exitButton.background = if (on) Theme.goldButton(this) else null
         exitIcon.colour = if (on) Theme.GOLD_TEXT else DIM; exitIcon.invalidate()
         exitLabel.setTextColor(if (on) Theme.GOLD_TEXT else DIM)
+        exitLabel.text = if (on) "Exit" else MORE
+        exitIcon.visibility = if (on) View.VISIBLE else View.GONE
         updateLoadButton()
         exitAsk.removeCallbacks(exitTimeout)
         if (on) exitAsk.postDelayed(exitTimeout, 8000)
     }
     private val exitTimeout = Runnable { askExit(false) }
+
+    /** The More menu under its button: Games, Settings, and Exit (which then asks in the status line). */
+    private fun openMore(anchor: View) {
+        moreMenu?.dismiss()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Theme.panel(context, gold = true)
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+        }
+        val menu = android.widget.PopupWindow(box, dp(240), LinearLayout.LayoutParams.WRAP_CONTENT, false)
+        /** One line of the menu: a small mark (a symbol, or a drawn [icon] where the font has no symbol), then its words. */
+        fun item(mark: String, words: String, icon: View? = null, onTap: () -> Unit) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(11), dp(12), dp(11))
+                setOnClickListener { menu.dismiss(); onTap() }
+            }
+            if (icon != null) row.addView(icon, LinearLayout.LayoutParams(dp(18), dp(18)))
+            else row.addView(TextView(this).apply { text = mark; textSize = 15f; gravity = Gravity.CENTER; setTextColor(Theme.GOLD_TEXT) }, LinearLayout.LayoutParams(dp(18), -2))
+            row.addView(TextView(this).apply {
+                text = words
+                textSize = 15f
+                typeface = Theme.heading(context)
+                setTextColor(Theme.GOLD_TEXT)
+                setPadding(dp(12), 0, 0, 0)
+            })
+            box.addView(row)
+        }
+        item("🎲", "Games") { openPage("games") }
+        item("⚙", "Settings") { openPage("settings") }
+        // The power symbol is drawn: the fonts on the Thor have no ⏻ (Jesse saw a straight line, build 206).
+        item("", "Exit companion", PowerIcon(this).apply { colour = Theme.GOLD_TEXT }) { askExit(true) }
+        menu.isOutsideTouchable = true
+        menu.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        menu.elevation = dp(8).toFloat()
+        moreMenu = menu
+        menu.showAsDropDown(anchor, anchor.width - dp(240), dp(4))
+    }
+
+    /** Opens a page from the More menu in place of the tab: the games ("games") or the settings ("settings"). */
+    private fun openPage(name: String) {
+        closeCompose()
+        if (exitAsk.visibility == View.VISIBLE) askExit(false)
+        if (page == "games" && name != "games") arcade.leave()
+        page = name
+        for ((_, b) in tabs) {
+            b.background = Theme.button(this, primary = false, radiusDp = Theme.TAB_RADIUS_DP)
+            b.setTextColor(Theme.GOLD_TEXT)
+            b.alpha = 1f
+        }
+        mapView = null
+        placeCard = null
+        footer.removeAllViews()
+        scroll.scrollTo(0, 0)
+        if (name == "games") arcade.render() else renderSettings()
+    }
+
+    /**
+     * Settings (Jesse, 2026-10-21): the companion's switches in one place, under a header for
+     * each tab. The map's two switches stay on the map too, because they are used while playing.
+     */
+    private fun renderSettings() {
+        scroll.isFillViewport = false
+        toolbar.removeAllViews()
+        content.removeAllViews()
+        val prefs = getPreferences(MODE_PRIVATE)
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(6)) }
+        top.addView(chip("◀ Back") { show(panel) })
+        top.addView(line("Settings", Theme.GOLD_TEXT, 18f).apply { typeface = Theme.heading(context); setPadding(dp(12), 0, 0, 0) })
+        toolbar.addView(top)
+        fun group(title: String): LinearLayout {
+            val box = card()
+            box.addView(line(title, Theme.ACCENT, 13f).apply { typeface = Theme.heading(context); setPadding(0, 0, 0, dp(2)) })
+            content.addView(box, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+            return box
+        }
+        fun row(box: LinearLayout, words: String, detail: String?, control: View?) {
+            val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
+            val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            texts.addView(line(words, TEXT, 14f).apply { setPadding(0, 0, 0, 0) })
+            if (detail != null) texts.addView(line(detail, DIM, 12f).apply { setPadding(0, dp(1), 0, 0) })
+            r.addView(texts, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(10) })
+            // No empty placeholder view: a bare View with wrap_content takes the whole width (build 208's empty Help).
+            if (control != null) r.addView(control, LinearLayout.LayoutParams(-2, -2))
+            box.addView(r)
+        }
+        /** An On/Off switch, lit while on. */
+        fun switch(on: Boolean, flip: (Boolean) -> Unit): TextView = chip(if (on) "On" else "Off") { flip(!on); renderSettings() }.apply {
+            if (on) primary()
+            minWidth = dp(72)
+        }
+
+        val map = group("Map")
+        row(map, "Turn with me", "The map turns with you, like the minimap", switch(prefs.getBoolean("mapTurns", false)) {
+            prefs.edit().putBoolean("mapTurns", it).apply()
+        })
+        row(map, "Quest areas", "Where your quests' objectives are", switch(prefs.getBoolean("mapQuests", true)) {
+            prefs.edit().putBoolean("mapQuests", it).apply()
+        })
+
+        val chat = group("Chat")
+        val speech = SPEECH_CHOICES.firstOrNull { it.first == speechChoice() } ?: SPEECH_CHOICES.first()
+        row(chat, "Speech to text", "The language 🎤 listens for", chip(speech.second) {
+            val next = SPEECH_CHOICES[(SPEECH_CHOICES.indexOf(speech) + 1) % SPEECH_CHOICES.size]
+            prefs.edit().putString("speechLang", next.first).apply()
+            renderSettings()
+        })
+
+        val craft = group("Craft")
+        row(craft, "Replace an old enchantment without asking", "For skilling on the same item. Binding an item is always asked.",
+            switch(replaceWithoutAsking()) { setReplaceWithoutAsking(it) })
+
+        val games = group("Games")
+        val reset = chip("Reset") {}
+        reset.setOnClickListener {
+            val now = SystemClock.uptimeMillis()
+            if (now - resetAskedAt < 3000) {
+                resetAskedAt = -10_000L
+                arcade.resetBest()
+                reset.text = "Done"
+                say("The games' best scores are forgotten")
+            } else { resetAskedAt = now; reset.text = "Tap again"; reset.primary() }
+        }
+        row(games, "Best scores", "Forget every game's best score (your games in progress stay)", reset)
+
+        val help = group("Help")
+        val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
+        val build = com.winlator.cmod.BuildConfig.CI_BUILD_NUMBER
+        row(help, "App", "Thor Forever $version" + (if (build > 0) " · build $build" else ""), null)
+        val bundled = AddonInstaller.version(this) ?: "?"
+        val inGame = state?.addonVersion
+        row(help, "Forever Companion addon", "This app has $bundled" + (inGame?.let { " · the game runs $it" } ?: ""), null)
+        row(help, "Log for a bug report", "Saves the Thor's recent log and the game's picture in Download", chip("Save log") { saveLog() })
+    }
 
     /** Exits: saves what it shows, stops reading the screen and removes the app from the recent apps (after any key still on its way). */
     private fun quit() {
@@ -363,6 +507,8 @@ class CompanionActivity : Activity() {
     override fun onStop() {
         android.util.Log.i("ThorCompanion", "onStop")
         closeCompose(giveBack = false)  // going away (Home, Exit): don't bring the game back over it
+        if (page == "games") arcade.leave()
+        moreMenu?.dismiss()
         worker = null
         watcher = null
         runCatching { watchSocket?.close() }
@@ -890,7 +1036,7 @@ class CompanionActivity : Activity() {
     internal fun preview(messages: List<String>, tab: String, loaded: Boolean = true, craft: String? = null,
                          byGear: Boolean = false, target: Int? = null, recipe: String? = null, enchanting: String? = null,
                          lastEnchant: String? = null, replace: Boolean = false, list: List<String> = emptyList(), sheet: String? = null,
-                         done: List<String> = emptyList(), exitAsked: Boolean = false) {
+                         done: List<String> = emptyList(), exitAsked: Boolean = false, more: String? = null, playing: String? = null) {
         frameAt = SystemClock.uptimeMillis()
         craftProfession = craft
         craftByGear = byGear
@@ -916,6 +1062,8 @@ class CompanionActivity : Activity() {
             .also { if (list.isNotEmpty()) it.listed = Listed.NEXT }  // (the list's first entry being made)
         show(Panel.valueOf(tab))
         if (exitAsked) askExit(true)
+        if (more != null) openPage(more)
+        if (playing != null) arcade.openGame(playing)
         saidAt = SystemClock.uptimeMillis() - NOTICE_MS - 1
         connected()
     }
@@ -1319,6 +1467,8 @@ class CompanionActivity : Activity() {
     }
 
     private fun show(p: Panel) {
+        // Out of the games or settings: the game stops its clock and is kept.
+        if (page != null) { if (page == "games") arcade.leave(); page = null }
         if (p != Panel.CHAT) closeCompose()
         if (p != panel && exitAsk.visibility == View.VISIBLE) askExit(false)  // another tab: Exit's question goes
         panel = p
@@ -1347,6 +1497,8 @@ class CompanionActivity : Activity() {
     }
 
     private fun render() {
+        // A page from the More menu stays as it is (a game must not be drawn anew with every message).
+        if (page != null) { updateLoadButton(); updateBadges(); return }
         if (touching && panel == Panel.CRAFT) { renderWaiting = true; return }
         renderWaiting = false
         // On the Map tab the tab is stretched to the bottom of the screen, and the map takes
@@ -2730,7 +2882,6 @@ class CompanionActivity : Activity() {
         if (bank == null && r.materials.isNotEmpty()) box.addView(line("Open your bank once to count what is in it too.", DIM, 12f).apply { setPadding(0, dp(2), 0, 0) })
 
         if (r.enchantment) {
-            enchantSwitch(box)
             box.addView(line("When the item already has an enchantment, or isn't bound to you yet, the game asks first: answer with Yes or No here.", DIM, 12f).apply { setPadding(0, dp(6), 0, 0) })
             return
         }
@@ -2810,23 +2961,7 @@ class CompanionActivity : Activity() {
         if (stale) box.addView(line("Some gear changed since Enchanting was last open: open it in the game once to see it all here.", DIM, 12f).apply { setPadding(0, dp(4), 0, 0) })
     }
 
-    /**
-     * For skilling (the same item again and again): the Enchant tap also says yes when the
-     * game asks to replace the enchantment on it. Binding an item to you is always asked.
-     * Below the materials, so they come right under the Enchant button.
-     */
-    private fun enchantSwitch(box: LinearLayout) {
-        val replace = replaceWithoutAsking()
-        val toggle = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
-        toggle.addView(line("Replace an old enchantment without asking", TEXT, 13f).apply { setPadding(0, 0, dp(8), 0) }, LinearLayout.LayoutParams(0, -2, 1f))
-        toggle.addView(chip(if (replace) "On" else "Off") { setReplaceWithoutAsking(!replace); render() }.apply {
-            if (replace) primary()
-            setPadding(dp(16), dp(6), dp(16), dp(6))
-        })
-        box.addView(toggle)
-    }
-
-    /** The enchanting switch above (kept on this device): one tap enchants and replaces. */
+    /** Settings > Craft (kept on this device): one Enchant tap also replaces an old enchantment; binding is always asked. */
     private fun replaceWithoutAsking() = getPreferences(MODE_PRIVATE).getBoolean("enchantReplace", false)
     private fun setReplaceWithoutAsking(on: Boolean) {
         getPreferences(MODE_PRIVATE).edit().putBoolean("enchantReplace", on).apply()
@@ -3595,14 +3730,6 @@ class CompanionActivity : Activity() {
         footer.addView(alts)
         val mic = chip("🎤") {}
         mic.setOnClickListener { if (listening != null) stopListening() else listen(field, mic, alts) }
-        // A long press picks the language it listens for (English with an accent: try another English).
-        mic.setOnLongClickListener {
-            val now = speechChoice()
-            val next = SPEECH_CHOICES[(SPEECH_CHOICES.indexOfFirst { it.first == now } + 1) % SPEECH_CHOICES.size]
-            getPreferences(MODE_PRIVATE).edit().putString("speechLang", next.first).apply()
-            say("Speech to text: ${next.second} (hold 🎤 again for another)")
-            true
-        }
         row.addView(mic, LinearLayout.LayoutParams(dp(48), -2).apply { marginEnd = dp(6) })
         row.addView(chip("Send") { send() }.apply { primary() })
         row.addView(chip("✕") { closeCompose() }, LinearLayout.LayoutParams(dp(44), -2).apply { marginStart = dp(4) })
@@ -4394,6 +4521,8 @@ class CompanionActivity : Activity() {
 
     private companion object {
         const val MIC_PERMISSION = 7
+        /** The More button's words while Exit isn't asking. */
+        const val MORE = "☰  More"
         /** Message kinds kept across restarts. */
         /** After the square last changed, how long the app keeps reading five times a second (the addon assumes 2.5 s). */
         const val BUSY_MS = 3000L
