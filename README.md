@@ -10,7 +10,7 @@ It is a fork of Winlator Bionic (Winlator Ludashi) and comes with Wine, DXVK and
 ## Status
 
 This is a test version (alpha). It is tested on one AYN Thor.
-The newest release is [v0.5.0](https://github.com/weltenaichaos/thor-forever-app/releases/tag/v0.5.0).
+The newest release is [v0.6.0](https://github.com/weltenaichaos/thor-forever-app/releases/tag/v0.6.0).
 What changed in each release: [docs/RELEASE-NOTES.md](docs/RELEASE-NOTES.md).
 
 Works, and was confirmed on the device:
@@ -31,6 +31,9 @@ New, still in testing:
 - [ ] The companion's **Craft** tab (a first version)
 - [ ] The map leads you back to your corpse after you die
 - [ ] The map's **Turn with me** (the map turns with you, like the minimap)
+- [ ] Each game version (beta, stress test, release) gets its own Thor settings, and a **Game** button on the start screen switches which one **Play** starts
+- [ ] Enchanting on the companion's **Craft** tab
+- [ ] 17 mini games in the companion (**☰ More** > **Games**)
 
 Not done yet:
 
@@ -143,13 +146,17 @@ Its tabs:
 - **Bags:** everything in your bags. Tap an item to use it. Hold it to see its details; gear is compared with what you wear.
 - **Character:** your level, gold, item level and gear, with a warning when your gear needs repair, and the spells waiting at your trainer.
 - **Quests:** your quests and what is left to do. **Errands** groups the finished quests by the place where you hand them in.
-- **Craft:** your professions and recipes, and what you can make from your bags. **Make one**, **Make 5** and **Make all** start the game's own crafting. A crafting list makes several recipes one after another.
+- **Craft:** your professions and recipes, and what you can make from your bags. **Make one**, **Make 5** and **Make all** start the game's own crafting. A crafting list makes several recipes one after another. For enchanting, pick an enchantment or a piece of your gear, then **Enchant**. **Enchant again** repeats the last one.
 - **Map:** the zone with you on it, over the whole bottom screen. Drag, pinch or use **+** and **−**. Tap a pin or a quest area to see how far and which way it is, and **Lead me there**. After you die, the map opens by itself and leads you back to your corpse.
 - **Chat:** the game's chat in tabs (All, Group, Whispers, Guild, General). Type or speak a line, and it goes into the game.
 
 At the login screen, a **Type in the game** box lets you type your account name or password on the bottom screen, and at character creation the new name. It goes in letter by letter, with Shift for capitals, like a keyboard. The password is never shown or saved.
 
-**Exit** closes only the companion. The game keeps running.
+**☰ More**, at the end of the status line, opens:
+
+- **Games:** 17 small games for a flight or a wait: Gem Match, Solitaire, Minesweeper, 2048, Sudoku, Nonogram, Mahjong, Block Drop, Pipe Connect, Slide Puzzle, Word Search, Memory Pairs, Peg Bounce, Gryphon Glide, Fishing Bobber, Snake and Brick Breaker. They run only in the companion, never touch the game, and keep where you stopped.
+- **Settings:** the companion's switches (Map, Chat, Craft, Games) and Help.
+- **Exit:** closes only the companion, after asking. The game keeps running.
 
 How it works: the add-on draws small colour squares in the corners of the game's screen, and the companion reads them from the picture. It also follows the game through its files. Everything the companion does in the game starts with a tap from you.
 
