@@ -17,6 +17,7 @@ The Forever Companion:
 - **Games:** 17 small games for a flight or a wait: Gem Match, Solitaire, Minesweeper, 2048, Sudoku, Nonogram, Mahjong, Block Drop, Pipe Connect, Slide Puzzle, Word Search, Memory Pairs, Peg Bounce, Gryphon Glide, Fishing Bobber, Snake and Brick Breaker. They run only in the companion, never touch the game, and keep where you stopped.
 - **Settings** gathers the switches under Map, Chat, Craft and Games, with Help at the end.
 - Typing into the game (the login, a new character's name) no longer crashes the game. Each letter goes in on its own key, with Shift for capitals.
+- The **Type in the game** box has three modes: **Email** (moves on to the password, never logs in early), **Password** (logs in, then the box closes) and **Name** (no Enter). It now sits above Android's keyboard instead of under it.
 - **⌫** and **Enter** work in the companion's text boxes.
 - Chat keeps up in busy places. Whispers, group and guild lines and your own come first, in about a second.
 - Item icons no longer jump while **Get icons** runs.

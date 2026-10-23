@@ -107,8 +107,11 @@ class CompanionActivity : Activity() {
     /** Above and below the scrolling part: the chat's tabs and answer keys, item details. */
     private lateinit var toolbar: LinearLayout
     private lateinit var footer: LinearLayout
-    /** The row of tabs; hidden while the Type in the game box is open, so the box fits above Android's keyboard. */
-    private lateinit var tabsRow: LinearLayout
+    /**
+     * The tabs, the status line and the tab itself: hidden while the Type in the game box
+     * is open, so the box fits above Android's keyboard (3/4 of the bottom screen, Jesse 2026-10-23).
+     */
+    private lateinit var aboveBox: List<View>
     private val tabs = HashMap<Panel, TextView>()
     private var panel = Panel.BAGS
     private var state: GameState? = null
@@ -277,11 +280,11 @@ class CompanionActivity : Activity() {
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         toolbar = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         footer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        tabsRow = header
         root.addView(header)
         root.addView(statusRow)
         root.addView(toolbar)
         scroll = ScrollView(this).apply { addView(content); isVerticalScrollBarEnabled = false }
+        aboveBox = listOf(header, statusRow, toolbar, scroll)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(footer)
         pageRoot = root
@@ -3677,7 +3680,7 @@ class CompanionActivity : Activity() {
     private fun compose(label: String, command: String) {
         if (panel != Panel.CHAT) show(Panel.CHAT)
         composing = label to command
-        tabsRow.visibility = View.VISIBLE  // in case the Type box was open
+        makeRoomForBox(false)  // in case the Type box was open
         footer.removeAllViews()
         val field = KeyboardField(this).apply {
             hint = "$label…"
@@ -3780,7 +3783,7 @@ class CompanionActivity : Activity() {
             typeface = Theme.body(context)
             isSingleLine = true
             background = Theme.panel(context, gold = true)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
         }
         val target by lazy { gameDisplay() }
         fun pressKeys(vararg what: String) {
@@ -3797,30 +3800,34 @@ class CompanionActivity : Activity() {
                 if (after != null) KeySender.send(this, target, after)
             }
         }
-        val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val eye = chip("👁") {}
-        val main = chip("") {}.apply { primary() }
+        val modeChips = HashMap<TypeMode, TextView>()
+        /** A button a little lower than the others: the box has only a quarter of the screen. */
+        fun small(label: String, onTap: () -> Unit) = chip(label, onTap).apply { setPadding(dp(6), dp(7), dp(6), dp(7)); maxLines = 1 }
+        val eye = small("👁") {}
+        val main = small("") {}.apply { primary() }
         lateinit var use: (TypeMode) -> Unit
+        /** The status line is hidden while the box is open: what happened shows in the empty box too. */
+        fun tell(text: String) { say(text); field.hint = text }
         fun act() {
             val empty = field.text.isEmpty()
             when (mode) {
                 TypeMode.EMAIL -> {
-                    if (empty) { say("Type your email first, then tap ${main.text}"); return }
+                    if (empty) { tell("Type your email here first"); return }
                     typeIt("TAB")
                     prefs.edit().putBoolean("typedEmail", true).apply()
-                    say("Email typed; now the password")
                     use(TypeMode.PASSWORD)
+                    tell("Email typed. Now your password (not saved)")
                 }
                 TypeMode.PASSWORD -> {
-                    if (empty) { say("Type your password first, then tap ${main.text}"); return }
+                    if (empty) { tell("Type your password here first"); return }
                     typeIt("ENTER")
                     say("Password typed, logging in")
                     closeCompose()
                 }
                 TypeMode.TEXT -> {
-                    if (empty) { say("Type a name first, then tap ${main.text}"); return }
+                    if (empty) { tell("Type a name here first"); return }
                     typeIt(null)
-                    say("Typed in the game (no Enter)")
+                    tell("Typed in the game. Tab: the next field")
                 }
             }
         }
@@ -3862,40 +3869,37 @@ class CompanionActivity : Activity() {
             }
             showLetters()
             main.text = when (m) {
-                TypeMode.EMAIL -> "Type email, go to password"
-                TypeMode.PASSWORD -> "Type password and log in"
+                TypeMode.EMAIL -> "Type, then password"
+                TypeMode.PASSWORD -> "Type and log in"
                 TypeMode.TEXT -> "Type it"
             }
             eye.visibility = if (m == TypeMode.PASSWORD) View.VISIBLE else View.GONE
-            for (k in 0 until modes.childCount - 1) {
-                val c = modes.getChildAt(k) as TextView
-                if (k == m.ordinal) c.primary() else { c.background = Theme.button(this); c.setTextColor(TEXT) }
-            }
+            for ((k, c) in modeChips) if (k == m) c.primary() else { c.background = Theme.button(this); c.setTextColor(TEXT) }
             // The keyboard follows the new kind of text (an @ key for the email, hidden letters for the password).
             getSystemService(android.view.inputmethod.InputMethodManager::class.java).restartInput(field)
         }
-        for ((m, label) in listOf(TypeMode.EMAIL to "Email", TypeMode.PASSWORD to "Password", TypeMode.TEXT to "Name / text"))
-            modes.addView(chip(label) { if (mode != m) use(m) }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
-        modes.addView(chip("✕") { closeCompose() }, LinearLayout.LayoutParams(dp(44), -2))
-        footer.addView(modes)
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
-        row.addView(field, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
-        row.addView(eye, LinearLayout.LayoutParams(dp(48), -2).apply { marginEnd = dp(6) })
-        row.addView(main, LinearLayout.LayoutParams(-2, -2))
-        footer.addView(row)
-        // Moving around in the game's fields, and fixing what is already in one.
-        val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(6), 0, 0) }
-        fun small(label: String, onTap: () -> Unit) =
-            more.addView(chip(label, onTap), LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
-        small("Tab: next field") { pressKeys("TAB") }
-        small("⌫ in game") { pressKeys("BACKSPACE") }
+        // Two rows, so the box fits in the quarter of the screen above Android's keyboard.
+        // Top: what you type, then keys for the game's own field (moving on, fixing what is in it).
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        fun LinearLayout.put(v: View, weight: Float, gap: Int = dp(4)) =
+            addView(v, LinearLayout.LayoutParams(if (weight > 0) 0 else -2, -2, weight).apply { marginEnd = gap })
+        for ((m, label, weight) in listOf(Triple(TypeMode.EMAIL, "Email", 1f), Triple(TypeMode.PASSWORD, "Password", 1.45f), Triple(TypeMode.TEXT, "Name", 1f)))
+            small(label) { if (mode != m) use(m) }.also { modeChips[m] = it; top.put(it, weight) }
+        top.put(line("In game:", DIM, 12f).apply { setPadding(dp(8), 0, dp(2), 0) }, 0f)
+        top.put(small("Tab") { pressKeys("TAB") }, 0.8f)
+        top.put(small("⌫") { pressKeys("BACKSPACE") }, 0.6f)
         // More Backspaces than any password or name has.
-        small("Clear in game") { pressKeys(*Array(40) { "BACKSPACE" }); say("Cleared the game's field") }
-        small("Enter") { pressKeys("ENTER") }
-        footer.addView(more)
+        top.put(small("Clear") { pressKeys(*Array(40) { "BACKSPACE" }); tell("Cleared the game's field") }, 0.95f)
+        top.put(small("Enter") { pressKeys("ENTER") }, 0.95f, 0)
+        footer.addView(top)
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(5), 0, 0) }
+        row.put(field, 1f, dp(6))
+        row.addView(eye, LinearLayout.LayoutParams(dp(46), -2).apply { marginEnd = dp(6) })
+        row.put(main, 0f, dp(6))
+        row.addView(small("✕") { closeCompose() }, LinearLayout.LayoutParams(dp(44), -2))
+        footer.addView(row)
         use(mode)
-        // The keyboard takes about half the screen: the tabs make room for the box (back on close).
-        tabsRow.visibility = View.GONE
+        makeRoomForBox(true)
         // The keyboard needs a window that can take focus; the app's normally can't (so the game keeps the controller).
         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         field.requestFocus()
@@ -4095,10 +4099,16 @@ class CompanionActivity : Activity() {
     /** While Android asks for the microphone (its window has the focus then). */
     private var askingMic = false
 
+    /** Hides (or shows again) everything above the footer's box, which then sits at the bottom. */
+    private fun makeRoomForBox(on: Boolean) {
+        for (v in aboveBox) v.visibility = if (on) View.GONE else View.VISIBLE
+        pageRoot.gravity = if (on) Gravity.BOTTOM else Gravity.NO_GRAVITY
+    }
+
     private fun closeCompose(giveBack: Boolean = true) {
         stopListening()
         micFor = null
-        tabsRow.visibility = View.VISIBLE
+        makeRoomForBox(false)
         if (composing == null) return
         composing = null
         getSystemService(android.view.inputmethod.InputMethodManager::class.java)

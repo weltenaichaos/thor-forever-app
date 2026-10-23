@@ -150,7 +150,7 @@ Its tabs:
 - **Map:** the zone with you on it, over the whole bottom screen. Drag, pinch or use **+** and **−**. Tap a pin or a quest area to see how far and which way it is, and **Lead me there**. After you die, the map opens by itself and leads you back to your corpse.
 - **Chat:** the game's chat in tabs (All, Group, Whispers, Guild, General). Type or speak a line, and it goes into the game.
 
-At the login screen, a **Type in the game** box lets you type your account name or password on the bottom screen, and at character creation the new name. It goes in letter by letter, with Shift for capitals, like a keyboard. The password is never shown or saved.
+At the login screen and at character creation, the **Type in the game** box types for you from the bottom screen. Pick what you type: **Email** (then it moves on to the password field), **Password** (then it logs in and the box closes), or **Name** (no Enter, so nothing is sent too early). The **In game** keys (Tab, ⌫, Clear, Enter) work on the game's own field. It goes in letter by letter, with Shift for capitals, like a keyboard. The password is never shown or saved. If Android's keyboard leaves too little room, make it lower in the keyboard's own settings (in Gboard: Settings, Preferences, Keyboard height).
 
 **☰ More**, at the end of the status line, opens:
 
