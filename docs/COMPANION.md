@@ -36,7 +36,7 @@ These are written for Thor Forever instead:
   installs the addon (`core/CompanionAddon.java`).
 - `CompanionBridge.kt` connects the companion to the game screen and opens it on the other
   screen.
-- The addon (0.30.9 here) splits what it sends over four small colour squares in the corners
+- The addon (0.31.0 here) splits what it sends over four small colour squares in the corners
   of the screen (`Corners.lua`, the default `/thor shape corners`), each only there while it
   sends: your position (`TP2`) top left, the chat, chat box and tap answers bottom left, the
   status bottom right, everything else top right (the data square, 20 x 16 cells). The app
@@ -55,6 +55,12 @@ These are written for Thor Forever instead:
   it skips its idle wait for urgent changes; and it shows the first part of a message after a
   quiet spell for 0.6 s, since the reading loop here looks every 0.4 s where the bar was.
   `/thor mem` says which parts of the addon make the most memory (per second since the last `/thor mem`).
+- The chat (`Chat.lua`, `TH1`): in a crowd there are more lines than the chat corner carries.
+  Whispers, your group's and guild's lines and your own go first, twice each; then the newest
+  say, yell, channel and system lines, once each, and those not sent within 20 s are left out.
+  A chat message takes at most two parts of the corner (one long line alone up to four), and
+  the channel list only goes along when it changed and every 30 s (the app keeps the last one).
+  Lines are cut only between letters (a cut ä made the app drop the whole message).
 
 - A **Craft** tab (only here, not in thor-companion): your professions and their levels
   (`TF1`), each profession's recipes (`TR1`, a page at a time, read while its window is open
