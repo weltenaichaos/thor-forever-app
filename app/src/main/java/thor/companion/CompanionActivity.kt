@@ -107,6 +107,8 @@ class CompanionActivity : Activity() {
     /** Above and below the scrolling part: the chat's tabs and answer keys, item details. */
     private lateinit var toolbar: LinearLayout
     private lateinit var footer: LinearLayout
+    /** The row of tabs; hidden while the Type in the game box is open, so the box fits above Android's keyboard. */
+    private lateinit var tabsRow: LinearLayout
     private val tabs = HashMap<Panel, TextView>()
     private var panel = Panel.BAGS
     private var state: GameState? = null
@@ -275,6 +277,7 @@ class CompanionActivity : Activity() {
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         toolbar = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         footer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        tabsRow = header
         root.addView(header)
         root.addView(statusRow)
         root.addView(toolbar)
@@ -3674,6 +3677,7 @@ class CompanionActivity : Activity() {
     private fun compose(label: String, command: String) {
         if (panel != Panel.CHAT) show(Panel.CHAT)
         composing = label to command
+        tabsRow.visibility = View.VISIBLE  // in case the Type box was open
         footer.removeAllViews()
         val field = KeyboardField(this).apply {
             hint = "$label…"
@@ -3847,7 +3851,11 @@ class CompanionActivity : Activity() {
                 TypeMode.PASSWORD -> "Your password (not saved)"
                 TypeMode.TEXT -> "A name, or other text"
             }
-            field.imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING or when (m) {
+            // NO_EXTRACT_UI / NO_FULLSCREEN: on the bottom screen (sideways) Android's keyboard
+            // otherwise opens its own full-screen text line and hides this box (Jesse, 2026-10-23).
+            field.imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING or
+                android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI or
+                android.view.inputmethod.EditorInfo.IME_FLAG_NO_FULLSCREEN or when (m) {
                 TypeMode.EMAIL -> android.view.inputmethod.EditorInfo.IME_ACTION_NEXT
                 TypeMode.PASSWORD -> android.view.inputmethod.EditorInfo.IME_ACTION_GO
                 TypeMode.TEXT -> android.view.inputmethod.EditorInfo.IME_ACTION_DONE
@@ -3886,6 +3894,8 @@ class CompanionActivity : Activity() {
         small("Enter") { pressKeys("ENTER") }
         footer.addView(more)
         use(mode)
+        // The keyboard takes about half the screen: the tabs make room for the box (back on close).
+        tabsRow.visibility = View.GONE
         // The keyboard needs a window that can take focus; the app's normally can't (so the game keeps the controller).
         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         field.requestFocus()
@@ -4088,6 +4098,7 @@ class CompanionActivity : Activity() {
     private fun closeCompose(giveBack: Boolean = true) {
         stopListening()
         micFor = null
+        tabsRow.visibility = View.VISIBLE
         if (composing == null) return
         composing = null
         getSystemService(android.view.inputmethod.InputMethodManager::class.java)
