@@ -58,8 +58,9 @@ local function draw(ids)
     frame:SetScale(768 / select(2, GetPhysicalScreenSize()))
     frame:SetSize(GAP + math.min(#ids, COLS) * step, GAP + rows * step)
     frame:ClearAllPoints()
-    -- Under the data square, out of the way of the middle of the screen.
-    frame:SetPoint("TOPRIGHT", ns.StripFrame(), "BOTTOMRIGHT", 0, -4)
+    -- Under the data square (under its tallest, so the icons stay still while its rows
+    -- change), out of the way of the middle of the screen.
+    frame:SetPoint("TOPRIGHT", ns.StripFrame(), "TOPRIGHT", 0, -(ns.StripTallest() + 4))
     for i, id in ipairs(ids) do
         local t = textures[i]
         if not t then
