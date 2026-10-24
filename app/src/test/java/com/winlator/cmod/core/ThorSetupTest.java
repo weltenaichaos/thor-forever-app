@@ -94,4 +94,72 @@ public class ThorSetupTest {
         assertTrue(BattleNetWindowWatcher.isInstallerRunning(Arrays.asList("wineserver", "Battle.net-Setu")));
         assertFalse(BattleNetWindowWatcher.isInstallerRunning(Arrays.asList("Battle.net.exe", "Agent.exe")));
     }
+
+    @Test
+    public void namesTheShortcutOfAnotherGameVersion() {
+        assertEquals("World of Warcraft Forever Live.desktop", ThorSetup.wowShortcutFileName("Live", new String[] { "World of Warcraft Forever.desktop" }));
+        assertEquals("World of Warcraft Forever Test 2.desktop", ThorSetup.wowShortcutFileName("Test", new String[] { "world of warcraft forever test.desktop" }));
+        assertEquals("World of Warcraft Forever Beta.desktop", ThorSetup.wowShortcutFileName("Beta", null));
+        assertTrue(ThorSetup.isThorWowShortcutFile("World of Warcraft Forever.desktop"));
+        assertTrue(ThorSetup.isThorWowShortcutFile("World of Warcraft Forever Live.desktop"));
+        assertFalse(ThorSetup.isThorWowShortcutFile("World of Warcraft.desktop"));
+        assertFalse(ThorSetup.isThorWowShortcutFile("Battle.net.desktop"));
+        String exe = "C:\\Program Files (x86)\\World of Warcraft\\_classic_beta_\\WowB-ARM64.exe";
+        assertEquals("C:\\Program Files (x86)\\World of Warcraft\\_classic_beta_", ThorSetup.folderOf(exe));
+        assertEquals("_classic_beta_", ThorSetup.flavorName(exe));
+    }
+
+    @Test
+    public void copiesTheSettingsButNotWhatBelongsToOneShortcut() throws java.io.IOException {
+        java.io.File file = java.nio.file.Files.createTempFile("wow", ".desktop").toFile();
+        java.nio.file.Files.write(file.toPath(), ("[Desktop Entry]\nName=World of Warcraft\nExec=env wine C:\\\\x\\\\Wow.exe\n\n[Extra Data]\n"
+                + "envVars=WINEESYNC=1 TU_DEBUG=\nfpsLimit=60\nlastRunAt=1000\nthorChosenAt=5\nuuid=abc\ncustomCoverArtPath=/x.png\n").getBytes());
+        java.util.Map<String, String> extras = ThorSetup.copiedExtras(file);
+        assertEquals("WINEESYNC=1 TU_DEBUG=", extras.get("envVars"));
+        assertEquals("60", extras.get("fpsLimit"));
+        assertEquals(2, extras.size());
+    }
+
+    private static java.io.File flavor(java.io.File wow, String folder, String product) throws java.io.IOException {
+        java.io.File dir = new java.io.File(wow, folder);
+        dir.mkdirs();
+        java.nio.file.Files.write(new java.io.File(dir, ".flavor.info").toPath(), ("Product Flavor!STRING:0\n" + product + "\n").getBytes());
+        return dir;
+    }
+
+    @Test
+    public void givesEachGameVersionItsLoginPortal() throws java.io.IOException {
+        java.io.File wow = java.nio.file.Files.createTempDirectory("wow").toFile();
+        java.nio.file.Files.write(new java.io.File(wow, ".build.info").toPath(),
+                "Branch!STRING:0|Active!DEC:1|Version!STRING:0|Product!STRING:0\neu|1|1.60.1.70374|wow_classic_beta\neu|1|1.60.1.70600|wowf\n".getBytes());
+        java.io.File beta = flavor(wow, "_classic_beta_", "wow_classic_beta");
+        java.io.File live = flavor(wow, "_forever_", "wowf");
+        assertEquals("test", ThorSetup.portalFor(beta));
+        assertEquals("EU", ThorSetup.portalFor(live));
+        // Not in .build.info: the line is left out.
+        assertEquals("", ThorSetup.portalFor(flavor(wow, "_other_", "wowz")));
+        // No .flavor.info: the settings stay as they are.
+        assertNull(ThorSetup.portalFor(wow));
+
+        String template = "SET portal \"test\"\nSET textLocale \"enUS\"\n";
+        assertTrue(ThorSetup.seedWowConfig(beta, new java.io.ByteArrayInputStream(template.getBytes())));
+        assertTrue(ThorSetup.seedWowConfig(live, new java.io.ByteArrayInputStream(template.getBytes())));
+        assertEquals(template, new String(java.nio.file.Files.readAllBytes(new java.io.File(beta, "WTF/Config-Thor-Forever.wtf").toPath())));
+        java.io.File liveConfig = new java.io.File(live, "WTF/Config-Thor-Forever.wtf");
+        assertEquals("SET portal \"EU\"\nSET textLocale \"enUS\"\n", new String(java.nio.file.Files.readAllBytes(liveConfig.toPath())));
+
+        // A file an earlier build seeded with the beta's portal: only that line changes, once.
+        java.nio.file.Files.write(liveConfig.toPath(), "SET gxWindow \"1\"\r\nSET portal \"test\"\r\nSET maxFPS \"45\"\r\n".getBytes());
+        assertTrue(ThorSetup.fixWowConfigPortal(live));
+        assertEquals("SET gxWindow \"1\"\r\nSET portal \"EU\"\r\nSET maxFPS \"45\"\r\n", new String(java.nio.file.Files.readAllBytes(liveConfig.toPath())));
+        assertFalse(ThorSetup.fixWowConfigPortal(live));
+        assertFalse(ThorSetup.fixWowConfigPortal(beta));
+        // A portal the player set stays.
+        java.nio.file.Files.write(liveConfig.toPath(), "SET portal \"US\"\n".getBytes());
+        assertFalse(ThorSetup.fixWowConfigPortal(live));
+
+        assertEquals("SET a \"1\"\n", ThorSetup.withPortal("SET portal \"test\"\nSET a \"1\"\n", ""));
+        assertEquals("SET portal \"KR\"\nSET a \"1\"\n", ThorSetup.withPortal("SET a \"1\"\n", "KR"));
+        assertEquals("SET a \"1\"\n", ThorSetup.withPortal("SET a \"1\"\n", null));
+    }
 }

@@ -31,7 +31,7 @@ These are Android and Thor settings. The app can't change them.
 | Esync | on (`WINEESYNC=1`) | Lower CPU overhead |
 | Start | one core first, then all cores | Avoids a blank-window crash at start with esync |
 | WoW start arguments | `-d3d11 -config Config-Thor-Forever.wtf` | Direct3D 11, and the game settings below |
-| Game settings | `WTF/Config-Thor-Forever.wtf` | Portal, language, allocator fix, screen narration off, D3D11 and a low graphics starting point |
+| Game settings | `WTF/Config-Thor-Forever.wtf` | Portal (`test` for the beta, your Battle.net region like `EU` for the game itself), language, allocator fix, screen narration off, D3D11 and a low graphics starting point |
 | Present mode | mailbox | As in the working shortcut |
 | `DXVK_CONFIG` | `dxvk.enableGraphicsPipelineLibrary=false;dxvk.tilerMode=False;d3d11.relaxedBarriers=True` | GPL on crashed after login; tiler off was faster |
 | `TU_DEBUG`, `DXVK_HUD` | empty | Turnip's autotuner (`TU_AUTOTUNE_ALGO=profiled`) picks the rendering mode; no overlay |
@@ -43,6 +43,24 @@ The game settings file is written only when it is missing. WoW saves your own
 graphics options into it, and the app never overwrites it. The graphics lines are the
 same as WoW's own Graphics options (the "Low" preset), plus a few view distances. In
 the launcher's tests the complete set fixed a picture glitch in the menu.
+
+## More than one game version
+
+Battle.net installs each game version (beta, stress test, release) into its own folder
+next to the others, like `_classic_beta_`. When the start screen finds a version
+without a shortcut, it adds one (`World of Warcraft Forever Live.desktop` and the like)
+with the settings of the current WoW shortcut: the same variables, start arguments, FPS
+cap and FEXCore preset, and the game settings file above in that version's `WTF` folder.
+A version installed after the current one becomes the one **Play** starts. The **Game**
+button switches between them.
+
+Each version logs in to its own servers. The beta and test versions use the portal `test`.
+The game itself (stress test, release) uses the region Battle.net installed it from, so
+the login offers the right account. Builds before 202 wrote `test` for every version.
+The app changes that one line from `test` to the region, and leaves every other value alone.
+
+The Forever Companion's add-on gets the interface number of the version it goes into,
+so a game patch doesn't mark it out of date.
 
 ## Not included
 
@@ -58,7 +76,7 @@ You can download VKD3D from the app's Contents list.
 
 - The app writes its logs to `Winlator/logs`: `app-exits.txt`, `cpu_*.txt`, `x-windows_*.txt`,
   and `wowb-arm64_*.txt` when Settings, Logs, "Enable Wine debug" is on.
-- WoW writes its own crash reports to the `Errors` folder next to `WowB-ARM64.exe`.
+- WoW writes its own crash reports to the `Errors` folder next to the game's `.exe` (`WowB-ARM64.exe` in the beta).
 
 Logs and WoW's `WTF` and `Account` folders can contain account and character names.
 Don't post them publicly.

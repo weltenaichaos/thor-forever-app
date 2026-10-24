@@ -113,6 +113,11 @@ public final class CrashReasonLogger {
         return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date(time));
     }
 
+    /** Adds [text] to app-exits.txt (an error the app survived, for example). */
+    public static void note(String text) {
+        append(text);
+    }
+
     private static synchronized void append(String text) {
         try {
             File dir = new File(SettingsFragment.DEFAULT_WINLATOR_PATH, "logs");
