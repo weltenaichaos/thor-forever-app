@@ -209,7 +209,9 @@ public class PreloaderDialog {
 
     private String resolveLaunchTitle() {
         Intent intent = activity.getIntent();
-        String title = intent != null ? intent.getStringExtra("shortcut_name") : null;
+        // The start screen's name for the game (like "World of Warcraft Classic Era") first.
+        String title = intent != null ? intent.getStringExtra(ThorGame.EXTRA_DISPLAY_NAME) : null;
+        if (TextUtils.isEmpty(title) && intent != null) title = intent.getStringExtra("shortcut_name");
         String shortcutPath = intent != null ? intent.getStringExtra("shortcut_path") : null;
 
         if (TextUtils.isEmpty(title) && !TextUtils.isEmpty(shortcutPath)) {

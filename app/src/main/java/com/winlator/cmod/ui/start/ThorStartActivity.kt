@@ -513,6 +513,8 @@ class ThorStartActivity : ComponentActivity() {
     private fun play() {
         val g = game ?: return
         g.shortcut.putExtra("lastRunAt", System.currentTimeMillis().toString())
+        // The loading and closing screens say which game starts, like the start screen does.
+        if (gameLabel.isNotEmpty()) g.shortcut.putExtra(ThorGame.EXTRA_DISPLAY_NAME, "World of Warcraft $gameLabel")
         g.shortcut.saveData()
         val addonsDir = AddonInstaller.addonsDir(g)
         // The companion follows the game through the files in this folder.

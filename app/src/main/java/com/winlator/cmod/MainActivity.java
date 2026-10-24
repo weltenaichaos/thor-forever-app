@@ -236,6 +236,9 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         intent.putExtra("container_id", container.id);
         intent.putExtra("shortcut_path", shortcut.file.getPath());
         intent.putExtra("shortcut_name", shortcut.name);
+        // The name the start screen gave the game, for the loading and closing screens.
+        String displayName = shortcut.getExtra(ThorGame.EXTRA_DISPLAY_NAME, "");
+        if (!displayName.isEmpty()) intent.putExtra(ThorGame.EXTRA_DISPLAY_NAME, displayName);
         intent.putExtra("disableXinput", shortcut.getExtra("disableXinput", "0"));
         intent.putExtra("native_rendering", shortcut.getRendererNative());
         intent.putExtra(ThorGame.EXTRA_UPDATE_SESSION, from.getBooleanExtra(ThorGame.EXTRA_UPDATE_SESSION, false));

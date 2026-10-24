@@ -38,6 +38,12 @@ public final class ThorGame {
         this.battleNetShortcut = battleNetShortcut;
     }
 
+    /**
+     * Shortcut extra and intent extra: the game's name for the loading and closing screens, like
+     * "World of Warcraft Classic Era" (the start screen writes it before Play).
+     */
+    public static final String EXTRA_DISPLAY_NAME = "thorDisplayName";
+
     /** Shortcut extra: when the player picked this game version on the start screen (or the app added it). */
     public static final String EXTRA_CHOSEN_AT = "thorChosenAt";
 
