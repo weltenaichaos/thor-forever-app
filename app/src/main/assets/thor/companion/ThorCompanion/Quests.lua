@@ -169,6 +169,49 @@ local function waypoint(id, isReady)
     return "", named
 end
 
+-- The quest log's quests (no headers or hidden ones), each like C_QuestLog.GetInfo's
+-- table: questID, title, level, difficultyLevel, isOnMap, plus logIndex and isComplete
+-- (1 done, -1 failed) for the Classic games. The current game (and WoW Forever) has
+-- C_QuestLog.GetInfo; Classic Era and Anniversary only have GetQuestLogTitle, where a
+-- quest counts as "in this zone" when it is under the header named like the zone.
+local function logQuests()
+    local list = {}
+    if C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetInfo then
+        for i = 1, C_QuestLog.GetNumQuestLogEntries() or 0 do
+            local info = C_QuestLog.GetInfo(i)
+            if info and not info.isHeader and not info.isHidden and info.questID then list[#list + 1] = info end
+        end
+    elseif GetNumQuestLogEntries and GetQuestLogTitle then
+        local zone = GetRealZoneText and GetRealZoneText() or nil
+        local header
+        for i = 1, (GetNumQuestLogEntries()) or 0 do
+            local title, level, _, isHeader, _, isComplete, _, questID = GetQuestLogTitle(i)
+            if isHeader then
+                header = title
+            elseif title and questID and questID > 0 then
+                list[#list + 1] = { questID = questID, title = title, level = level, logIndex = i,
+                    isComplete = isComplete, isOnMap = zone ~= nil and header == zone }
+            end
+        end
+    end
+    return list
+end
+
+-- A quest's objectives as { text, finished }: C_QuestLog.GetQuestObjectives, else (in
+-- the Classic games, when that has nothing) the quest log's own lines.
+local function objectivesOf(info)
+    local ok, list = pcall(C_QuestLog.GetQuestObjectives, info.questID)
+    if ok and type(list) == "table" and #list > 0 then return list end
+    list = {}
+    if info.logIndex and GetNumQuestLeaderBoards and GetQuestLogLeaderBoard then
+        for j = 1, (GetNumQuestLeaderBoards(info.logIndex)) or 0 do
+            local text, _, finished = GetQuestLogLeaderBoard(j, info.logIndex)
+            list[#list + 1] = { text = text, finished = finished }
+        end
+    end
+    return list
+end
+
 -- The whole log, cut into pages that fit the square: page 1 goes out as TL1 (with the
 -- level checker's numbers), the others as
 --   TL2|<page>|<pages><newline><quest rows like TL1's>...
@@ -176,18 +219,17 @@ end
 local function buildLog()
     local here, elsewhere = {}, {}
     local readyCount, readyXP = 0, 0
-    for i = 1, C_QuestLog.GetNumQuestLogEntries() or 0 do
-        local info = C_QuestLog.GetInfo(i)
-        if info and not info.isHeader and not info.isHidden and info.questID then
+    for _, info in ipairs(logQuests()) do
+        do
             local id = info.questID
             local xp = rewardXP(id)
-            local isReady = ready(id)
+            local isReady = ready(id) or info.isComplete == 1 or info.isComplete == true
             if isReady then
                 readyCount = readyCount + 1
                 readyXP = readyXP + xp
             end
             local objectives = {}
-            for _, o in ipairs(C_QuestLog.GetQuestObjectives(id) or {}) do
+            for _, o in ipairs(objectivesOf(info)) do
                 if o.text and not secret(o.text) and o.text ~= "" then
                     objectives[#objectives + 1] = (o.finished and "+" or "") .. clean(o.text, MAX_OBJECTIVE)
                 end
