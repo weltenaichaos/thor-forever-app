@@ -25,6 +25,7 @@ Works, and was confirmed on the device:
 - [x] **Exit** in the companion closes only the companion. The game keeps running.
 - [x] The companion's map fills the bottom screen and shows quest areas in their real shape
 - [x] The mouse cursor starts in the middle of the game's screen
+- [x] 17 mini games in the companion (**☰ More** > **Games**)
 
 New, still in testing:
 
@@ -33,7 +34,7 @@ New, still in testing:
 - [ ] The map's **Turn with me** (the map turns with you, like the minimap)
 - [ ] Each game version (beta, stress test, release) gets its own Thor settings, and a **Game** button on the start screen switches which one **Play** starts
 - [ ] Enchanting on the companion's **Craft** tab
-- [ ] 17 mini games in the companion (**☰ More** > **Games**)
+- [ ] The **Type in the game** box's modes (Email, Password, Name)
 
 Not done yet:
 
@@ -41,7 +42,7 @@ Not done yet:
 
 ## Screenshots
 
-The start screen, the add-on store and the installed add-ons. These pictures are drawn from the app's layout at the Thor's 1920×1080; photos from the device will replace them.
+The start screen, the add-on store and the installed add-ons. These pictures are drawn from the app's layout at the Thor's 1920×1080; photos from the device will replace them. They were made before v0.6.0, so the **Game** button is not in them yet.
 
 <p align="center"><img src="docs/images/start-screen.png" alt="Start screen" width="720"></p>
 <p align="center"><img src="docs/images/addon-store.png" alt="Add-on store" width="720"></p>
@@ -104,7 +105,7 @@ Thor Forever is its own app (`com.thorforever.app`). It installs next to any Win
 
 ## Features
 
-- **Start screen** in full screen: the installed game version, and the buttons **Play**, **Update with Battle.net** and **Quit**.
+- **Start screen** in full screen: the installed game version, and the buttons **Play**, **Update with Battle.net** and **Quit**. With two or more game versions, a **Game** button switches which one **Play** starts.
 - **Loading screen:** it stays until the game shows its login screen, and comes back when you quit.
 - **First setup by itself:** Wine, DXVK, the graphics driver, a container and the WoW shortcut with the settings that run well on the Thor. See [docs/THOR-SETUP.md](docs/THOR-SETUP.md) for the full list.
 - **Battle.net:** install it from the start screen, and update the game with it.
@@ -133,7 +134,7 @@ It is built into the app. Turn it on with the **Companion** button on the start 
 The app then puts the companion's add-on into the game and opens the companion on the other screen when WoW starts.
 Turned off, the companion stays closed and its add-on is removed.
 
-How it looks on the bottom screen (with sample data):
+How it looks on the bottom screen (with sample data, before v0.6.0's **☰ More** menu):
 
 | Bags | Character | Quests |
 | --- | --- | --- |
@@ -166,7 +167,7 @@ The companion started as [thor-companion](https://github.com/weltenaichaos/thor-
 
 - The app writes its logs to the `Winlator/logs` folder.
 - WoW writes its own crash reports to the `Errors` folder next to the game's `.exe` (`WowB-ARM64.exe` in the beta). The app copies them to `Winlator/logs/wow-errors`, where you can open them.
-- Something wrong in the companion? Hold its status line (the line with the coloured dot, near the top). It saves the Thor's recent log and a picture of the game's screen in `Download` (`ForeverCompanion-log.txt` and `ForeverCompanion-screen.png`).
+- Something wrong in the companion? Hold its status line (the line with the coloured dot, near the top), or tap **☰ More** > **Settings** > **Save log** under Help. It saves the Thor's recent log and a picture of the game's screen in `Download` (`ForeverCompanion-log.txt` and `ForeverCompanion-screen.png`).
 - Logs and WoW's `WTF` and `Account` folders can contain account and character names. Don't post them publicly.
 
 More help: [docs/THOR-SETUP.md](docs/THOR-SETUP.md).
