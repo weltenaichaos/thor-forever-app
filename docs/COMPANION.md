@@ -1,7 +1,7 @@
 # Forever Companion, built in
 
-The Forever Companion shows WoW's bags, character, quests, map and chat on the Thor's
-other screen. It comes from [thor-companion](https://github.com/weltenaichaos/thor-companion)
+The Forever Companion shows WoW's bags, character, quests, crafting, map and chat on the
+Thor's other screen, and has 17 mini games and its own settings under **☰ More**. It comes from [thor-companion](https://github.com/weltenaichaos/thor-companion)
 and is built into Thor Forever here.
 
 Turn it on with the **Companion** button on the start screen. The app then puts the
@@ -81,11 +81,28 @@ These are written for Thor Forever instead:
   compare something you can wear with what you wear in that slot (`ItemCompare.kt`).
   `/thor prof` says what the addon found.
 
+- **☰ More** (only here) at the end of the status line opens Games, Settings and Exit.
+  Exit asks first and closes only the companion (`CompanionBridge`), the game keeps running.
+- **Games** (only here): 17 small games in `thor.companion.games`. The rules of each game are
+  plain Kotlin without Android (`GemBoard`, `Klondike`, `MineField`, `Tiles2048`, `Sudoku`,
+  ...) with unit tests in `app/src/test/java/thor/companion/games`; each has a view
+  (`GemView`, `SolitaireView`, ...). The action games share `ActionView`. `Arcade.kt` holds the
+  Games page and saves each game's state and best score in the preferences file
+  `forever_games`. The games never touch WoW and use only their own drawn pictures.
+- **Settings** (only here): the switches under Map (Turn with me, quest areas), Chat (speech
+  language), Craft (replace an enchantment without asking), Games (reset best scores), and
+  Help (versions, Save log).
+- The **Type in the game** box (`typeInGame` in `CompanionActivity.kt`) has three modes:
+  Email (then it moves on to the password, never logs in early), Password (logs in, then the
+  box closes) and Name (no Enter). Each letter goes in on its own key, with Shift for capitals;
+  the password is never shown or saved. `KeyboardField.kt` makes ⌫ and Enter work in the
+  companion's text boxes.
+
 To take a newer companion over, copy the files in the first table again and keep the
 replacements above.
 
 ## Logs
 
-- A long press on the companion's status line saves Thor Forever's recent log
+- A long press on the companion's status line (or **Save log** in Settings, Help) saves Thor Forever's recent log
   (`Download/ForeverCompanion-log.txt`) and the game's picture as the app sees it
   (`Download/ForeverCompanion-screen.png`, copied from the game's view, no root needed).

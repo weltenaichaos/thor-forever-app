@@ -103,7 +103,7 @@ Step by step, and the Android settings to set first: [README](https://github.com
 
 ## What's in it
 
-- A full-screen start screen with **Play**, **Update with Battle.net** and **Quit**, and the installed game version.
+- A full-screen start screen with **Play**, **Update with Battle.net** and **Quit**, and the installed game version. With two or more game versions, a **Game** button switches between them.
 - A first setup that runs by itself: Wine 11 (arm64ec, Thor build 7), DXVK 2.6.2 Thor (ARM64X), Turnip 26.2.3 (Thor build), esync, the "Thor Extreme" FEXCore preset and the game settings file `Config-Thor-Forever.wtf`.
 - Install Battle.net from the start screen, log in, install the game, then Play.
 - The start screen says when a game update is waiting.
@@ -111,7 +111,7 @@ Step by step, and the Android settings to set first: [README](https://github.com
 - FPS cap (Off, 30, 40, 45, 60), timed to the screen refresh.
 - Overlay: Off, FPS, or FPS with a graph.
 - Add-ons: a store (popular add-ons from GitHub, and WoWInterface add-ons made for the game), install from a `.zip`, and uninstall.
-- Forever Companion built in: bags, character, quests, map and chat on the Thor's other screen. Turn it on with the **Companion** button.
+- Forever Companion built in: bags, character, quests, crafting and enchanting, map and chat on the Thor's other screen, plus 17 mini games. Turn it on with the **Companion** button.
 - **More** opens the normal Winlator screens.
 - The app writes diagnostic logs to `Winlator/logs` (from the test builds), to help find crashes.
 
@@ -119,7 +119,7 @@ Step by step, and the Android settings to set first: [README](https://github.com
 
 - The Forever Companion is new and still being tested on the device.
 - With **Turn with me** on, the names printed in the zone picture turn with the map.
-- The app does not set or check the Android settings (child process restrictions, battery Unrestricted, maximum performance mode). Set them yourself, see [docs/THOR-SETUP.md](https://github.com/weltenaichaos/thor-forever-app/blob/v0.4.0/docs/THOR-SETUP.md).
+- The app does not set or check the Android settings (child process restrictions, battery Unrestricted, maximum performance mode). Set them yourself, see [docs/THOR-SETUP.md](https://github.com/weltenaichaos/thor-forever-app/blob/v0.6.0/docs/THOR-SETUP.md).
 - Thor Forever is its own app (`com.thorforever.app`). Test builds and Winlator stay separate apps, and a setup in them does not carry over.
 - FEXCore is version 2601. The tested shortcut used 2510.1, which is not included.
 - VKD3D is not used. WoW runs on Direct3D 11 through DXVK.
@@ -128,8 +128,8 @@ Step by step, and the Android settings to set first: [README](https://github.com
 
 ## Credits and licence
 
-The source code for this release is this repository at the tag `v0.4.0`.
-Licences and notices for the bundled parts are in [LICENSE](https://github.com/weltenaichaos/thor-forever-app/blob/v0.4.0/LICENSE) and the [notices](https://github.com/weltenaichaos/thor-forever-app/tree/v0.4.0/notices) folder.
-Credits are in the [README](https://github.com/weltenaichaos/thor-forever-app/blob/v0.4.0/README.md#credits).
+The source code for this release is this repository at the tag `v0.6.0`.
+Licences and notices for the bundled parts are in [LICENSE](https://github.com/weltenaichaos/thor-forever-app/blob/v0.6.0/LICENSE) and the [notices](https://github.com/weltenaichaos/thor-forever-app/tree/v0.6.0/notices) folder.
+Credits are in the [README](https://github.com/weltenaichaos/thor-forever-app/blob/v0.6.0/README.md#credits).
 
 Not affiliated with or endorsed by Blizzard Entertainment or AYN. World of Warcraft is a trademark of Blizzard Entertainment, Inc.
