@@ -10,7 +10,7 @@ It is a fork of Winlator Bionic (Winlator Ludashi) and comes with Wine, DXVK and
 ## Status
 
 This is a test version (alpha). It is tested on one AYN Thor.
-The newest release is [v0.6.0](https://github.com/weltenaichaos/thor-forever-app/releases/tag/v0.6.0).
+The newest release is [v0.7.0](https://github.com/weltenaichaos/thor-forever-app/releases/tag/v0.7.0).
 What changed in each release: [docs/RELEASE-NOTES.md](docs/RELEASE-NOTES.md).
 
 Works, and was confirmed on the device:
@@ -26,13 +26,15 @@ Works, and was confirmed on the device:
 - [x] The companion's map fills the bottom screen and shows quest areas in their real shape
 - [x] The mouse cursor starts in the middle of the game's screen
 - [x] 17 mini games in the companion (**☰ More** > **Games**)
+- [x] Each game version gets its own Thor settings and add-ons, and the **Game** button switches which one **Play** starts
+- [x] Other Classic games (tested: Classic Era, Anniversary) next to Forever, with their own add-on store and a working companion
 
 New, still in testing:
 
 - [ ] The companion's **Craft** tab (a first version)
 - [ ] The map leads you back to your corpse after you die
 - [ ] The map's **Turn with me** (the map turns with you, like the minimap)
-- [ ] Each game version (beta, stress test, release) gets its own Thor settings, and a **Game** button on the start screen switches which one **Play** starts
+- [ ] The companion's **Craft** tab in the Classic games
 - [ ] Enchanting on the companion's **Craft** tab
 - [ ] The **Type in the game** box's modes (Email, Password, Name)
 
@@ -85,9 +87,19 @@ Battle.net lists each version of the game in its game version menu above **Play*
 2. In Battle.net, open the game version menu above **Play**, pick the new version and press **Install**. For the stress test it is **World of Warcraft: Forever Stress Test** under **In Development**.
 3. Keep Battle.net open until the download is done. Then close Battle.net.
 4. Back on the start screen, the app finds the new version and sets it up with the settings of your current one. **Play** now starts the new version.
-5. With more than one version installed, the start screen has a **Game** button (Live, Test or Beta). One tap switches the version **Play** starts.
+5. With more than one version installed, the start screen has a **Game** button with the game's name (for example Forever, Forever Beta or Anniversary). One tap switches the version **Play** starts.
 
 Each version has its own add-ons, key bindings and game settings, as on Windows. Install your add-ons for the new version again from the store. The Forever Companion's add-on is put in by itself.
+
+### Other WoW Classic games
+
+Thor Forever also runs the other Classic games from Battle.net, like Classic Era and Anniversary. Forever always comes first: the other games are only an addition and change nothing for Forever.
+
+1. Press **Update with Battle.net**, pick the game in Battle.net's game menu and install it. Choose the **ARM64** client if Battle.net asks.
+2. Close Battle.net when the download is done. The start screen finds the game and gives it the Thor settings.
+3. Tap the **Game** button until it shows the game's name, then press **Play**.
+
+Each game has its own add-ons. Most Classic games have no controller support of their own: install **ConsolePort** from the add-on store. The Forever Companion works there too (bags, character, quests, map and chat).
 
 ### Android settings you set yourself
 
@@ -105,16 +117,16 @@ Thor Forever is its own app (`com.thorforever.app`). It installs next to any Win
 
 ## Features
 
-- **Start screen** in full screen: the installed game version, and the buttons **Play**, **Update with Battle.net** and **Quit**. With two or more game versions, a **Game** button switches which one **Play** starts.
+- **Start screen** in full screen: the installed game version, and the buttons **Play**, **Update with Battle.net** and **Quit**. With two or more games or versions, a **Game** button with the game's name switches which one **Play** starts.
 - **Loading screen:** it stays until the game shows its login screen, and comes back when you quit.
 - **First setup by itself:** Wine, DXVK, the graphics driver, a container and the WoW shortcut with the settings that run well on the Thor. See [docs/THOR-SETUP.md](docs/THOR-SETUP.md) for the full list.
 - **Battle.net:** install it from the start screen, and update the game with it.
-- **Game versions:** a version Battle.net installs next to yours (a stress test, the release) gets the same Thor settings, and the **Game** button switches between them.
+- **Game versions and other Classic games:** a version Battle.net installs next to yours (a stress test, the release, or another Classic game like Anniversary) gets the Thor settings, and the **Game** button switches between them. The loading and closing screens show the game's name.
 - **Update check:** the start screen asks Blizzard's version server and says when a game update is waiting.
 - **FPS cap:** Off, 30, 40, 45 or 60. The frames are timed to the screen refresh.
 - **Overlay:** Off, FPS, or FPS with a graph.
 - **Add-ons:**
-  - A store with popular add-ons (Questie, Deadly Boss Mods, BigWigs, WeakAuras and more) and add-ons from WoWInterface. It shows only add-ons made for your game version.
+  - A store with popular add-ons (Questie, Deadly Boss Mods, BigWigs, WeakAuras and more) and add-ons from WoWInterface. It shows only add-ons made for the game you picked, with a search box and filters (Controller, Quests, Bags & items, Action bars, Map, Boss fights, Installed).
   - Install an add-on from a `.zip` you downloaded in your browser.
   - Uninstall an add-on with one tap.
 - **Companion:** turn the [Forever Companion](#forever-companion) on or off.

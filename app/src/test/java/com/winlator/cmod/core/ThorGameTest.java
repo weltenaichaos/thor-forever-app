@@ -59,4 +59,19 @@ public class ThorGameTest {
         assertEquals("Live", ThorGame.kindOf("wow", "_retail_"));
         assertEquals("Live", ThorGame.kindOf(null, null));
     }
+
+    @Test
+    public void namesTheGameFromItsVersion() {
+        assertEquals("Forever", ThorGame.titleOf("wow_classic_beta", "1.60.1.70374"));
+        assertEquals("Forever", ThorGame.titleOf("wowf", ""));
+        assertEquals("Classic Era", ThorGame.titleOf("wow_classic_era", "1.15.9.70003"));
+        assertEquals("Anniversary", ThorGame.titleOf("wow_anniversary", "2.5.6.70006"));
+        assertEquals("MoP Classic", ThorGame.titleOf("wow_classic", "5.5.4.70579"));
+        assertEquals("Cata Classic", ThorGame.titleOf("wow_classic", "4.4.2.60000"));
+        assertEquals("Retail", ThorGame.titleOf("wow", "12.1.0.66000"));
+        // Without a readable version, the product name decides.
+        assertEquals("Classic Era", ThorGame.titleOf("wow_classic_era", ""));
+        assertEquals("Anniversary", ThorGame.titleOf("wow_anniversary", null));
+        assertEquals("WoW", ThorGame.titleOf("", ""));
+    }
 }

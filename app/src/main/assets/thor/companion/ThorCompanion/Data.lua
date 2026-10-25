@@ -234,6 +234,18 @@ local function cooldowns()
     return cooldownPayload
 end
 
+-- Says once per part in the chat window when a part can't be read in this game version
+-- (like the Classic games, which lack some of the current game's functions).
+local reported = {}
+function ns.ReportOnce(name, err)
+    if reported[name] then return end
+    reported[name] = true
+    if DEFAULT_CHAT_FRAME then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffc9a86aForever Companion:|r " .. tostring(name)
+            .. " can't be read in this game version: " .. tostring(err):sub(1, 160))
+    end
+end
+
 local KIND_NAMES = { "status", "bags", "item names", "chat", "map", "character", "gear", "quests", "cooldowns", "spells", "quest pages", "professions", "recipes", "bank" }
 local kinds = { status, bags, namesPayload, chat, map, ns.CharacterPayload, ns.GearPayload, ns.QuestsPayload, cooldowns, ns.SpellsPayload, ns.QuestPagesPayload,
     ns.ProfessionsPayload, ns.RecipePagesPayload, ns.BankPayload }
@@ -395,7 +407,11 @@ local function nextMessage()
         if corners and (turn == 1 or turn == 4) then
             -- in their own corners
         elseif (turn ~= 4 or chatNow()) and (turn ~= 3 or not namesWait) then ok, p = ns.Measured(KIND_NAMES[turn], kinds[turn]) end
-        if not ok then p = "TS1|error|" .. tostring(p) end
+        -- A part that fails (one the game version doesn't have yet) stays away, so the others
+        -- still go out: as "TS1|error" it would take the status' place in the app.
+        if not ok then
+            if turn == 1 then p = "TS1|error|" .. tostring(p) else ns.ReportOnce(KIND_NAMES[turn], p); p = nil end
+        end
         -- Every change redraws the square, so a moving position is sent only now and then.
         if turn == 1 and p and lastSent[1] and withoutPosition(p) == withoutPosition(lastSent[1])
             and GetTime() - statusAt < MOVE_SECONDS then

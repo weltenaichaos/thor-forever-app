@@ -33,6 +33,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,6 +56,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -66,6 +70,7 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -107,7 +112,7 @@ import kotlin.math.sin
  */
 class ThorStartActivity : ComponentActivity() {
     private var game by mutableStateOf<ThorGame?>(null)
-    /** Every installed game version with its name on the Game button (Live, Test, Beta), in the button's order. */
+    /** Every installed game version with its name on the Game button (like Classic Era or Forever Beta), in the button's order. */
     private var games by mutableStateOf<List<Pair<ThorGame, String>>>(emptyList())
     /** The name of the version the Game button just switched to, for the next status line. */
     private var switchedTo: String? = null
@@ -151,7 +156,19 @@ class ThorStartActivity : ComponentActivity() {
     /** WoWInterface's add-ons that were checked to be made for the game, or null while checking. */
     private var wowiItems by mutableStateOf<List<WowInterfaceStore.Item>?>(null)
     private var wowiError by mutableStateOf<String?>(null)
-    private var wowiChecking = false
+    /** How many add-ons of WoWInterface's catalog list the game and match the search. */
+    private var wowiTotal by mutableStateOf(0)
+    /** The search the shown WoWInterface list is for, and a number that makes older searches' answers count no more. */
+    private var wowiQuery = ""
+    private var wowiRun = 0
+    private var wowiBusy = false
+    /** The store's search box and the picked quick filter (an index into STORE_FILTERS). */
+    private var storeQuery by mutableStateOf("")
+    private var storeFilter by mutableStateOf(0)
+    /** The game interface number the store's lists are for: switching games loads them again. */
+    private var storeInterface = 0
+    /** The shown game's name, like Classic Era or Forever Beta, for the store's title. */
+    private var gameLabel by mutableStateOf("")
     /** Checked WoWInterface downloads by "id:version": their add-on folders, empty when not for the game. */
     private val wowiChecked = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
     private var installingAddon = false
@@ -384,6 +401,9 @@ class ThorStartActivity : ComponentActivity() {
             if (newGame != null && manager != null) found = runCatching { ThorGame.find(manager) }.getOrNull() ?: found
             val all = runCatching { manager?.let { ThorGame.findAll(it) }.orEmpty() }.getOrDefault(emptyList())
             val versions = gameNames(all)
+            val shownGame = found
+            val label = versions.firstOrNull { it.first.shortcut.file == shownGame?.shortcut?.file }?.second
+                ?: runCatching { shownGame?.title() }.getOrNull() ?: ""
             val switchedToNew = newGame != null && found?.shortcut?.file == newGame.file
             val installed = runCatching { found?.installedVersion() ?: "" }.getOrDefault("")
             val foundAddons = runCatching {
@@ -395,24 +415,30 @@ class ThorStartActivity : ComponentActivity() {
                 setup = step
                 addons = foundAddons
                 games = versions
+                gameLabel = label
                 show(found, installed, added, if (newGame == null) null else switchedToNew)
             }
         }.start()
     }
 
     /**
-     * The Game button's names for the installed versions: Live, Test or Beta, with a number when
-     * two are the same kind, in the order the button goes through them (Live first).
+     * The Game button's names for the installed versions: the game (like Classic Era) with Test or
+     * Beta when it is one, a number when two have the same name, in the order the button goes
+     * through them.
      */
     private fun gameNames(all: List<ThorGame>): List<Pair<ThorGame, String>> {
         val order = listOf("Live", "Test", "Beta")
-        val kinds = all.map { g -> g to runCatching { g.kind() }.getOrDefault("Live") }
-            .sortedWith(compareBy<Pair<ThorGame, String>>({ order.indexOf(it.second) }, { it.first.flavorDir?.name ?: "" }))
+        // Forever first, then the other games by name; in each game Live, Test, Beta.
+        val named = all.map { g ->
+            Triple(g, runCatching { g.title() }.getOrDefault("WoW"), runCatching { g.kind() }.getOrDefault("Live"))
+        }.sortedWith(compareBy<Triple<ThorGame, String, String>>(
+            { if (it.second == "Forever") 0 else 1 }, { it.second }, { order.indexOf(it.third) }, { it.first.flavorDir?.name ?: "" }))
         val count = HashMap<String, Int>()
-        return kinds.map { (g, kind) ->
-            val n = (count[kind] ?: 0) + 1
-            count[kind] = n
-            g to if (n == 1) kind else "$kind $n"
+        return named.map { (g, title, kind) ->
+            val label = if (kind == "Live") title else "$title $kind"
+            val n = (count[label] ?: 0) + 1
+            count[label] = n
+            g to if (n == 1) label else "$label $n"
         }
     }
 
@@ -452,7 +478,7 @@ class ThorStartActivity : ComponentActivity() {
                 added -> "World of Warcraft is installed and set up for the Thor. Press Play."
                 versionAdded == true -> "A new game version is installed and set up for the Thor. Press Play."
                 versionAdded == false -> "Another game version is installed and set up for the Thor. Game switches to it."
-                switched != null && found != null -> "Switched to the $switched version. Press Play."
+                switched != null && found != null -> "Switched to $switched. Press Play."
                 setup == Setup.NO_CONTAINER -> "No container yet. Open More (Winlator) to create one, then come back."
                 setup == Setup.INSTALL_BATTLE_NET && pickInstaller -> "Download Battle.net-Setup.exe from battle.net/download in your browser, then press Choose installer and pick it."
                 setup == Setup.INSTALL_BATTLE_NET -> "Welcome! Press Install Battle.net. Then log in, install World of Warcraft and close Battle.net when it's done."
@@ -487,6 +513,8 @@ class ThorStartActivity : ComponentActivity() {
     private fun play() {
         val g = game ?: return
         g.shortcut.putExtra("lastRunAt", System.currentTimeMillis().toString())
+        // The loading and closing screens say which game starts, like the start screen does.
+        if (gameLabel.isNotEmpty()) g.shortcut.putExtra(ThorGame.EXTRA_DISPLAY_NAME, "World of Warcraft $gameLabel")
         g.shortcut.saveData()
         val addonsDir = AddonInstaller.addonsDir(g)
         // The companion follows the game through the files in this folder.
@@ -630,6 +658,19 @@ class ThorStartActivity : ComponentActivity() {
         }.getOrDefault(emptyList())
         addonStatus = ""
         showStore = true
+        // Another game than last time: its own add-ons, so ask again.
+        if (gameInterface != storeInterface) {
+            storeInterface = gameInterface
+            storeOffers.clear()
+            wowiItems = null
+            wowiError = null
+            wowiTotal = 0
+            wowiQuery = ""
+            wowiRun++
+            wowiBusy = false
+            storeQuery = ""
+            storeFilter = 0
+        }
         if (gameInterface == 0) {
             addonStatus = "The game version is unknown, so the store can't tell which files fit."
             return
@@ -647,20 +688,32 @@ class ThorStartActivity : ComponentActivity() {
         }
     }
 
-    /** Downloads WoWInterface's list and checks the add-ons that may be made for the game. */
+    /** The search box's words and the quick filter's, together. */
+    private fun storeSearch(): String =
+        (storeQuery.trim() + " " + STORE_FILTERS.getOrNull(storeFilter)?.second.orEmpty()).trim()
+
+    /**
+     * Downloads WoWInterface's list and checks the add-ons that may be made for the game and
+     * match the search. A newer search replaces one still running.
+     */
     private fun checkWowInterface(gameInterface: Int) {
-        if (wowiChecking || (wowiItems != null && wowiError == null)) return
-        wowiChecking = true
+        val query = storeSearch()
+        if (query == wowiQuery && (wowiBusy || wowiItems != null && wowiError == null)) return
+        val run = ++wowiRun
+        wowiQuery = query
+        wowiBusy = true
         wowiItems = null
         wowiError = null
         val skip = storeEntries.map { it.name.lowercase() }.toSet()
         val gameVersion = version
         Thread {
-            val result = runCatching { WowInterfaceStore.findForGame(gameVersion, gameInterface, skip, wowiChecked, cacheDir) }
+            val result = runCatching { WowInterfaceStore.findForGame(gameVersion, gameInterface, skip, query, wowiChecked, cacheDir) }
                 .onFailure { Log.w("ThorStart", "WoWInterface check failed", it) }
             runOnUiThread {
-                wowiChecking = false
-                result.onSuccess { wowiItems = it }.onFailure { wowiItems = emptyList(); wowiError = it.message ?: "No connection" }
+                if (run != wowiRun) return@runOnUiThread
+                wowiBusy = false
+                result.onSuccess { wowiItems = it.items; wowiTotal = it.total }
+                    .onFailure { wowiItems = emptyList(); wowiTotal = 0; wowiError = it.message ?: "No connection" }
             }
         }.start()
     }
@@ -874,7 +927,9 @@ class ThorStartActivity : ComponentActivity() {
                     Spacer(Modifier.height(u))
                     // Five settings, the companion app among them (and Game with several game versions).
                     Row(Modifier.align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy(gap)) {
-                        if (gameButton.isNotEmpty()) StartButton("Game", gameButton, u, sw, enabled = enabled, onClick = ::nextGame)
+                        if (gameButton.isNotEmpty()) StartButton("Game", gameButton, u, sw, enabled = enabled, onClick = ::nextGame,
+                            // Longer names (Forever Beta, Anniversary Test) get smaller letters to fit.
+                            fontSize = when { gameButton.length > 13 -> u * 2 / 5; gameButton.length > 9 -> u / 2; else -> u * 3 / 5 })
                         StartButton("FPS cap", if (fpsCap == 0) "Off" else fpsCap.toString(), u, sw, enabled = enabled, onClick = ::nextFpsCap)
                         StartButton("Overlay", OVERLAYS[overlay.coerceIn(0, OVERLAYS.size - 1)], u, sw, enabled = enabled, onClick = ::nextOverlay)
                         StartButton("Add-ons", addons.size.toString(), u, sw, enabled = enabled, onClick = { addonStatus = ""; showAddons = true })
@@ -904,10 +959,12 @@ class ThorStartActivity : ComponentActivity() {
 
     /** An add-on page's title on the left and its hint (or progress) on the right, in one line. */
     @Composable
-    private fun PageTitle(title: String, hint: String, u: Dp, body: TextStyle, highlight: Boolean = addonStatus.isNotEmpty()) {
+    private fun PageTitle(title: String, hint: String, u: Dp, body: TextStyle, highlight: Boolean = addonStatus.isNotEmpty(), sub: String = "") {
         // A long message (an install error) may take a second line.
         Row(Modifier.fillMaxWidth().heightIn(min = u), verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = GoldLight, fontFamily = FontFamily(Font(R.font.cinzel_bold, FontWeight.Bold)), fontSize = textSize(u * 13 / 20), maxLines = 1)
+            // Which game the page is for, like "· Classic Era 1.15.9".
+            if (sub.isNotEmpty()) Text("  \u00b7  $sub", style = body.copy(fontSize = textSize(u * 11 / 20)), color = Sky, maxLines = 1)
             Spacer(Modifier.width(u))
             Text(hint, style = body.copy(fontSize = textSize(u / 2), lineHeight = textSize(u * 11 / 20)), color = if (highlight) TextColor else Sky,
                 textAlign = TextAlign.End, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -966,13 +1023,35 @@ class ThorStartActivity : ComponentActivity() {
     private fun ColumnScope.StorePage(u: Dp, body: TextStyle) {
         BackHandler { showStore = false; addonStatus = "" }
         val back = remember { FocusRequester() }
-        PageTitle("Add-on store", addonStatus.ifEmpty { "Add-ons with a version for your game. Tap Install or Uninstall on the right." }, u, body)
+        val label = gameLabel.ifEmpty { "your game" }
+        val search = storeSearch()
+        val hint = when {
+            wowiItems == null -> "Looking for add-ons made for $label..."
+            storeQuery.isNotBlank() -> "$wowiTotal add-ons for $label match \u201c${storeQuery.trim()}\u201d. The most downloaded are shown."
+            else -> "Only add-ons made for $label. Search to find more."
+        }
+        PageTitle("Add-on store", addonStatus.ifEmpty { hint }, u, body,
+            sub = listOf(gameLabel, version.split(".").take(3).joinToString(".")).filter { it.isNotEmpty() }.joinToString(" "))
+        StoreSearchBox(u, body)
+        StoreFilters(u, body)
+        // A search goes to WoWInterface once the typing stops for a moment.
+        LaunchedEffect(storeQuery, storeFilter) {
+            kotlinx.coroutines.delay(700)
+            if (storeInterface > 0) checkWowInterface(storeInterface)
+        }
         PageList(u) {
+            val onlyInstalled = storeFilter == FILTER_INSTALLED
             // Only add-ons with a file made for this game: others would only give false hope.
             val shown = storeEntries.filter { e -> storeOffers[e.repo].let { it == null || it.offer != null || it.error != null } }
-            val wowi = wowiItems
+                .filter { WowInterfaceStore.matches(it.name + " " + it.description, search) }
+                .filter { !onlyInstalled || isInstalled(listOf(it.folder)) }
+            val wowi = wowiItems?.filter { !onlyInstalled || isInstalled(it.folders) }
             if (shown.isEmpty() && wowi != null && wowi.isEmpty() && wowiError == null)
-                Text("No add-ons for your game version yet.", style = body, color = Sky)
+                Text(when {
+                    onlyInstalled -> "No add-ons from the store are installed for $label."
+                    search.isNotEmpty() -> "No add-ons for $label match that."
+                    else -> "No add-ons for $label yet."
+                }, style = body, color = Sky)
             var row = 0
             for (entry in shown) {
                 val installed = isInstalled(listOf(entry.folder))
@@ -1004,6 +1083,75 @@ class ThorStartActivity : ComponentActivity() {
         }
         StartButton(null, "Back", u, u * 13 / 2, height = u * 7 / 5, fontSize = u * 11 / 20, focusRequester = back, onClick = { showStore = false; addonStatus = "" })
         LaunchedEffect(Unit) { runCatching { back.requestFocus() } }
+    }
+
+    /** The store's search box: what's typed narrows the list; WoWInterface is asked once typing stops. */
+    @Composable
+    private fun StoreSearchBox(u: Dp, body: TextStyle) {
+        var focused by remember { mutableStateOf(false) }
+        val px = onePx()
+        val small = body.copy(fontSize = textSize(u * 11 / 20))
+        Row(
+            Modifier.fillMaxWidth().height(u * 11 / 10)
+                .background(Color(10, 26, 41))
+                .border(if (focused) px * 2 else px, if (focused) GoldLight else Edge)
+                .padding(horizontal = u / 3),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // A magnifying glass.
+            Canvas(Modifier.width(u / 2).height(u / 2)) {
+                val w = size.width
+                val line = w / 9
+                drawCircle(SkyDark, radius = w * 0.3f, center = Offset(w * 0.42f, w * 0.42f), style = Stroke(width = line))
+                drawLine(SkyDark, Offset(w * 0.64f, w * 0.64f), Offset(w * 0.95f, w * 0.95f), strokeWidth = line)
+            }
+            Spacer(Modifier.width(u / 3))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (storeQuery.isEmpty())
+                    Text("Search add-ons for ${gameLabel.ifEmpty { "your game" }}, like controller, quests or bags", style = small,
+                        color = Sky.copy(alpha = 0.55f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                BasicTextField(
+                    value = storeQuery,
+                    onValueChange = { storeQuery = it.replace("\n", " ").take(40) },
+                    singleLine = true,
+                    textStyle = small.copy(color = TextColor),
+                    cursorBrush = SolidColor(GoldLight),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { if (storeInterface > 0) checkWowInterface(storeInterface) }),
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }
+                )
+            }
+            if (storeQuery.isNotEmpty())
+                Text("\u2715", style = small, color = SkyDark, modifier = Modifier.clickable { storeQuery = "" }.padding(horizontal = u / 4))
+        }
+    }
+
+    /** The store's quick filters, one small box each; the picked one is gold. */
+    @Composable
+    private fun StoreFilters(u: Dp, body: TextStyle) {
+        val px = onePx()
+        Row(Modifier.fillMaxWidth().padding(vertical = u / 4), horizontalArrangement = Arrangement.spacedBy(u * 3 / 10)) {
+            STORE_FILTERS.forEachIndexed { i, filter ->
+                val on = i == storeFilter
+                var focused by remember { mutableStateOf(false) }
+                Box(
+                    Modifier.height(u * 3 / 4)
+                        .onFocusChanged { focused = it.isFocused }
+                        .onKeyEvent {
+                            if (it.type == KeyEventType.KeyUp && it.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_BUTTON_A) {
+                                storeFilter = i; true
+                            } else false
+                        }
+                        .clickable { storeFilter = i }
+                        .background(if (on) Color(37, 70, 102) else Color.White.copy(alpha = 0.03f))
+                        .border(px, if (focused) GoldLight else if (on) Gold else Edge)
+                        .padding(horizontal = u * 2 / 5),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(filter.first, style = body.copy(fontSize = textSize(u * 9 / 20)), color = if (on) GoldLight else Sky, maxLines = 1)
+                }
+            }
+        }
     }
 
     /** A newer Thor Forever: what's new, Update now (with how far it is), Stop download and Back. */
@@ -1237,6 +1385,21 @@ class ThorStartActivity : ComponentActivity() {
         private const val EXTRA_FPS_LIMIT = "nativeFpsLimit"
         private val FPS_CAPS = listOf(0, 30, 40, 45, 60)
         private val OVERLAYS = listOf("Off", "FPS", "FPS + graph")
+        /**
+         * The store's quick filters: a name and the words an add-on's name must have (| between
+         * alternatives). "Installed" shows only the installed ones.
+         */
+        private val STORE_FILTERS = listOf(
+            "All" to "",
+            "Controller" to "console|controller|gamepad",
+            "Quests" to "quest",
+            "Bags & items" to "bag|inventory|loot|vendor",
+            "Action bars" to "bar|button",
+            "Map" to "map|coord",
+            "Boss fights" to "boss|dbm|bigwigs|raid",
+            "Installed" to ""
+        )
+        private const val FILTER_INSTALLED = 7
         /** The app's update is checked when it starts, then at most this often (GitHub allows 60 questions an hour without a token). */
         private const val APP_CHECK_EVERY_MS = 60 * 60 * 1000L
         /** When GitHub last answered, for the life of the app. */

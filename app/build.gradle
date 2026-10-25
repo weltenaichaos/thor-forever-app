@@ -127,8 +127,8 @@ android {
         // We’re preserving Winlator’s request to keep targetSdkVersion at 28
         targetSdkVersion 28
 
-        versionCode 27
-        versionName "0.6.0"
+        versionCode 28
+        versionName "0.7.0"
 
         // Which CI build this is, so the app can tell whether a newer test build exists.
         buildConfigField "int", "CI_BUILD_NUMBER", (System.getenv("GITHUB_RUN_NUMBER") ?: "0")

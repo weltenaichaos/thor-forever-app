@@ -1,6 +1,8 @@
 package com.winlator.cmod.core;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNull;
 
 import org.junit.Test;
@@ -48,5 +50,38 @@ public class WowInterfaceStoreTest {
         assertEquals("https://cdn.wowinterface.com/downloads/getfile.php?id=11190&d=1790967342&minion", WowInterfaceStore.downloadUri(details));
         assertNull(WowInterfaceStore.downloadUri("[{\"downloadUri\":\"http://evil.example/x.zip\"}]"));
         assertNull(WowInterfaceStore.downloadUri("[]"));
+    }
+
+    @Test
+    public void classicEraGetsItsOwnAddonsWithoutForeverOnes() {
+        // 1.15.9 matches the add-ons listing 1.15.x; a "forever" in the version doesn't count here.
+        List<WowInterfaceStore.Item> items = WowInterfaceStore.candidates(LIST, "1.15.9.70003", Collections.emptySet());
+        assertEquals(3, items.size());
+        assertEquals("Bartender4", items.get(0).title);
+        assertEquals("Classic Only", items.get(1).title);
+        assertEquals("High Fidelity World Map", items.get(2).title);
+    }
+
+    @Test
+    public void searchNarrowsByTitleOrAuthor() {
+        WowInterfaceStore.Found found = WowInterfaceStore.candidates(LIST, "1.15.9", Collections.emptySet(), "bar", 30);
+        assertEquals(1, found.total);
+        assertEquals("Bartender4", found.items.get(0).title);
+        assertEquals(1, WowInterfaceStore.candidates(LIST, "1.15.9", Collections.emptySet(), "nevcairiel", 30).total);
+        assertEquals(2, WowInterfaceStore.candidates(LIST, "1.15.9", Collections.emptySet(), "map|bartender", 30).total);
+        // The limit cuts the list, total still counts all.
+        WowInterfaceStore.Found one = WowInterfaceStore.candidates(LIST, "1.15.9", Collections.emptySet(), "", 1);
+        assertEquals(1, one.items.size());
+        assertEquals(3, one.total);
+    }
+
+    @Test
+    public void matchesEveryWordAndAlternatives() {
+        assertTrue(WowInterfaceStore.matches("ConsolePort by Munk", ""));
+        assertTrue(WowInterfaceStore.matches("ConsolePort by Munk", "console"));
+        assertTrue(WowInterfaceStore.matches("ConsolePort by Munk", "CONSOLE munk"));
+        assertFalse(WowInterfaceStore.matches("ConsolePort by Munk", "console bags"));
+        assertTrue(WowInterfaceStore.matches("Gamepad Helper", "console|controller|gamepad"));
+        assertFalse(WowInterfaceStore.matches("Bagnon", "console|controller|gamepad"));
     }
 }

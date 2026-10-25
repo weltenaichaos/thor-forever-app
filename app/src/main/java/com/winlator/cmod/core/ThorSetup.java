@@ -140,8 +140,8 @@ public final class ThorSetup {
      * Gives every game version installed next to the game a WoW shortcut of its own, so the start
      * screen can switch between them: a version Battle.net added (like the release next to the
      * beta) gets the settings of the game's shortcut, and one of the app's shortcuts whose .exe
-     * was renamed in its folder points to the new one. A version installed after the game's own becomes the one Play
-     * starts. Returns the shortcut of the last version added, or null when none was added.
+     * was renamed in its folder points to the new one. A version of the same game installed after the game's own becomes
+     * the one Play starts. Returns the shortcut of the last version added, or null when none was added.
      */
     public static Shortcut addNewWowVersions(Context context, ContainerManager manager, ThorGame game) throws IOException {
         Container container = game.shortcut.container;
@@ -168,9 +168,11 @@ public final class ThorSetup {
                 continue;
             }
             String kind = ThorGame.kindOf(productIn(exe), flavorName(wow));
-            // Battle.net installed it after the game's version (like the release after the beta): Play starts it.
+            // Battle.net installed it after the game's version (like the release after the beta): Play
+            // starts it. Only for the same game: installing Classic Era next to Forever keeps Forever.
             File gameExe = ThorGame.toAndroidPath(container, game.shortcut.path);
-            boolean newer = exe != null && (gameExe == null || !gameExe.isFile() || exe.lastModified() > gameExe.lastModified());
+            boolean sameGame = exe != null && ThorGame.titleOfFolder(exe.getParentFile()).equals(ThorGame.titleOfFolder(game.flavorDir));
+            boolean newer = sameGame && (gameExe == null || !gameExe.isFile() || exe.lastModified() > gameExe.lastModified());
             added = addWowShortcut(context, container, wow, kind, game.shortcut, newer);
             known.add(added);
         }

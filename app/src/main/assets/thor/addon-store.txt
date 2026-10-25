@@ -1,6 +1,7 @@
 # The add-on store's list: Name|GitHub repository|main folder|what it does
 # Each add-on's latest GitHub release must have a release.json (from the BigWigs packager),
 # which says which game versions its .zip is for.
+ConsolePort|seblindfors/ConsolePort|ConsolePort|Plays the game with a controller: cursor, radial menus and bars
 Questie|Questie/Questie|Questie|Shows quests, objectives and NPCs on the map
 Deadly Boss Mods|DeadlyBossMods/DeadlyBossMods|DBM-Core|Boss fight timers and warnings
 DBM Classic raids|DeadlyBossMods/DBM-Vanilla|DBM-Raids-Vanilla|Deadly Boss Mods for the classic raids

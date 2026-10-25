@@ -38,6 +38,12 @@ public final class ThorGame {
         this.battleNetShortcut = battleNetShortcut;
     }
 
+    /**
+     * Shortcut extra and intent extra: the game's name for the loading and closing screens, like
+     * "World of Warcraft Classic Era" (the start screen writes it before Play).
+     */
+    public static final String EXTRA_DISPLAY_NAME = "thorDisplayName";
+
     /** Shortcut extra: when the player picked this game version on the start screen (or the app added it). */
     public static final String EXTRA_CHOSEN_AT = "thorChosenAt";
 
@@ -125,6 +131,47 @@ public final class ThorGame {
         if (p.contains("beta") || f.contains("beta")) return "Beta";
         if (p.contains("ptr") || p.equals("wowt") || p.contains("test") || f.contains("ptr") || f.contains("test")) return "Test";
         return "Live";
+    }
+
+    /** Which WoW game is in a game folder (like .../_classic_era_), from its .flavor.info and .build.info. */
+    static String titleOfFolder(File flavorDir) {
+        if (flavorDir == null) return titleOf("", "");
+        String product = flavorProduct(readText(new File(flavorDir, ".flavor.info")));
+        String version = fieldFromBuildInfo(readText(new File(flavorDir.getParentFile(), ".build.info")), product, "Version");
+        return titleOf(product, version);
+    }
+
+    /** Which WoW game this is: Forever, Classic Era, Anniversary, MoP Classic, Retail, ... */
+    public String title() {
+        return titleOf(product(), installedVersion());
+    }
+
+    /**
+     * Which WoW game a version is. The version decides first (1.60 is Forever, 1.15 Classic Era,
+     * 2.5 Anniversary, 3.4/4.4/5.5 Wrath/Cata/MoP Classic, 6 and up the current game), then the
+     * product name Battle.net gives it (like wow_classic_era).
+     */
+    static String titleOf(String product, String version) {
+        String p = product == null ? "" : product.toLowerCase(Locale.ROOT);
+        String[] v = version == null ? new String[0] : version.trim().split("\\.");
+        int major = -1, minor = -1;
+        try {
+            if (v.length >= 2) { major = Integer.parseInt(v[0]); minor = Integer.parseInt(v[1]); }
+        } catch (NumberFormatException e) {
+            major = -1;
+        }
+        if (p.startsWith("wowf") || (major == 1 && minor >= 60)) return "Forever";
+        if (major == 1) return "Classic Era";
+        if (major == 2) return "Anniversary";
+        if (major == 3) return "Wrath Classic";
+        if (major == 4) return "Cata Classic";
+        if (major == 5) return "MoP Classic";
+        if (major >= 6) return p.contains("classic") ? "Classic" : "Retail";
+        if (p.contains("classic_era") || p.contains("classic1x")) return "Classic Era";
+        if (p.contains("anniversary")) return "Anniversary";
+        if (p.contains("classic")) return "Classic";
+        if (p.equals("wow") || p.equals("wowt") || p.equals("wow_beta") || p.equals("wowxptr")) return "Retail";
+        return "WoW";
     }
 
     /** True for WoW's own .exe (Wow.exe, WowB-ARM64.exe, ...), not its voice chat or other tools. */
