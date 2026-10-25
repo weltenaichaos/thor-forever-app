@@ -1,7 +1,28 @@
-# Thor Forever v0.6.0 (alpha, pre-release)
+# Thor Forever v0.7.0 (alpha, pre-release)
 
 Thor Forever is an Android app that starts World of Warcraft: Forever on the AYN Thor with one tap.
 It is a fork of Winlator Bionic (Winlator Ludashi). This is a test release, tested on one AYN Thor.
+
+## New in v0.7.0
+
+Other WoW Classic games, next to Forever:
+- Thor Forever now also runs the other Classic games Battle.net installs, like **Classic Era** and **Anniversary**. Install one with **Update with Battle.net**; the start screen finds it by itself.
+- The **Game** button shows the real game names: Forever, Classic Era, Anniversary, MoP Classic and so on, with Beta or Test when it is one. Before, it said Live, Live 2 or Beta.
+- **Play** stays on the game you picked. A newer version only takes over when it is the same game (Forever stays Forever).
+- Each game keeps its own add-ons, key bindings and settings.
+- The loading, startup and closing screens show the name of the game you started.
+- Forever comes first. The Classic support is only an addition and changes nothing for Forever.
+
+The add-on store:
+- Shows add-ons for the game you picked with the **Game** button.
+- A **search** box: type a name or a word. Filters for Controller, Quests, Bags & items, Action bars, Map, Boss fights and Installed.
+- **ConsolePort** is in the store list, for playing with the controller in games that have no controller support of their own.
+
+The Forever Companion:
+- Works in the Classic games too: bags, character, quests, map and chat (tested in Anniversary). The Craft tab is not tested there yet.
+- If one part can't be read in a game, the rest still works, and the game's chat says once which part it was. Before, one error emptied the bags.
+
+Coming from v0.1.1 or later: the start screen's **New version** button (or Settings > **Check for updates**) installs it. Coming from v0.1.0: install this APK over it. Your setup, the game and your add-ons stay. The companion add-on updates itself to 0.32.0 the next time the companion starts.
 
 ## New in v0.6.0
 
