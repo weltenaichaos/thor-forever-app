@@ -195,6 +195,12 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
 
     private fun announce(w: String) { news = w; newsAt = played }
 
+    /** Off screen, the pictures are let go (they are painted again when needed). */
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        sprites.values.forEach { it.recycle() }; sprites.clear()
+    }
+
     override fun touch(action: Int, x: Float, y: Float) {
         when {
             !game.started -> pickerTouch(action, x, y)
@@ -258,7 +264,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         val rx = wx - game.x; val ry = wy - game.y
         val z = ry * TILT_SIN
         if (z > EYE - 60f) return false
-        ps = EYE / (EYE - z)
+        ps = EYE / (EYE - z) * ZOOM
         px = HX + rx * ps; py = GY + ry * TILT_COS * ps
         return true
     }
@@ -278,7 +284,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
             val k = when { g.value >= 25 -> 2; g.value >= 3 -> 1; else -> 0 }
             fill.color = Color.argb(100, 0, 0, 0); canvas.drawOval(px - 6 * ps, py - 2 * ps, px + 6 * ps, py + 2 * ps, fill)
             glow(canvas, px, py - 9 * ps, 15f * ps, GEM_GLOW[k], 120)
-            sprite(canvas, "gem$k", px, py - (9 + sin(played * 3 + g.x) * 1.5f) * ps, 20f * ps, 24f * ps) { gem(it, k) }
+            sprite(canvas, "gem$k", px, py - (9 + sin(played * 3 + g.x) * 1.5f) * ps, 20f * ps, 24f * ps, k = ps) { gem(it, k) }
         }
         // Rings that lie on the ground.
         if (game.ringRadius > 0f) holyRing(canvas, game.ringRadius)
@@ -342,9 +348,14 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
 
     private fun ground(canvas: Canvas) {
         val n = game.night
-        val tile = sprites.getOrPut("ground${n.name}") { paintGround(n) }
+        val key = "ground${n.name}"
+        if (key !in sprites) {
+            // Only one night's ground at a time: it is the biggest picture.
+            sprites.keys.filter { it.startsWith("ground") }.forEach { sprites.remove(it)?.recycle() }
+        }
+        val tile = sprites.getOrPut(key) { paintGround(n) }
         // One matrix for the whole tilted plane (in world units around the hero).
-        val l = -1400f; val r = 1400f; val t = -FAR; val b = NEAR
+        val l = -WIDE; val r = WIDE; val t = -FAR; val b = NEAR
         src[0] = l; src[1] = t; src[2] = r; src[3] = t; src[4] = r; src[5] = b; src[6] = l; src[7] = b
         for (i in 0 until 4) { project(game.x + src[i * 2], game.y + src[i * 2 + 1]); dst[i * 2] = px; dst[i * 2 + 1] = py }
         warp.setPolyToPoly(src, 0, dst, 0, 4)
@@ -368,7 +379,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
 
     private fun paintGround(n: Night): Bitmap {
         val lk = look(n)
-        val px = (TILE * sc * 0.8f).toInt().coerceIn(8, 2048)
+        val px = (TILE * sc * 0.6f).toInt().coerceIn(8, 1400)
         val b = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
         val c = Canvas(b)
         c.scale(px / TILE, px / TILE)
@@ -497,11 +508,11 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         ups += Up(game.y, null, null, 0f, 0f, HERO)
         if (game.have(Upgrade.WOLF) > 0) ups += Up(game.wolfY, null, null, 0f, 0f, WOLF)
         val list = decosOf(game.night)
-        val x0 = floor((game.x - 1400f) / TILE) * TILE; val y0 = floor((game.y - FAR) / TILE) * TILE
+        val x0 = floor((game.x - WIDE) / TILE) * TILE; val y0 = floor((game.y - FAR) / TILE) * TILE
         var ty = y0
         while (ty < game.y + NEAR + 60f) {
             var tx = x0
-            while (tx < game.x + 1400f) {
+            while (tx < game.x + WIDE) {
                 for (d in list) {
                     val wy = ty + d.y
                     if (wy < game.y - FAR || wy > game.y + NEAR + 60f) continue
@@ -540,12 +551,13 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
     private fun hero(canvas: Canvas) {
         project(game.x, game.y)
         val walking = moving() && hypot(game.steerX, game.steerY) > 0.05f
-        val bob = if (walking) sin(played * 14f) * 1.6f else sin(played * 2f) * 0.6f
+        val bob = if (walking) sin(played * 18f) * 1.6f else sin(played * 2f) * 0.6f
         val flip = game.facing < 0
         val h = game.hero
-        glow(canvas, px, py - 40f, 70f, Theme.GOLD, 70)
+        val s = ps
+        glow(canvas, px, py - 40f * s, 70f * s, Theme.GOLD, 70)
         longShadow(canvas, HERO_K, 90)
-        if (game.hurt > 0) glow(canvas, px, py - 30f, 40f, Theme.BAD, 160)
+        if (game.hurt > 0) glow(canvas, px, py - 30f * s, 40f * s, Theme.BAD, 160)
         // The class's glow: holy gold, arcane purple, the hunter's lantern.
         val (gx, gy, gc) = when (h) {
             Hero.PALADIN -> Triple(22f, -18f, Theme.GOLD)
@@ -553,20 +565,20 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
             Hero.HUNTER -> Triple(0f, -10f, Theme.GOLD)
         }
         val flicker = 120 + (sin(played * 9f) * 25 + sin(played * 23f) * 15).toInt()
-        val cy = py - FOOT_HERO * HERO_K + bob
-        glow(canvas, px + gx * HERO_K * game.facing, cy + gy * HERO_K, 40f, gc, flicker)
-        sprite(canvas, "hero${h.name}", px, cy, HERO_BOX_W * HERO_K, HERO_BOX_H * HERO_K, flip, lit = true) { c -> c.scale(HERO_K, HERO_K); LastLightArt.hero(c, h) }
+        val cy = py - (FOOT_HERO * HERO_K + bob) * s
+        glow(canvas, px + gx * HERO_K * game.facing * s, cy + gy * HERO_K * s, 40f * s, gc, flicker)
+        sprite(canvas, "hero${h.name}", px, cy, HERO_BOX_W * HERO_K * s, HERO_BOX_H * HERO_K * s, flip, lit = true, k = s) { c -> c.scale(HERO_K, HERO_K); LastLightArt.hero(c, h) }
         // A small health bar under the feet.
         val f = (game.hp / game.maxHp).coerceIn(0f, 1f)
-        fill.color = Color.rgb(6, 18, 30); canvas.drawRoundRect(px - 32, py + 12, px + 32, py + 21, 4.5f, 4.5f, fill)
-        fill.shader = hpBar(py + 13, py + 20, f > 0.35f); canvas.drawRoundRect(px - 31, py + 13, px - 31 + 62 * f, py + 20, 3.5f, 3.5f, fill); fill.shader = null
+        fill.color = Color.rgb(6, 18, 30); canvas.drawRoundRect(px - 26, py + 9, px + 26, py + 16, 3.5f, 3.5f, fill)
+        fill.shader = hpBar(py + 10, py + 15, f > 0.35f); canvas.drawRoundRect(px - 25, py + 10, px - 25 + 50 * f, py + 15, 2.5f, 2.5f, fill); fill.shader = null
     }
 
     private fun wolf(canvas: Canvas) {
         if (!project(game.wolfX, game.wolfY)) return
         longShadow(canvas, 1.2f)
-        val run = moving() && sin(played * 16f) > 0
-        sprite(canvas, "wolf$run", px, py - 14f * WOLF_K * ps, 66f * WOLF_K * ps, 52f * WOLF_K * ps, flip = game.wolfFacing < 0, lit = true) { c ->
+        val run = moving() && sin(played * 20f) > 0
+        sprite(canvas, "wolf$run", px, py - 14f * WOLF_K * ps, 66f * WOLF_K * ps, 52f * WOLF_K * ps, flip = game.wolfFacing < 0, lit = true, k = ps) { c ->
             c.scale(WOLF_K, WOLF_K); c.translate(-2f, 0f); LastLightArt.wolf(c, run)
         }
     }
@@ -580,14 +592,14 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         if (f.slow > 0) glow(canvas, px, py - 16 * s, f.kind.radius * 2f * s, Theme.TEAL, 110)
         val left = game.x < f.x
         when (f.kind) {
-            Kind.GHOUL -> sprite(canvas, "ghoul$flash", px, py - (19 + bob * 0.5f) * s, 44f * s, 52f * s, flip = left, lit = !flash) { LastLightArt.ghoul(it, flash) }
-            Kind.BANSHEE -> sprite(canvas, "banshee$flash", px, py - (34 + bob * 2f) * s, 62f * s, 80f * s, flip = left, lit = !flash) { LastLightArt.banshee(it, flash) }
-            Kind.SKELETON -> sprite(canvas, "skeleton$flash", px, py - 21 * s, 56f * s, 56f * s, flip = left, lit = !flash) { LastLightArt.skeleton(it, flash) }
+            Kind.GHOUL -> sprite(canvas, "ghoul$flash", px, py - (19 + bob * 0.5f) * s, 44f * s, 52f * s, flip = left, lit = !flash, k = s) { LastLightArt.ghoul(it, flash) }
+            Kind.BANSHEE -> sprite(canvas, "banshee$flash", px, py - (34 + bob * 2f) * s, 62f * s, 80f * s, flip = left, lit = !flash, k = s) { LastLightArt.banshee(it, flash) }
+            Kind.SKELETON -> sprite(canvas, "skeleton$flash", px, py - 21 * s, 56f * s, 56f * s, flip = left, lit = !flash, k = s) { LastLightArt.skeleton(it, flash) }
             Kind.BAT -> {
                 val up = sin(played * 16 + f.phase) > 0
-                sprite(canvas, "bat$up$flash", px, py - 40 * s, 70f * s, 64f * s, lit = !flash) { LastLightArt.bat(it, up, flash) }
+                sprite(canvas, "bat$up$flash", px, py - 40 * s, 70f * s, 64f * s, lit = !flash, k = s) { LastLightArt.bat(it, up, flash) }
             }
-            Kind.NECROMANCER -> sprite(canvas, "necromancer$flash", px, py - (48 + bob * 2f) * s, 160f * s, 180f * s, flip = left, lit = !flash) { LastLightArt.necromancer(it, flash) }
+            Kind.NECROMANCER -> sprite(canvas, "necromancer$flash", px, py - (48 + bob * 2f) * s, 160f * s, 180f * s, flip = left, lit = !flash, k = s) { LastLightArt.necromancer(it, flash) }
         }
     }
 
@@ -596,9 +608,9 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         val s = ps * DECO_K
         longShadow(canvas, if (d.what == 1) 2.2f else 1.4f, 100)
         when (d.what) {
-            0 -> sprite(canvas, "grave${d.flip}", px, py - 13 * s, 52f * s, 80f * s, lit = true) { c -> grave(c, sp, 0f, -8f, if (d.flip) 6f else -5f) }
-            1 -> sprite(canvas, "tree", px, py - 37 * s, 110f * s, 110f * s, flip = d.flip, lit = true) { c -> deadTree(c, sp, -10f, -23f) }
-            else -> sprite(canvas, "pillar${d.what}", px, py - 34 * s, 50f * s, 90f * s, flip = d.flip, lit = true) { c -> pillar(c, d.what == 3) }
+            0 -> sprite(canvas, "grave${d.flip}", px, py - 13 * s, 52f * s, 80f * s, lit = true, k = s) { c -> grave(c, sp, 0f, -8f, if (d.flip) 6f else -5f) }
+            1 -> sprite(canvas, "tree", px, py - 37 * s, 110f * s, 110f * s, flip = d.flip, lit = true, k = s) { c -> deadTree(c, sp, -10f, -23f) }
+            else -> sprite(canvas, "pillar${d.what}", px, py - 34 * s, 50f * s, 90f * s, flip = d.flip, lit = true, k = s) { c -> pillar(c, d.what == 3) }
         }
     }
 
@@ -659,18 +671,20 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
 
     /**
      * Copies the picture [key] ([w] x [h] world units, centred on [x], [y]); [paint] draws it the
-     * first time, centred on 0, 0. The first call's size sets the picture's sharpness. With [lit],
-     * the picture gets light from the top left and shade on the far side, so it looks round.
+     * first time, centred on 0, 0, at its natural size: [k] times smaller than [w] x [h] (far
+     * things are drawn small, but the picture stays sharp up close). With [lit], the picture gets
+     * light from the top left and shade on the far side, so it looks round.
      */
-    private fun sprite(canvas: Canvas, key: String, x: Float, y: Float, w: Float, h: Float, flip: Boolean = false, alpha: Int = 255, lit: Boolean = false, paint: (Canvas) -> Unit) {
+    private fun sprite(canvas: Canvas, key: String, x: Float, y: Float, w: Float, h: Float, flip: Boolean = false, alpha: Int = 255, lit: Boolean = false, k: Float = 1f, paint: (Canvas) -> Unit) {
         val b = sprites.getOrPut(key) {
-            val pw = (w * sc).toInt().coerceIn(2, 1024); val ph = (h * sc).toInt().coerceIn(2, 1024)
+            val nw = w / k; val nh = h / k
+            val pw = (nw * sc).toInt().coerceIn(2, 1024); val ph = (nh * sc).toInt().coerceIn(2, 1024)
             Bitmap.createBitmap(pw, ph, Bitmap.Config.ARGB_8888).also {
-                val c = Canvas(it); c.scale(pw / w, ph / h); c.translate(w / 2, h / 2); paint(c)
+                val c = Canvas(it); c.scale(pw / nw, ph / nh); c.translate(nw / 2, nh / 2); paint(c)
                 if (lit) {
-                    light.shader = LinearGradient(-w * 0.45f, -h * 0.5f, w * 0.45f, h * 0.35f,
+                    light.shader = LinearGradient(-nw * 0.45f, -nh * 0.5f, nw * 0.45f, nh * 0.35f,
                         intArrayOf(Color.argb(80, 255, 244, 214), Color.argb(0, 255, 255, 255), Color.argb(115, 4, 6, 20)), floatArrayOf(0f, 0.42f, 1f), Shader.TileMode.CLAMP)
-                    c.drawRect(-w / 2, -h / 2, w / 2, h / 2, light); light.shader = null
+                    c.drawRect(-nw / 2, -nh / 2, nw / 2, nh / 2, light); light.shader = null
                 }
             }
         }
@@ -741,7 +755,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
             val by = py - 18f * ps
             glow(canvas, px, by, 26f * ps, Theme.GOLD, 150)
             canvas.save(); canvas.rotate(played * 720f % 360f, px, by)
-            sprite(canvas, "blade", px, by, 44f * ps, 44f * ps) { c ->
+            sprite(canvas, "blade", px, by, 44f * ps, 44f * ps, k = ps) { c ->
                 for (q in 0 until 4) {
                     c.save(); c.rotate(q * 90f)
                     sPath.reset(); sPath.moveTo(0f, 0f); sPath.quadTo(6f, -8f, 3f, -19f); sPath.quadTo(-2f, -10f, -5f, -3f); sPath.close()
@@ -770,7 +784,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         if (b.arrow) {
             stroke.strokeWidth = 6f * ps; stroke.color = Color.argb(46, 191, 224, 160); canvas.drawLine(x - ux * 46 * ps, y - uy * 46 * ps, x, y, stroke)
             canvas.save(); canvas.rotate(Math.toDegrees(atan2(uy, ux).toDouble()).toFloat(), x, y)
-            sprite(canvas, "arrow", x - 7f * ps, y, 44f * ps, 12f * ps) { c -> c.translate(7f, 0f); LastLightArt.arrow(c) }
+            sprite(canvas, "arrow", x - 7f * ps, y, 44f * ps, 12f * ps, k = ps) { c -> c.translate(7f, 0f); LastLightArt.arrow(c) }
             canvas.restore()
         } else {
             stroke.strokeWidth = 9f * ps; stroke.color = Color.argb(60, 52, 186, 215); canvas.drawLine(x - ux * 60 * ps, y - uy * 60 * ps, x, y, stroke)
@@ -794,7 +808,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         if (m.holy) {
             glow(canvas, px, y, 30f * ps, Theme.GOLD, 220)
             canvas.save(); canvas.rotate(t * 540f, px, y)
-            sprite(canvas, "hammer", px, y, 34f * ps, 34f * ps) { c -> LastLightArt.hammerIcon(c) }
+            sprite(canvas, "hammer", px, y, 34f * ps, 34f * ps, k = ps) { c -> LastLightArt.hammerIcon(c) }
             canvas.restore()
         } else {
             glow(canvas, px, y, 22f * ps, Color.rgb(255, 138, 42), 200)
@@ -807,7 +821,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
     private fun effectsOnGround(canvas: Canvas) {
         val wi = waves.iterator()
         while (wi.hasNext()) {
-            val w = wi.next(); val t = (played - w.at) / 0.45f
+            val w = wi.next(); val t = (played - w.at) / 0.35f
             if (t >= 1f) { wi.remove(); continue }
             val r = w.radius * (0.3f + 0.7f * t)
             if (!groundOval(w.x, w.y, r)) continue
@@ -839,7 +853,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
     private fun effectsInAir(canvas: Canvas) {
         val di = wisps.iterator()
         while (di.hasNext()) {
-            val d = di.next(); val t = (played - d.at) / 0.7f
+            val d = di.next(); val t = (played - d.at) / 0.5f
             if (t >= 1f) { di.remove(); continue }
             if (!project(d.x, d.y)) continue
             val x = px; val y = py - (24 + 30 * t) * ps
@@ -851,7 +865,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         }
         val ni = numbers.iterator()
         while (ni.hasNext()) {
-            val n = ni.next(); val t = (played - n.at) / 0.6f
+            val n = ni.next(); val t = (played - n.at) / 0.45f
             if (t >= 1f) { ni.remove(); continue }
             if (!project(n.x, n.y)) continue
             outlined(canvas, n.words, px, py - (34 + 26 * t) * ps, (if (n.big) 28f else 20f) * ps.coerceIn(0.7f, 1.2f), if (n.big) Color.rgb(255, 154, 90) else Theme.GOLD, title, (255 * (1 - t * t)).toInt())
@@ -1212,14 +1226,19 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         /** The middle of the screen, and where the hero's feet stand. */
         private const val HX = W / 2
         private const val HY = H / 2
-        private const val GY = 360f
-        /** The tilt of the ground (46°) and how far the eye is: far things are smaller. */
-        private val TILT_SIN = sin(Math.toRadians(46.0)).toFloat()
-        private val TILT_COS = cos(Math.toRadians(46.0)).toFloat()
+        private const val GY = 330f
+        /**
+         * The tilt of the ground (34°, fairly top-down), how far the eye is (far things are
+         * smaller) and the zoom (Jesse 2026-10-27: more overview, less zoomed in).
+         */
+        private val TILT_SIN = sin(Math.toRadians(34.0)).toFloat()
+        private val TILT_COS = cos(Math.toRadians(34.0)).toFloat()
         private const val EYE = 850f
-        /** How much ground is drawn ahead (up) and behind (down) the hero, in world units. */
-        private const val FAR = 1000f
-        private const val NEAR = 320f
+        private const val ZOOM = 0.7f
+        /** How much ground is drawn ahead (up), behind (down) and to each side of the hero, in world units. */
+        private const val FAR = 1250f
+        private const val NEAR = 420f
+        private const val WIDE = 1500f
         private const val TILE = 1000f
         private const val STICK = 70f
         /** The hero is drawn this much bigger than the foes' scale; the picture's box; where the feet are in it. */

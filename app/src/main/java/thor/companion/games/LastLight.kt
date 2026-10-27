@@ -46,11 +46,11 @@ class LastLight(
     }
 
     enum class Kind(val hp: Float, val speed: Float, val dps: Float, val radius: Float, val gem: Int, val from: Float) {
-        GHOUL(10f, 62f, 12f, 14f, 1, 0f),
-        BAT(6f, 118f, 8f, 12f, 1, 40f),
-        SKELETON(24f, 72f, 16f, 15f, 3, 140f),
-        BANSHEE(40f, 88f, 20f, 15f, 5, 290f),
-        NECROMANCER(650f, 58f, 34f, 40f, 25, Float.MAX_VALUE),
+        GHOUL(10f, 80f, 12f, 14f, 1, 0f),
+        BAT(6f, 150f, 8f, 12f, 1, 40f),
+        SKELETON(24f, 94f, 16f, 15f, 3, 140f),
+        BANSHEE(40f, 114f, 20f, 15f, 5, 290f),
+        NECROMANCER(650f, 74f, 34f, 40f, 25, Float.MAX_VALUE),
     }
 
     /** What can be picked on a level up: weapons (they fight) and helpers. */
@@ -143,7 +143,7 @@ class LastLight(
         private set
     var xp = 0
         private set
-    val need get() = 4 + (level - 1) * 3 + maxOf(0, level - 15) * 4
+    val need get() = 3 + (level - 1) * 5 / 2 + maxOf(0, level - 15) * 4
     var kills = 0
         private set
     var goldFound = 0
@@ -210,8 +210,8 @@ class LastLight(
 
     private val damageScale get() = (1f + have(Upgrade.EDGE) * 0.10f + shop[Boost.SHARP.ordinal] * 0.05f)
     private val coolScale get() = (1f - have(Upgrade.HOURGLASS) * 0.08f) * hero.cool
-    val speed get() = 135f * hero.speed * (1f + have(Upgrade.BOOTS) * 0.10f + shop[Boost.QUICK.ordinal] * 0.05f)
-    val reach get() = 55f + have(Upgrade.MAGNET) * 30f + shop[Boost.REACH.ordinal] * 15f
+    val speed get() = 175f * hero.speed * (1f + have(Upgrade.BOOTS) * 0.10f + shop[Boost.QUICK.ordinal] * 0.05f)
+    val reach get() = 70f + have(Upgrade.MAGNET) * 30f + shop[Boost.REACH.ordinal] * 15f
     val bladeCount get() = when (have(Upgrade.BLADES)) { 0 -> 0; 1 -> 2; 2, 3 -> 3; 4 -> 4; else -> 5 }
     val bladeRadius get() = 78f + (if (have(Upgrade.BLADES) >= 3) 16f else 0f)
     val ringRadius get() = if (have(Upgrade.RING) == 0) 0f else 90f + have(Upgrade.RING) * 14f
@@ -265,7 +265,7 @@ class LastLight(
                 place(kind, kind.hp * strength(), x + cos(a) * SPAWN_DISTANCE * 0.8f, y + sin(a) * SPAWN_DISTANCE * depth(a) * 0.85f)
             }
         }
-        spawnClock += dt * (1.1f + time / 45f)
+        spawnClock += dt * (1.5f + time / 36f)
         while (spawnClock >= 1f) {
             spawnClock -= 1f
             if (foes.size >= MAX_FOES) continue
@@ -300,13 +300,21 @@ class LastLight(
     private fun place(kind: Kind, hp: Float, at: Pair<Float, Float> = edge()) = place(kind, hp, at.first, at.second)
     private fun place(kind: Kind, hp: Float, fx: Float, fy: Float) { foes += Foe(kind, fx, fy, hp) }
 
+    /**
+     * Foes by grid cell, for keeping them apart. Emptied every step (a cell left behind is
+     * dropped, or the map would grow all night as the hero walks), its lists are kept for reuse.
+     */
     private val grid = HashMap<Long, MutableList<Foe>>()
+    private val spare = ArrayList<MutableList<Foe>>()
     private fun cell(v: Float) = kotlin.math.floor(v / CELL).toLong()
     private fun key(cx: Long, cy: Long) = (cx shl 32) xor (cy and 0xffffffffL)
 
     private fun moveFoes(dt: Float) {
-        grid.values.forEach { it.clear() }
-        for (f in foes) grid.getOrPut(key(cell(f.x), cell(f.y))) { mutableListOf() } += f
+        for (list in grid.values) { list.clear(); spare += list }
+        grid.clear()
+        for (f in foes) grid.getOrPut(key(cell(f.x), cell(f.y))) { if (spare.isEmpty()) ArrayList() else spare.removeAt(spare.size - 1) } += f
+        // Keep only as many spare lists as there are foes.
+        while (spare.size > MAX_FOES) spare.removeAt(spare.size - 1)
         val it = foes.iterator()
         while (it.hasNext()) {
             val f = it.next()
@@ -358,7 +366,7 @@ class LastLight(
                 hammerClock = 1.5f * coolScale
                 val lv = have(Upgrade.HAMMER)
                 val count = when (lv) { 4 -> 2; 5 -> 3; else -> 1 }
-                val near = foes.filter { hypot(it.x - x, it.y - y) < 340f }.sortedBy { hypot(it.x - x, it.y - y) }
+                val near = foes.filter { hypot(it.x - x, it.y - y) < 420f }.sortedBy { hypot(it.x - x, it.y - y) }
                 for (k in 0 until minOf(count, near.size)) {
                     val t = near[k * (near.size / count).coerceAtLeast(1) % near.size]
                     bombs += Bomb(x, y - 20, t.x, t.y, 52f + lv * 8f, (18f + lv * 7f) * damageScale, holy = true)
@@ -373,7 +381,7 @@ class LastLight(
                 val lv = have(Upgrade.ARROWS)
                 val n = intArrayOf(3, 3, 4, 5, 6)[lv - 1]
                 var ax = aimX; var ay = aimY
-                if (hypot(steerX, steerY) < 0.05f) nearest(420f)?.let { f -> val d = hypot(f.x - x, f.y - y).coerceAtLeast(1f); ax = (f.x - x) / d; ay = (f.y - y) / d }
+                if (hypot(steerX, steerY) < 0.05f) nearest(520f)?.let { f -> val d = hypot(f.x - x, f.y - y).coerceAtLeast(1f); ax = (f.x - x) / d; ay = (f.y - y) / d }
                 val base = atan2(ay, ax)
                 val dmg = (8f + lv * 3f) * damageScale
                 for (k in 0 until n) {
@@ -385,11 +393,11 @@ class LastLight(
         // The wolf (Hunter): runs to the nearest foe and bites; at rank 5 it howls now and then.
         if (have(Upgrade.WOLF) > 0) {
             val lv = have(Upgrade.WOLF)
-            val target = nearest(360f)
+            val target = nearest(420f)
             val gx: Float; val gy: Float
             if (target != null) { gx = target.x; gy = target.y } else { gx = x - 40f * facing; gy = y + 22f }
             val dx = gx - wolfX; val dy = gy - wolfY; val d = hypot(dx, dy)
-            val sp = (230f + lv * 20f) * dt
+            val sp = (300f + lv * 25f) * dt
             if (d > (target?.kind?.radius ?: 0f) + 10f) { val k = minOf(sp, d) / d.coerceAtLeast(0.01f); wolfX += dx * k; wolfY += dy * k }
             if (kotlin.math.abs(dx) > 2f) wolfFacing = if (dx > 0) 1f else -1f
             // A wolf far behind catches up at once.
@@ -443,7 +451,7 @@ class LastLight(
         // Whirling Blades.
         val n = bladeCount
         if (n > 0) {
-            bladeAngle = (bladeAngle + dt * 3.2f) % 6.2832f
+            bladeAngle = (bladeAngle + dt * 4f) % 6.2832f
             val dmg = (8f + have(Upgrade.BLADES) * 3f) * damageScale
             for (k in 0 until n) {
                 val a = bladeAngle + k * 6.2832f / n
@@ -485,7 +493,7 @@ class LastLight(
             fireClock -= dt
             if (fireClock <= 0f) {
                 fireClock = 2.8f * coolScale
-                val near = foes.filter { hypot(it.x - x, it.y - y) < 360f }
+                val near = foes.filter { hypot(it.x - x, it.y - y) < 440f }
                 if (near.isNotEmpty()) {
                     val t = near[random.nextInt(near.size)]
                     bombs += Bomb(x, y, t.x, t.y, 60f + have(Upgrade.FIRE) * 10f, (20f + have(Upgrade.FIRE) * 8f) * damageScale)
@@ -539,7 +547,7 @@ class LastLight(
             val d = hypot(dx, dy)
             if (d < reach) g.pulled = true
             if (g.pulled) {
-                val sp = 420f * dt
+                val sp = 620f * dt
                 if (d <= sp + HERO_R) { gi.remove(); gain(g.value); continue }
                 g.x += dx / d * sp; g.y += dy / d * sp
             }
@@ -590,12 +598,12 @@ class LastLight(
         const val STEP = 1f / 60f
         const val MAX_FOES = 200
         const val MAX_GEMS = 220
-        const val SPAWN_DISTANCE = 600f
-        const val FORGET = 1150f
+        const val SPAWN_DISTANCE = 760f
+        const val FORGET = 1400f
         const val CELL = 48f
-        const val BOLT_SPEED = 520f
-        const val BOMB_FLIGHT = 0.6f
-        const val HAMMER_FLIGHT = 0.3f
-        const val ARROW_SPEED = 640f
+        const val BOLT_SPEED = 660f
+        const val BOMB_FLIGHT = 0.45f
+        const val HAMMER_FLIGHT = 0.24f
+        const val ARROW_SPEED = 800f
     }
 }
