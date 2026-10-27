@@ -198,7 +198,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
     /** Off screen, the pictures are let go (they are painted again when needed). */
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        sprites.values.forEach { it.recycle() }; sprites.clear()
+        sprites.clear()
     }
 
     override fun touch(action: Int, x: Float, y: Float) {
@@ -354,7 +354,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         val key = "ground${n.name}"
         if (key !in sprites) {
             // Only one night's ground at a time: it is the biggest picture.
-            sprites.keys.filter { it.startsWith("ground") }.forEach { sprites.remove(it)?.recycle() }
+            sprites.keys.filter { it.startsWith("ground") }.forEach { sprites.remove(it) }
         }
         val tile = sprites.getOrPut(key) { paintGround(n) }
         // One matrix for the whole tilted plane (in world units around the hero).
