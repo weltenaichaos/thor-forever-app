@@ -14,9 +14,36 @@ import kotlin.random.Random
  *
  * The world has no edges: the hero is always in the middle of the screen ([W] x [H]) and
  * everything is placed around them. Gold from each run buys small lasting boosts ([shop],
- * levels 0..5 of [Boost]) before the next night. The game moves in steps of 1/60 s.
+ * levels 0..5 of [Boost]) before the next night. There are three [Night]s, each one longer and
+ * harder; surviving one opens the next. The game moves in steps of 1/60 s.
  */
-class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val random: Random = Random.Default) {
+class LastLight(
+    val shop: IntArray = IntArray(Boost.entries.size),
+    private val random: Random = Random.Default,
+    val hero: Hero = Hero.PALADIN,
+    val night: Night = Night.MEADOW,
+) {
+
+    /**
+     * The nights, in the order they open (Jesse 2026-10-27: "a few levels, so progression is a
+     * thing"): how long until dawn, when the Necromancer and the swarms come, how tough foes are
+     * from the start, and the gold for reaching dawn.
+     */
+    enum class Night(val title: String, val length: Float, val bosses: FloatArray, val swarms: FloatArray, val tough: Float, val dawnGold: Int, val story: String) {
+        MEADOW("Gravewood Meadow", 300f, floatArrayOf(230f), floatArrayOf(90f, 190f), 0.7f, 15, "Five minutes. The dead are slow here."),
+        GRAVEYARD("Old Graveyard", 450f, floatArrayOf(180f, 380f), floatArrayOf(100f, 240f, 330f), 1f, 30, "Seven and a half minutes. Two Necromancers."),
+        RUINS("Cursed Ruins", 600f, floatArrayOf(180f, 360f, 510f), floatArrayOf(100f, 240f, 400f, 540f), 1.2f, 50, "Ten minutes. The hardest night of all.");
+
+        /** The night after this one, or null after the last. */
+        val next get() = entries.getOrNull(ordinal + 1)
+    }
+
+    /** The three classes (Jesse 2026-10-27, mockups/survivors-v4): health, speed, spell speed, healing, first weapon. */
+    enum class Hero(val title: String, val health: Float, val speed: Float, val cool: Float, val regen: Float, val first: Upgrade, val traits: List<String>) {
+        PALADIN("Paladin", 130f, 0.92f, 1f, 0.5f, Upgrade.HAMMER, listOf("Starts with Hammer of Light", "+30 health", "Heals a little over time")),
+        MAGE("Mage", 90f, 1f, 0.9f, 0f, Upgrade.BOLT, listOf("Starts with Arcane Bolt", "Spells come 10% sooner", "Less health")),
+        HUNTER("Hunter", 100f, 1.1f, 1f, 0f, Upgrade.ARROWS, listOf("Starts with Multi-Shot", "A wolf fights beside you", "Walks 10% faster")),
+    }
 
     enum class Kind(val hp: Float, val speed: Float, val dps: Float, val radius: Float, val gem: Int, val from: Float) {
         GHOUL(10f, 62f, 12f, 14f, 1, 0f),
@@ -27,7 +54,8 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
     }
 
     /** What can be picked on a level up: weapons (they fight) and helpers. */
-    enum class Upgrade(val title: String, val weapon: Boolean) {
+    enum class Upgrade(val title: String, val weapon: Boolean, val only: String? = null) {
+        HAMMER("Hammer of Light", true, "PALADIN"), ARROWS("Multi-Shot", true, "HUNTER"), WOLF("Wolf Companion", true, "HUNTER"),
         BOLT("Arcane Bolt", true), BLADES("Whirling Blades", true), RING("Holy Ring", true),
         FROST("Frost Nova", true), FIRE("Firebomb", true),
         BOOTS("Swift Boots", false), MAGNET("Gem Magnet", false), STEW("Hearty Stew", false),
@@ -36,6 +64,9 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
 
         /** What the next level does, for the card. */
         fun detail(next: Int): String = when (this) {
+            HAMMER -> when (next) { 1 -> "Holy hammers strike the nearest foe and burst with light"; 4 -> "Two hammers each time"; 5 -> "Three hammers each time"; else -> "Bigger, brighter bursts" }
+            ARROWS -> when (next) { 1 -> "Shoots a fan of arrows the way you walk"; 4 -> "Arrows fly through foes"; else -> "Shoots one more arrow in each volley" }
+            WOLF -> when (next) { 1 -> "A wolf runs to your foes and bites"; 5 -> "Your wolf bites twice as hard and howls, scaring foes away"; else -> "Your wolf runs faster and bites harder" }
             BOLT -> when (next) { 1 -> "Shoots a bolt at the nearest foe"; 3, 4 -> "One more bolt each volley"; 5 -> "Bolts fly through foes"; else -> "Bolts hit harder" }
             BLADES -> when (next) { 1 -> "Two blades circle you"; 3 -> "Blades hit harder and reach further"; else -> "One more blade" }
             RING -> if (next == 1) "A ring of light hurts every foe near you" else "The ring grows and burns brighter"
@@ -74,15 +105,16 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
     }
 
     class Gem(var x: Float, var y: Float, val value: Int) { var pulled = false }
-    class Bolt(var x: Float, var y: Float, val vx: Float, val vy: Float, val damage: Float, var life: Float, val pierce: Boolean) {
+    class Bolt(var x: Float, var y: Float, val vx: Float, val vy: Float, val damage: Float, var life: Float, val pierce: Boolean, val arrow: Boolean = false) {
         val hit = HashSet<Foe>()
     }
-    class Bomb(val fromX: Float, val fromY: Float, val x: Float, val y: Float, val radius: Float, val damage: Float) { var t = 0f }
+    class Bomb(val fromX: Float, val fromY: Float, val x: Float, val y: Float, val radius: Float, val damage: Float, val holy: Boolean = false) { var t = 0f }
 
     /** Things that happened since the board last looked (it empties these). */
     class Hit(val x: Float, val y: Float, val damage: Int, val big: Boolean)
     class Burst(val x: Float, val y: Float, val kind: Kind)
-    class Ring(val x: Float, val y: Float, val radius: Float, val frost: Boolean)
+    enum class Wave { FROST, FIRE, HOLY, HOWL }
+    class Ring(val x: Float, val y: Float, val radius: Float, val wave: Wave)
     val hits = mutableListOf<Hit>()
     val deaths = mutableListOf<Burst>()
     val rings = mutableListOf<Ring>()
@@ -103,7 +135,7 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
         private set
     var hp = 0f
         private set
-    val maxHp get() = 100f + shop[Boost.TOUGH.ordinal] * 10f + have(Upgrade.STEW) * 20f
+    val maxHp get() = hero.health + shop[Boost.TOUGH.ordinal] * 10f + have(Upgrade.STEW) * 20f
     /** Seconds left of the red flash after being hurt. */
     var hurt = 0f
         private set
@@ -121,7 +153,7 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
         private set
     var over = false
         private set
-    val won get() = over && time >= NIGHT
+    val won get() = over && time >= night.length
     /** The 3 cards to pick from now, or null while playing. */
     var choices: List<Upgrade>? = null
         private set
@@ -140,6 +172,20 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
     private var frostClock = 2f
     private var fireClock = 1.5f
     private var regenClock = 0f
+    private var hammerClock = 0.6f
+    private var arrowClock = 0.4f
+    private var biteClock = 0f
+    private var howlClock = 6f
+    /** The hunter's wolf: where it is and which way it looks. */
+    var wolfX = 0f
+        private set
+    var wolfY = 0f
+        private set
+    var wolfFacing = 1f
+        private set
+    /** The last way the hero walked (arrows fly this way). */
+    private var aimX = 1f
+    private var aimY = 0f
     /** Bosses and swarms sent so far (the board announces new ones). */
     var bossesSent = 0
         private set
@@ -148,21 +194,23 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
     private var acc = 0f
 
     init {
-        levels[Upgrade.BOLT.ordinal] = 1
-        taken += Upgrade.BOLT
+        levels[hero.first.ordinal] = 1
+        taken += hero.first
+        if (hero == Hero.HUNTER) { levels[Upgrade.WOLF.ordinal] = 1; taken += Upgrade.WOLF }
         hp = maxHp
+        wolfX = x - 40f; wolfY = y + 20f
     }
 
     fun start() { started = true }
 
     /** Gold earned this night: foes, minutes, dawn, and pouches. */
-    val gold get() = kills / 40 + (time / 60f).toInt() * 3 + (if (won) 15 else 0) + goldFound
+    val gold get() = kills / 40 + (time / 60f).toInt() * 3 + (if (won) night.dawnGold else 0) + goldFound
 
     // ---- Numbers that come from upgrades ----
 
     private val damageScale get() = (1f + have(Upgrade.EDGE) * 0.10f + shop[Boost.SHARP.ordinal] * 0.05f)
-    private val coolScale get() = (1f - have(Upgrade.HOURGLASS) * 0.08f)
-    val speed get() = 135f * (1f + have(Upgrade.BOOTS) * 0.10f + shop[Boost.QUICK.ordinal] * 0.05f)
+    private val coolScale get() = (1f - have(Upgrade.HOURGLASS) * 0.08f) * hero.cool
+    val speed get() = 135f * hero.speed * (1f + have(Upgrade.BOOTS) * 0.10f + shop[Boost.QUICK.ordinal] * 0.05f)
     val reach get() = 55f + have(Upgrade.MAGNET) * 30f + shop[Boost.REACH.ordinal] * 15f
     val bladeCount get() = when (have(Upgrade.BLADES)) { 0 -> 0; 1 -> 2; 2, 3 -> 3; 4 -> 4; else -> 5 }
     val bladeRadius get() = 78f + (if (have(Upgrade.BLADES) >= 3) 16f else 0f)
@@ -181,17 +229,18 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
 
     private fun tick(dt: Float) {
         time += dt
-        if (time >= NIGHT) { time = NIGHT; over = true; foes.forEach { deaths += Burst(it.x, it.y, it.kind) }; foes.clear(); return }
+        if (time >= night.length) { time = night.length; over = true; foes.forEach { deaths += Burst(it.x, it.y, it.kind) }; foes.clear(); return }
         // The hero walks where the thumb points.
         val len = hypot(steerX, steerY)
         if (len > 0.05f) {
             val k = minOf(1f, len) / len
             x += steerX * k * speed * dt; y += steerY * k * speed * dt
             if (steerX > 0.1f) facing = 1f else if (steerX < -0.1f) facing = -1f
+            aimX = steerX / len; aimY = steerY / len
         }
         if (hurt > 0) hurt -= dt
         regenClock += dt
-        if (regenClock >= 1f) { regenClock -= 1f; hp = minOf(maxHp, hp + have(Upgrade.STEW) * 0.4f) }
+        if (regenClock >= 1f) { regenClock -= 1f; hp = minOf(maxHp, hp + have(Upgrade.STEW) * 0.4f + hero.regen) }
         spawn(dt)
         moveFoes(dt)
         weapons(dt)
@@ -200,27 +249,27 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
     }
 
     private fun spawn(dt: Float) {
-        // Bosses at 3, 6 and 8½ minutes.
-        val bossAt = floatArrayOf(180f, 360f, 510f)
+        // The Necromancer comes at set times each night.
+        val bossAt = night.bosses
         if (bossesSent < bossAt.size && time >= bossAt[bossesSent]) {
             bossesSent++
-            place(Kind.NECROMANCER, Kind.NECROMANCER.hp * (1f + (bossesSent - 1) * 0.8f))
+            place(Kind.NECROMANCER, Kind.NECROMANCER.hp * (1f + (bossesSent - 1) * 0.8f) * night.tough)
         }
         // Now and then a swarm closes in from all around.
-        if (swarmsSent < SWARMS.size && time >= SWARMS[swarmsSent]) {
+        if (swarmsSent < night.swarms.size && time >= night.swarms[swarmsSent]) {
             swarmsSent++
             val kind = if (swarmsSent % 2 == 1) Kind.BAT else Kind.GHOUL
             val n = 22 + swarmsSent * 4
             for (k in 0 until n) {
                 val a = k * 6.2832f / n
-                place(kind, kind.hp * strength(), x + cos(a) * SPAWN_DISTANCE * 0.8f, y + sin(a) * SPAWN_DISTANCE * 0.62f)
+                place(kind, kind.hp * strength(), x + cos(a) * SPAWN_DISTANCE * 0.8f, y + sin(a) * SPAWN_DISTANCE * depth(a) * 0.85f)
             }
         }
         spawnClock += dt * (1.1f + time / 45f)
         while (spawnClock >= 1f) {
             spawnClock -= 1f
             if (foes.size >= MAX_FOES) continue
-            val open = Kind.entries.filter { it != Kind.NECROMANCER && time >= it.from }
+            val open = Kind.entries.filter { it != Kind.NECROMANCER && time >= it.from * night.length / 600f }
             // Newer kinds come a little more often than the first ones.
             val kind = open[minOf(open.size - 1, (random.nextFloat() * open.size * 1.15f).toInt())]
             val strength = strength()
@@ -231,15 +280,22 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
         }
     }
 
-    /** How much tougher foes are now: slowly at first, quicker towards dawn. */
-    private fun strength() = 1f + time / 220f + (time / 320f) * (time / 320f)
+    /** How much tougher foes are now: slowly at first, quicker towards dawn; later nights start tougher. */
+    private fun strength() = night.tough + time / 220f + (time / 320f) * (time / 320f)
 
-    /** A spot just outside the screen, all around. */
+    /**
+     * A spot just outside the screen, all around. The ground tilts away from the eye (the board
+     * shows it in 2.5D), so much more of it can be seen ahead (up) than behind: foes ahead start
+     * further out, in the fog.
+     */
     private fun edge(): Pair<Float, Float> {
         val a = random.nextFloat() * 6.2832f
         val d = SPAWN_DISTANCE + random.nextFloat() * 60f
-        return (x + cos(a) * d) to (y + sin(a) * d * 0.75f)
+        return (x + cos(a) * d) to (y + sin(a) * d * depth(a))
     }
+
+    /** How far up or down the spawn ring reaches, at angle [a]. */
+    private fun depth(a: Float) = if (sin(a) < 0f) 1.45f else 0.75f
 
     private fun place(kind: Kind, hp: Float, at: Pair<Float, Float> = edge()) = place(kind, hp, at.first, at.second)
     private fun place(kind: Kind, hp: Float, fx: Float, fy: Float) { foes += Foe(kind, fx, fy, hp) }
@@ -288,7 +344,73 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
         }
     }
 
+    private fun nearest(maxDist: Float, fromX: Float = x, fromY: Float = y): Foe? {
+        var best: Foe? = null; var bd = maxDist * maxDist
+        for (f in foes) { val d = (f.x - fromX) * (f.x - fromX) + (f.y - fromY) * (f.y - fromY); if (d < bd && f.hp > 0) { bd = d; best = f } }
+        return best
+    }
+
     private fun weapons(dt: Float) {
+        // Hammer of Light (Paladin): hammers fall on the nearest foes and burst.
+        if (have(Upgrade.HAMMER) > 0) {
+            hammerClock -= dt
+            if (hammerClock <= 0f) {
+                hammerClock = 1.5f * coolScale
+                val lv = have(Upgrade.HAMMER)
+                val count = when (lv) { 4 -> 2; 5 -> 3; else -> 1 }
+                val near = foes.filter { hypot(it.x - x, it.y - y) < 340f }.sortedBy { hypot(it.x - x, it.y - y) }
+                for (k in 0 until minOf(count, near.size)) {
+                    val t = near[k * (near.size / count).coerceAtLeast(1) % near.size]
+                    bombs += Bomb(x, y - 20, t.x, t.y, 52f + lv * 8f, (18f + lv * 7f) * damageScale, holy = true)
+                }
+            }
+        }
+        // Multi-Shot (Hunter): a fan of arrows the way the hero walks (or at the nearest foe when standing).
+        if (have(Upgrade.ARROWS) > 0) {
+            arrowClock -= dt
+            if (arrowClock <= 0f) {
+                arrowClock = 0.9f * coolScale
+                val lv = have(Upgrade.ARROWS)
+                val n = intArrayOf(3, 3, 4, 5, 6)[lv - 1]
+                var ax = aimX; var ay = aimY
+                if (hypot(steerX, steerY) < 0.05f) nearest(420f)?.let { f -> val d = hypot(f.x - x, f.y - y).coerceAtLeast(1f); ax = (f.x - x) / d; ay = (f.y - y) / d }
+                val base = atan2(ay, ax)
+                val dmg = (8f + lv * 3f) * damageScale
+                for (k in 0 until n) {
+                    val a = base + (k - (n - 1) / 2f) * 0.16f
+                    bolts += Bolt(x, y - 4, cos(a) * ARROW_SPEED, sin(a) * ARROW_SPEED, dmg, 0.9f, lv >= 4, arrow = true)
+                }
+            }
+        }
+        // The wolf (Hunter): runs to the nearest foe and bites; at rank 5 it howls now and then.
+        if (have(Upgrade.WOLF) > 0) {
+            val lv = have(Upgrade.WOLF)
+            val target = nearest(360f)
+            val gx: Float; val gy: Float
+            if (target != null) { gx = target.x; gy = target.y } else { gx = x - 40f * facing; gy = y + 22f }
+            val dx = gx - wolfX; val dy = gy - wolfY; val d = hypot(dx, dy)
+            val sp = (230f + lv * 20f) * dt
+            if (d > (target?.kind?.radius ?: 0f) + 10f) { val k = minOf(sp, d) / d.coerceAtLeast(0.01f); wolfX += dx * k; wolfY += dy * k }
+            if (kotlin.math.abs(dx) > 2f) wolfFacing = if (dx > 0) 1f else -1f
+            // A wolf far behind catches up at once.
+            if (hypot(wolfX - x, wolfY - y) > 500f) { wolfX = x - 40f; wolfY = y + 22f }
+            biteClock -= dt
+            if (target != null && d < target.kind.radius + 18f && biteClock <= 0f) {
+                biteClock = 0.5f
+                damage(target, (10f + lv * 5f) * (if (lv >= 5) 2f else 1f) * damageScale, dx / d.coerceAtLeast(1f), dy / d.coerceAtLeast(1f))
+            }
+            if (lv >= 5) {
+                howlClock -= dt
+                if (howlClock <= 0f) {
+                    howlClock = 6f
+                    rings += Ring(wolfX, wolfY, 160f, Wave.HOWL)
+                    for (f in foes) {
+                        val fd = hypot(f.x - wolfX, f.y - wolfY)
+                        if (fd < 160f && f.kind != Kind.NECROMANCER) { f.push = 0.35f; f.px = (f.x - wolfX) / fd.coerceAtLeast(1f) * 320f; f.py = (f.y - wolfY) / fd.coerceAtLeast(1f) * 320f }
+                    }
+                }
+            }
+        }
         // Arcane Bolt: at the nearest foes.
         if (have(Upgrade.BOLT) > 0) {
             boltClock -= dt
@@ -311,7 +433,8 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
                 if (f in b.hit || f.hp <= 0) continue
                 val r = f.kind.radius + 7
                 if ((f.x - b.x) * (f.x - b.x) + (f.y - b.y) * (f.y - b.y) < r * r) {
-                    damage(f, b.damage, b.vx / BOLT_SPEED, b.vy / BOLT_SPEED)
+                    val sp = if (b.arrow) ARROW_SPEED else BOLT_SPEED
+                    damage(f, b.damage, b.vx / sp, b.vy / sp)
                     b.hit += f
                     if (!b.pierce) { b.life = 0f; break }
                 }
@@ -353,7 +476,7 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
                 frostClock = (4.6f - have(Upgrade.FROST) * 0.4f) * coolScale
                 val rr = 140f + have(Upgrade.FROST) * 20f
                 val dmg = (8f + have(Upgrade.FROST) * 4f) * damageScale
-                rings += Ring(x, y, rr, true)
+                rings += Ring(x, y, rr, Wave.FROST)
                 for (f in foes.toList()) if (hypot(f.x - x, f.y - y) < rr + f.kind.radius) { f.slow = 2f + have(Upgrade.FROST) * 0.3f; damage(f, dmg, 0f, 0f) }
             }
         }
@@ -372,10 +495,10 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
         val mi = bombs.iterator()
         while (mi.hasNext()) {
             val m = mi.next()
-            m.t += dt / BOMB_FLIGHT
+            m.t += dt / (if (m.holy) HAMMER_FLIGHT else BOMB_FLIGHT)
             if (m.t >= 1f) {
                 mi.remove()
-                rings += Ring(m.x, m.y, m.radius, false)
+                rings += Ring(m.x, m.y, m.radius, if (m.holy) Wave.HOLY else Wave.FIRE)
                 for (f in foes.toList()) {
                     val d = hypot(f.x - m.x, f.y - m.y)
                     if (d < m.radius + f.kind.radius) damage(f, m.damage, (f.x - m.x) / d.coerceAtLeast(1f), (f.y - m.y) / d.coerceAtLeast(1f))
@@ -432,7 +555,7 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
     private fun offer() {
         val weapons = Upgrade.entries.count { it.weapon && have(it) > 0 }
         val open = Upgrade.entries.filter {
-            it != Upgrade.HERBS && it != Upgrade.POUCH && have(it) < MAX_LEVEL && (!it.weapon || have(it) > 0 || weapons < 4) &&
+            it != Upgrade.HERBS && it != Upgrade.POUCH && have(it) < MAX_LEVEL && (it.only == null || it.only == hero.name) && (!it.weapon || have(it) > 0 || weapons < 4) &&
                 (it.weapon || have(it) > 0 || taken.count { t -> !t.weapon } < 4)
         }.shuffled(random)
         val pick = open.take(3).toMutableList()
@@ -462,18 +585,17 @@ class LastLight(val shop: IntArray = IntArray(Boost.entries.size), private val r
     companion object {
         const val W = 1000f
         const val H = 620f
-        const val NIGHT = 600f
         const val MAX_LEVEL = 5
         const val HERO_R = 14f
         const val STEP = 1f / 60f
         const val MAX_FOES = 200
-        /** When swarms come (seconds). */
-        val SWARMS = floatArrayOf(100f, 240f, 400f, 540f)
         const val MAX_GEMS = 220
         const val SPAWN_DISTANCE = 600f
-        const val FORGET = 900f
+        const val FORGET = 1150f
         const val CELL = 48f
         const val BOLT_SPEED = 520f
         const val BOMB_FLIGHT = 0.6f
+        const val HAMMER_FLIGHT = 0.3f
+        const val ARROW_SPEED = 640f
     }
 }

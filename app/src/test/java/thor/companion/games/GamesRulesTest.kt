@@ -339,7 +339,8 @@ class GamesRulesTest {
     }
 
     @Test fun lastLightNight() {
-        val g = LastLight(IntArray(4), Random(1))
+        for (h in LastLight.Hero.entries) assertEquals(1, LastLight(hero = h).have(h.first))
+        val g = LastLight(IntArray(4), Random(1), LastLight.Hero.MAGE)
         assertEquals(1, g.have(LastLight.Upgrade.BOLT))
         g.step(1f)
         assertEquals(0f, g.time, 0f)  // waits for Start
@@ -374,14 +375,18 @@ class GamesRulesTest {
     }
 
     @Test fun lastLightShopAndLosing() {
-        assertEquals(150f, LastLight(intArrayOf(5, 0, 0, 0)).maxHp, 0f)
+        assertEquals(150f, LastLight(intArrayOf(5, 0, 0, 0), hero = LastLight.Hero.HUNTER).maxHp, 0f)
         assertEquals(80, LastLight.Boost.TOUGH.cost(1))
+        // The nights open one after another, each longer than the one before.
+        val nights = LastLight.Night.entries
+        for (i in 1 until nights.size) { assertEquals(nights[i], nights[i - 1].next); assertTrue(nights[i].length > nights[i - 1].length) }
+        assertEquals(null, nights.last().next)
         // Standing still never ends well.
         val g = LastLight(IntArray(4), Random(2))
         g.start()
         var guard = 0
         while (!g.over && guard++ < 60 * 700) { g.choices?.let { g.choose(0) }; g.step(LastLight.STEP); g.hits.clear(); g.deaths.clear(); g.rings.clear() }
         assertTrue(g.over)
-        assertEquals(g.won, g.time >= LastLight.NIGHT)
+        assertEquals(g.won, g.time >= g.night.length)
     }
 }

@@ -61,10 +61,18 @@ class Arcade(
 
     /** Opens [id] straight away (the screenshot test). */
     internal fun openGame(id: String) {
-        // "light:night" and "light:cards": Last Light part way through a night.
+        // "light:night", "light:cards" and "light:hunter": Last Light part way through a night
+        // (the last one as the Hunter with his wolf, in the second night).
         val stage = id.substringAfter(':', "")
         open = id.substringBefore(':'); board = null; render()
-        (board as? LastLightView)?.let { if (stage.isNotEmpty()) { it.preview(if (stage == "cards") 150f else 200f, stage == "cards"); it.paused = false; render() } }
+        (board as? LastLightView)?.let {
+            when (stage) {
+                "" -> return
+                "hunter" -> it.preview(200f, false, LastLight.Hero.HUNTER, LastLight.Night.GRAVEYARD)
+                else -> it.preview(if (stage == "cards") 150f else 200f, stage == "cards")
+            }
+            it.paused = false; render()
+        }
     }
 
     private fun renderList() {
@@ -429,7 +437,16 @@ class Arcade(
         "gryphon" -> prefs.getInt("best_gryphon", 0).let { if (it > 0) "Best ${GameView.number(it)} m" else "Play" }
         "fishing" -> prefs.getFloat("best_fishing", 0f).let { if (it > 0f) "Best %.1f kg".format(it) else "Play" }
         "pegs" -> prefs.getInt("best_pegs", 0).let { if (it > 0) "Best ${GameView.number(it)}" else "Play" }
-        "light" -> prefs.getInt("best_light", 0).let { if (it >= LastLight.NIGHT.toInt()) "Saw the dawn" else if (it > 0) "Best ${GameView.clock(it * 1000L)}" else "Play" }
+        "light" -> {
+            val cleared = prefs.getInt("light_open", 1) - 1
+            val best = prefs.getInt("best_light", 0)
+            when {
+                cleared >= LastLight.Night.entries.size -> "Saw every dawn"
+                cleared > 0 -> "$cleared of ${LastLight.Night.entries.size} nights cleared"
+                best > 0 -> "Best ${GameView.clock(best * 1000L)}"
+                else -> "Play"
+            }
+        }
         "blocks" -> prefs.getInt("best_blocks", 0).let { if (it > 0) "Best ${GameView.number(it)}" else "Play" }
         else -> "Play"
     }

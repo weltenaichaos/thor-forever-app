@@ -11,8 +11,8 @@ import android.graphics.Shader
 import thor.companion.Theme
 
 /**
- * Last Light's figures (pictures: mockups/survivors-v3, Jesse 2026-10-27: "more WoW-like", our
- * own drawings): a knight in plate with the Forever tabard, ghouls, vampire bats, skeleton
+ * Last Light's figures (pictures: mockups/survivors-v3 and v4, Jesse 2026-10-27: "more WoW-like",
+ * our own drawings): the Paladin, Mage and Hunter (with a wolf), ghouls, vampire bats, skeleton
  * warriors, banshees and the Necromancer. Each is drawn centred on 0, 0 in world units, in the
  * same shapes as the mockup (its path strings are used as they are). The board paints each one
  * once into a small picture and then only copies it.
@@ -83,44 +83,189 @@ internal object LastLightArt {
         for (ex in floatArrayOf(-dx, dx)) { glow(c, ex, y, r * 2.4f, glowColour); oval(c, ex, y, r, r * 1.25f, colour) }
     }
 
-    /** The Lightbearer: plate, round shoulder guards, the Forever tabard, a lantern staff. */
-    fun hero(c: Canvas) {
-        shadow(c, 20f, 6f, 25f)
-        shape(c, "M-14 -6 Q-22 10 -18 24 Q0 28 18 24 Q22 10 14 -6Z", WHITE, LinearGradient(0f, -6f, 0f, 26f, Color.rgb(42, 90, 138), Color.rgb(13, 34, 56), Shader.TileMode.CLAMP), 1.6f)
-        for (lx in floatArrayOf(-9f, 2f)) {
-            p.shader = steel(lx, 14f, lx + 7, 25f); p.color = WHITE; c.drawRoundRect(lx, 14f, lx + 7, 25f, 2f, 2f, p); p.shader = null
-            p.style = Paint.Style.STROKE; p.strokeWidth = 1.3f; p.color = OUTLINE; c.drawRoundRect(lx, 14f, lx + 7, 25f, 2f, 2f, p); p.style = Paint.Style.FILL
-        }
-        shape(c, "M-11 -6 Q0 -10 11 -6 L10 12 Q0 15 -10 12Z", WHITE, steel(-11f, -10f, 11f, 15f), 1.5f)
-        shape(c, "M-7 -2 L7 -2 L6 20 L0 23 L-6 20Z", WHITE, LinearGradient(0f, -2f, 0f, 23f, Color.rgb(63, 134, 200), Color.rgb(23, 60, 102), Shader.TileMode.CLAMP), 1.3f)
+    // ---- The three classes (mockups/survivors-v4 and v5) ----
+
+    private fun cape(t: Float, b: Float) = LinearGradient(0f, t, 0f, b, Color.rgb(42, 90, 138), Color.rgb(13, 34, 56), Shader.TileMode.CLAMP)
+    private fun tabard(t: Float, b: Float) = LinearGradient(0f, t, 0f, b, Color.rgb(63, 134, 200), Color.rgb(23, 60, 102), Shader.TileMode.CLAMP)
+    private fun pauldron(cx: Float, cy: Float, r: Float) = RadialGradient(cx - r * 0.3f, cy - r * 0.4f, r * 1.6f, intArrayOf(Color.rgb(244, 248, 255), Color.rgb(143, 162, 184), Color.rgb(54, 66, 79)), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+    private fun blueRobe(t: Float, b: Float) = LinearGradient(0f, t, 0f, b, intArrayOf(Color.rgb(90, 122, 232), Color.rgb(42, 58, 154), Color.rgb(20, 26, 74)), floatArrayOf(0f, 0.6f, 1f), Shader.TileMode.CLAMP)
+    private fun leather(l: Float, t: Float, r: Float, b: Float) = LinearGradient(l, t, r, b, intArrayOf(Color.rgb(192, 138, 82), Color.rgb(122, 78, 40), Color.rgb(58, 34, 16)), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+    private fun green(t: Float, b: Float) = LinearGradient(0f, t, 0f, b, Color.rgb(122, 168, 74), Color.rgb(46, 74, 26), Shader.TileMode.CLAMP)
+    private fun skin(cx: Float, cy: Float, r: Float) = RadialGradient(cx - r * 0.2f, cy - r * 0.3f, r * 1.6f, intArrayOf(Color.rgb(255, 224, 192), Color.rgb(224, 168, 120), Color.rgb(160, 106, 64)), floatArrayOf(0f, 0.7f, 1f), Shader.TileMode.CLAMP)
+    private fun fur(cx: Float, cy: Float, r: Float) = RadialGradient(cx - r * 0.3f, cy - r * 0.4f, r * 1.8f, intArrayOf(Color.rgb(216, 220, 228), Color.rgb(138, 144, 156), Color.rgb(58, 62, 72)), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+    private val BROWN = Color.rgb(90, 54, 24)
+
+    private fun rect(c: Canvas, l: Float, t: Float, r: Float, b: Float, rx: Float, colour: Int, shader: Shader?, outline: Float) {
+        p.style = Paint.Style.FILL; p.shader = shader; p.color = colour; c.drawRoundRect(l, t, r, b, rx, rx, p); p.shader = null
+        if (outline > 0) { p.style = Paint.Style.STROKE; p.strokeWidth = outline; p.color = OUTLINE; c.drawRoundRect(l, t, r, b, rx, rx, p); p.style = Paint.Style.FILL }
+    }
+    /** A hand: a small ball. */
+    private fun hand(c: Canvas, x: Float, y: Float, r: Float, shader: Shader) = circle(c, x, y, r, WHITE, shader, 1.1f)
+
+    /** The class's figure, feet at y 25. */
+    fun hero(c: Canvas, hero: LastLight.Hero) = when (hero) {
+        LastLight.Hero.PALADIN -> paladin(c)
+        LastLight.Hero.MAGE -> mage(c)
+        LastLight.Hero.HUNTER -> hunter(c)
+    }
+
+    /** The Paladin: chunky plate, spiked gold-rimmed shoulders, the Forever tabard, a holy hammer. */
+    fun paladin(c: Canvas) {
+        shadow(c, 21f, 6f, 25f)
+        shape(c, "M-14 -6 Q-22 10 -18 24 Q0 28 18 24 Q22 10 14 -6Z", WHITE, cape(-6f, 26f), 1.6f)
+        rect(c, -10f, 14f, -2f, 25f, 2f, WHITE, steel(-10f, 14f, -2f, 25f), 1.3f)
+        rect(c, 2f, 14f, 10f, 25f, 2f, WHITE, steel(2f, 14f, 10f, 25f), 1.3f)
+        shape(c, "M-12 -6 Q0 -10 12 -6 L11 12 Q0 15 -11 12Z", WHITE, steel(-12f, -10f, 12f, 15f), 1.5f)
+        shape(c, "M-7 -2 L7 -2 L6 20 L0 23 L-6 20Z", WHITE, tabard(-2f, 23f), 1.3f)
         line(c, "M-5.7 0 L5.7 0 L4.9 17 L0 19.6 L-4.9 17Z", 1.2f, WHITE, gold(0f, 20f))
         // Our ∞ on the tabard.
         p.style = Paint.Style.STROKE; p.strokeWidth = 1.3f; p.color = Theme.GOLD
-        c.drawOval(-4.6f, 6.6f, -0.2f, 10f, p); c.drawOval(0.2f, 6.6f, 4.6f, 10f, p); p.style = Paint.Style.FILL
-        p.color = Color.rgb(90, 54, 24); c.drawRoundRect(-11f, 7f, 11f, 11f, 1.5f, 1.5f, p)
-        p.shader = gold(6.5f, 11.5f); c.drawRoundRect(-2.5f, 6.5f, 2.5f, 11.5f, 1f, 1f, p); p.shader = null
-        // Left arm, the staff, the right arm.
-        limb(c, "M-16 0 Q-20 8 -16 14", 5f, WHITE, steel(-20f, 0f, -14f, 14f))
-        circle(c, -16f, 15f, 3.6f, WHITE, steel(-20f, 11f, -12f, 19f), 1.2f)
-        line(c, "M20 -28 L16 20", 4.5f); line(c, "M20 -28 L16 20", 2.6f, Color.rgb(138, 90, 42))
-        limb(c, "M16 0 Q20 6 17 11", 5f, WHITE, steel(15f, 0f, 21f, 11f))
-        circle(c, 17.5f, 9f, 3.8f, WHITE, steel(14f, 5f, 21f, 13f), 1.2f)
-        // The lantern (its light is drawn live by the board).
-        shape(c, "M16 -40 L26 -40 L25 -28 L17 -28Z", Color.rgb(255, 240, 184), null, 1.4f)
-        shape(c, "M15 -42 L27 -42 L21 -47Z", WHITE, gold(-47f, -42f), 1.2f)
-        p.shader = gold(-29f, -26f); c.drawRoundRect(15f, -29f, 27f, -26f, 1f, 1f, p); p.shader = null
-        oval(c, 21f, -34f, 2.4f, 3.6f, WHITE)
-        // Shoulder guards with a blue stone.
-        for (sx in floatArrayOf(-13f, 13f)) {
-            circle(c, sx, -6f, 9.5f, WHITE, radial(sx - 3f, -9f, 15f, Color.rgb(244, 248, 255), Color.rgb(143, 162, 184), Color.rgb(54, 66, 79)), 1.6f)
-            p.style = Paint.Style.STROKE; p.strokeWidth = 1.6f; p.shader = gold(-14f, 2f); c.drawCircle(sx, -6f, 7.6f, p); p.shader = null; p.style = Paint.Style.FILL
-            circle(c, sx, -7f, 2.4f, Theme.TEAL, null, 0.8f)
+        c.drawOval(-4.6f, 2.6f, -0.2f, 6f, p); c.drawOval(0.2f, 2.6f, 4.6f, 6f, p); p.style = Paint.Style.FILL
+        rect(c, -12f, 7f, 12f, 11.5f, 1.5f, BROWN, null, 1f)
+        rect(c, -3f, 6.2f, 3f, 12.2f, 1f, WHITE, gold(6.2f, 12.2f), 0.8f)
+        limb(c, "M-17 0 Q-21 8 -17 14", 5.6f, WHITE, steel(-21f, 0f, -15f, 14f))
+        hand(c, -17f, 15f, 4f, steel(-21f, 11f, -13f, 19f))
+        // The hammer: handle, head with a gold band, and its holy glow.
+        line(c, "M18 14 L22 -14", 4.5f); line(c, "M18 14 L22 -14", 2.6f, Color.rgb(138, 90, 42))
+        glow(c, 22f, -18f, 16f, Theme.GOLD, 140)
+        c.save(); c.rotate(8f, 22f, -18f)
+        rect(c, 14f, -24f, 31f, -13f, 2.5f, WHITE, steel(14f, -24f, 31f, -13f), 1.5f)
+        rect(c, 14f, -21f, 31f, -18f, 0f, WHITE, gold(-21f, -18f), 0f)
+        c.restore()
+        limb(c, "M17 0 Q21 6 18 11", 5.6f, WHITE, steel(15f, 0f, 21f, 11f))
+        hand(c, 18.5f, 10f, 4f, steel(15f, 6f, 22f, 14f))
+        for (s in floatArrayOf(-1f, 1f)) {
+            c.save(); c.translate(14f * s, -7f)
+            shape(c, "M${-6 * s} -9 L${-2 * s} -16 L${1 * s} -10 L${5 * s} -15 L${7 * s} -8Z", WHITE, gold(-16f, -8f), 1f)
+            circle(c, 0f, 0f, 11.5f, WHITE, pauldron(0f, 0f, 11.5f), 1.7f)
+            p.style = Paint.Style.STROKE; p.strokeWidth = 2.2f; p.shader = gold(-9f, 9f); c.drawCircle(0f, 0f, 9f, p); p.shader = null; p.style = Paint.Style.FILL
+            circle(c, 0f, -1f, 2.8f, Theme.GOLD, null, 0.8f)
+            c.restore()
         }
-        // The helmet, its gold crest, and the eyes behind the visor.
         shape(c, "M-9 -12 Q-10 -27 0 -28 Q10 -27 9 -12 Q0 -8 -9 -12Z", WHITE, steel(-10f, -28f, 10f, -9f), 1.6f)
-        shape(c, "M0 -28 Q2 -36 -2 -40 Q8 -36 4 -27Z", WHITE, gold(-40f, -27f), 1f)
+        shape(c, "M-9 -15 Q-14 -24 -12 -30 Q-8 -24 -7 -20Z M9 -15 Q14 -24 12 -30 Q8 -24 7 -20Z", WHITE, gold(-30f, -15f), 1f)
         line(c, "M-6 -19 L6 -19 M0 -19 L0 -12", 2.6f, Color.rgb(10, 10, 20))
         eyes(c, Color.rgb(255, 246, 208), Theme.GOLD, 3.5f, -19f, 1f)
+    }
+
+    /** The Mage: a flowing blue robe, a high collar with spiked shoulders, a staff with a glowing crystal. */
+    fun mage(c: Canvas) {
+        shadow(c, 19f, 6f, 25f)
+        val robe = blueRobe(-31f, 25f)
+        shape(c, "M-12 -6 Q-20 14 -18 24 Q-8 21 0 25 Q8 21 18 24 Q20 14 12 -6Z", WHITE, blueRobe(-6f, 25f), 1.6f)
+        shape(c, "M-3 -4 L3 -4 L4 24 Q0 22 -4 24Z", Color.argb(217, 232, 216, 255), null, 1f)
+        line(c, "M-16 21 Q-8 18 0 22 Q8 18 16 21", 2f, WHITE, gold(18f, 22f))
+        rect(c, -11f, 6f, 11f, 9.5f, 1.5f, WHITE, gold(6f, 9.5f), 0.9f)
+        circle(c, 0f, 7.8f, 2.4f, Color.rgb(192, 122, 255), null, 0.8f)
+        limb(c, "M-12 -2 Q-19 6 -15 13", 5f, WHITE, robe)
+        hand(c, -15f, 14f, 3f, skin(-15f, 14f, 3f))
+        // The staff and its crystal.
+        line(c, "M19 -30 L16 22", 4.2f); line(c, "M19 -30 L16 22", 2.4f, Color.rgb(106, 74, 138))
+        shape(c, "M14 -30 Q19 -24 24 -30 Q22 -40 19 -44 Q16 -40 14 -30Z", WHITE, gold(-44f, -24f), 1f)
+        glow(c, 19f, -38f, 18f, Color.rgb(192, 122, 255), 200)
+        fill(c, "M19 -46 L23 -38 L19 -31 L15 -38Z", Color.rgb(240, 216, 255)); line(c, "M19 -46 L23 -38 L19 -31 L15 -38Z", 1.2f, Color.rgb(106, 42, 160))
+        limb(c, "M12 -2 Q19 4 17 10", 5f, WHITE, robe)
+        hand(c, 17f, 10f, 3f, skin(17f, 10f, 3f))
+        for (s in floatArrayOf(-1f, 1f)) {
+            shape(c, "M${4 * s} -10 Q${16 * s} -14 ${18 * s} -4 L${22 * s} -12 L${15 * s} 0 Q${10 * s} -4 ${4 * s} -4Z", WHITE, robe, 1.4f)
+            line(c, "M${8 * s} -10 Q${15 * s} -12 ${17 * s} -5", 1.6f, WHITE, gold(-12f, -5f))
+        }
+        shape(c, "M-10 -12 Q-11 -29 0 -31 Q11 -29 10 -12 Q0 -6 -10 -12Z", WHITE, robe, 1.6f)
+        p.shader = skin(0f, -17f, 6.5f); p.color = WHITE; c.drawOval(-6f, -23.5f, 6f, -10.5f, p); p.shader = null
+        p.style = Paint.Style.STROKE; p.strokeWidth = 1f; p.color = OUTLINE; c.drawOval(-6f, -23.5f, 6f, -10.5f, p); p.style = Paint.Style.FILL
+        line(c, "M-6 -20 Q0 -25 6 -20", 2.2f, Color.rgb(58, 42, 106))
+        oval(c, -2.4f, -17f, 1.2f, 1.5f, Color.rgb(26, 16, 48)); oval(c, 2.4f, -17f, 1.2f, 1.5f, Color.rgb(26, 16, 48))
+        shape(c, "M-5 -14 Q0 -6 5 -14 Q3 -10 0 -10 Q-3 -10 -5 -14Z", Color.rgb(244, 240, 232), null, 0.7f)
+        line(c, "M0 -31 Q-3 -26 -7 -27", 1.5f, WHITE, gold(-31f, -26f))
+    }
+
+    /** The Hunter: leather and mail, a hood with a red feather, a big bow and a quiver. */
+    fun hunter(c: Canvas) {
+        shadow(c, 19f, 6f, 25f)
+        val hide = leather(-20f, -14f, 20f, 25f)
+        c.save(); c.rotate(-20f, -8f, 0f)
+        rect(c, -12f, -12f, -5f, 10f, 2f, WHITE, leather(-12f, -12f, -5f, 10f), 1.2f)
+        for (a in floatArrayOf(-10f, -7f, -4f)) shape(c, "M${a - 6} -16 l-2 -6 l3 1 l2 -3 l1 5", Color.rgb(224, 224, 224), null, 0.7f)
+        c.restore()
+        rect(c, -9f, 14f, -2f, 25f, 2f, BROWN, null, 1.3f)
+        rect(c, 2f, 14f, 9f, 25f, 2f, BROWN, null, 1.3f)
+        shape(c, "M-11 -6 Q0 -10 11 -6 L10 14 Q0 17 -10 14Z", WHITE, green(-10f, 17f), 1.5f)
+        shape(c, "M-7 -4 L7 -4 L6 12 L-6 12Z", WHITE, leather(-7f, -4f, 7f, 12f), 1.1f)
+        line(c, "M-6 -1 L6 -1 M-6 3 L6 3 M-6 7 L6 7", 0.8f, Color.rgb(58, 34, 16))
+        rect(c, -11f, 10f, 11f, 13.5f, 1.5f, Color.rgb(58, 34, 16), null, 0.9f)
+        rect(c, -2f, 9.5f, 2f, 14f, 1f, WHITE, steel(-2f, 9.5f, 2f, 14f), 0f)
+        limb(c, "M-12 -2 Q-19 6 -15 13", 5f, WHITE, hide)
+        hand(c, -15f, 14f, 3f, leather(-18f, 11f, -12f, 17f))
+        // The bow, its string, and the arrow ready on it.
+        line(c, "M14 -34 Q32 -6 14 22", 4.6f); line(c, "M14 -34 Q32 -6 14 22", 2.8f, WHITE, leather(14f, -34f, 26f, 22f))
+        line(c, "M14 -34 L14 22", 0.9f, Color.rgb(240, 240, 224))
+        line(c, "M24 -8 l-2 -2 M24 -8 l-2 2", 2f, WHITE, gold(-10f, -6f))
+        limb(c, "M12 -2 Q18 2 17 8", 5f, WHITE, hide)
+        hand(c, 17f, 8f, 3f, leather(14f, 5f, 20f, 11f))
+        for (s in floatArrayOf(-1f, 1f)) {
+            c.save(); c.translate(12f * s, -7f)
+            p.shader = steel(-9.5f, -8f, 9.5f, 8f); p.color = WHITE; c.drawOval(-9.5f, -8f, 9.5f, 8f, p); p.shader = null
+            p.style = Paint.Style.STROKE; p.strokeWidth = 1.5f; p.color = OUTLINE; c.drawOval(-9.5f, -8f, 9.5f, 8f, p); p.style = Paint.Style.FILL
+            line(c, "M-7 -4 Q0 -1 7 -4 M-7 0 Q0 3 7 0 M-7 4 Q0 7 7 4", 1f, Color.rgb(74, 88, 104))
+            shape(c, "M${-2 * s} -8 L${6 * s} -13 L${8 * s} -5Z", WHITE, leather(-8f, -13f, 8f, -5f), 1f)
+            c.restore()
+        }
+        shape(c, "M-10 -11 Q-12 -30 0 -32 Q12 -30 10 -11 Q0 -6 -10 -11Z", WHITE, green(-32f, -8f), 1.6f)
+        p.shader = skin(0f, -17f, 6.2f); p.color = WHITE; c.drawOval(-6f, -23.2f, 6f, -10.8f, p); p.shader = null
+        p.style = Paint.Style.STROKE; p.strokeWidth = 1f; p.color = OUTLINE; c.drawOval(-6f, -23.2f, 6f, -10.8f, p); p.style = Paint.Style.FILL
+        fill(c, "M-6.5 -19.5 L6.5 -19.5 L6 -16 L-6 -16Z", Color.argb(230, 46, 74, 26))
+        oval(c, -2.4f, -17.6f, 1.2f, 1.1f, Color.rgb(255, 246, 160)); oval(c, 2.4f, -17.6f, 1.2f, 1.1f, Color.rgb(255, 246, 160))
+        line(c, "M-3 -12.5 Q0 -11 3 -12.5", 1f, Color.rgb(106, 58, 32))
+        shape(c, "M7 -26 Q16 -36 20 -44 Q14 -32 9 -24Z", Color.rgb(192, 48, 48), null, 0.9f)
+        line(c, "M9 -27 Q14 -34 18 -41", 0.7f, Color.rgb(255, 176, 160))
+    }
+
+    /** The hunter's wolf, looking right; feet at y 14. */
+    fun wolf(c: Canvas, step: Boolean = false) {
+        shadow(c, 18f, 4.5f, 14f)
+        val coat = fur(0f, -6f, 16f)
+        shape(c, "M-14 0 Q-24 -6 -26 -14 Q-20 -6 -14 -6Z", WHITE, coat, 1.3f)
+        val legs = if (step) floatArrayOf(-11f, -4f, 5f, 12f) else floatArrayOf(-10f, -5f, 6f, 11f)
+        for ((i, lx) in legs.withIndex()) {
+            val kick = if (step && i % 2 == 0) 2f else 0f
+            val d = "M$lx 4 L${lx - 1 + kick} 13 L${lx + 3 + kick} 13"
+            line(c, d, 4.4f); line(c, d, 2.6f, Color.rgb(138, 144, 156))
+        }
+        shape(c, "M-15 -2 Q-14 -10 0 -10 Q12 -11 15 -4 Q16 6 4 7 Q-10 8 -15 -2Z", WHITE, coat, 1.5f)
+        line(c, "M-8 -9 l3 -3 l2 3 l3 -3 l2 3", 1.2f, Color.rgb(74, 78, 88))
+        shape(c, "M10 -6 Q12 -18 20 -16 Q26 -15 30 -10 Q28 -6 22 -5 Q16 -2 10 -6Z", WHITE, fur(20f, -12f, 10f), 1.5f)
+        shape(c, "M14 -15 L15 -23 L19 -16Z M18 -16 L21 -22 L22 -15Z", Color.rgb(106, 112, 124), null, 1f)
+        circle(c, 30f, -10f, 1.6f, Color.rgb(20, 20, 20))
+        glow(c, 20f, -12f, 3.4f, Theme.GOLD); circle(c, 20f, -12f, 1.1f, Color.rgb(255, 246, 160))
+        line(c, "M24 -6 l1 2 l1 -2", 0.8f, WHITE)
+    }
+
+    /** A hammer for the action bar and cards, about 30 units across. */
+    fun hammerIcon(c: Canvas) {
+        line(c, "M-8 11 L5 -5", 4.5f); line(c, "M-8 11 L5 -5", 2.6f, Color.rgb(138, 90, 42))
+        glow(c, 6f, -6f, 13f, Theme.GOLD, 160)
+        c.save(); c.rotate(-40f, 6f, -6f)
+        rect(c, -3f, -12f, 15f, 0f, 2.5f, WHITE, steel(-3f, -12f, 15f, 0f), 1.4f)
+        rect(c, -3f, -8.5f, 15f, -5f, 0f, WHITE, gold(-8.5f, -5f), 0f)
+        c.restore()
+    }
+
+    /** Three arrows fanned out, for the action bar and cards. */
+    fun arrowsIcon(c: Canvas) {
+        for (a in floatArrayOf(-0.35f, 0f, 0.35f)) {
+            c.save(); c.rotate(-45f + a * 57f)
+            line(c, "M-12 0 L8 0", 2f, Color.rgb(216, 184, 136))
+            fill(c, "M8 -3 L13 0 L8 3Z", Color.rgb(221, 221, 238))
+            line(c, "M-12 0 l-3 -3 M-12 0 l-3 3", 2f, Color.rgb(192, 48, 48))
+            c.restore()
+        }
+    }
+
+    /** One arrow flying right, its tip at 0, 0. */
+    fun arrow(c: Canvas) {
+        line(c, "M-22 0 L6 0", 2.4f, Color.rgb(216, 184, 136))
+        shape(c, "M6 -3.5 L13 0 L6 3.5Z", WHITE, steel(6f, -3.5f, 13f, 3.5f), 0.7f)
+        fill(c, "M-22 0 L-27 -4 L-19 0 L-27 4Z", Color.rgb(192, 48, 48))
     }
 
     /** A ghoul: hunched, long clawed arms reaching forward, ribs and yellow eyes. */
@@ -239,6 +384,4 @@ internal object LastLightArt {
         fill(c, "M34 -67 Q34 -74 37 -77 Q37 -71 39 -69Z", Color.rgb(240, 255, 208))
     }
 
-    /** Sizes of each picture (world units, wide x high), around its middle. */
-    const val HERO_W = 84f; const val HERO_H = 112f
 }
