@@ -167,7 +167,7 @@ At the login screen and at character creation, the **Type in the game** box type
 
 **☰ More**, at the end of the status line, opens:
 
-- **Games:** 17 small games for a flight or a wait: Gem Match, Solitaire, Minesweeper, 2048, Sudoku, Nonogram, Mahjong, Block Drop, Pipe Connect, Slide Puzzle, Word Search, Memory Pairs, Peg Bounce, Gryphon Glide, Fishing Bobber, Snake and Brick Breaker. They run only in the companion, never touch the game, and keep where you stopped.
+- **Games:** 18 small games for a flight or a wait: Gem Match, Solitaire, Minesweeper, 2048, Sudoku, Nonogram, Mahjong, Block Drop, Pipe Connect, Slide Puzzle, Word Search, Memory Pairs, Peg Bounce, Gryphon Glide, Fishing Bobber, Snake, Brick Breaker and Last Light (survive the night until dawn). They run only in the companion, never touch the game, and keep where you stopped.
 - **Settings:** the companion's switches (Map, Chat, Craft, Games) and Help.
 - **Exit:** closes only the companion, after asking. The game keeps running.
 

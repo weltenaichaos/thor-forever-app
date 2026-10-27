@@ -140,6 +140,10 @@ class CompanionScreensTest {
     @Test fun fishing() = shoot("8o-fishing-bobber", "BAGS", more = "games", playing = "fishing")
     @Test fun snake() = shoot("8p-snake", "BAGS", more = "games", playing = "snake")
     @Test fun bricks() = shoot("8q-brick-breaker", "BAGS", more = "games", playing = "bricks")
+    /** Last Light: the shop before the night, a night part way through, and a level up's three cards. */
+    @Test fun lastLightShop() = shoot("8r-last-light-shop", "BAGS", more = "games", playing = "light")
+    @Test fun lastLightNight() = shoot("8s-last-light-night", "BAGS", more = "games", playing = "light:night")
+    @Test fun lastLightCards() = shoot("8t-last-light-cards", "BAGS", more = "games", playing = "light:cards")
     @Test fun settings() = shoot("9-settings", "BAGS", more = "settings")
     @Test fun chat() = shoot("6-chat", "CHAT")
     /** The start-up card, part way: the status, bags and character are in, the rest still coming. */

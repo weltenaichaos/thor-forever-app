@@ -50,6 +50,16 @@ class GameIcon(context: Context, private val id: String) : View(context) {
             "fishing" -> { line(Theme.SKY, .03f); canvas.drawLine(s * .5f, 0f, s * .5f, s * .35f, p); c(Theme.BAD); r.set(s * .36f, s * .32f, s * .64f, s * .6f); canvas.drawArc(r, 180f, 180f, true, p); c(Color.WHITE); canvas.drawArc(r, 0f, 180f, true, p)
                 line(Theme.TEAL, .04f); canvas.drawArc(RectF(s * .15f, s * .55f, s * .85f, s * .85f), 200f, 140f, false, p) }
             "snake" -> { line(Color.rgb(90, 210, 120), .12f); path.reset(); path.moveTo(s * .12f, s * .7f); path.cubicTo(s * .3f, s * .2f, s * .5f, s * .9f, s * .72f, s * .38f); canvas.drawPath(path, p); c(Color.rgb(90, 210, 120)); canvas.drawCircle(s * .76f, s * .32f, s * .1f, p) }
+            "light" -> {
+                // A hooded figure holding up a lantern.
+                c(Color.argb(70, 255, 210, 90)); canvas.drawCircle(s * .72f, s * .62f, s * .26f, p)
+                c(Color.rgb(42, 90, 138)); path.reset(); path.moveTo(s * .2f, s * .92f); path.quadTo(s * .16f, s * .42f, s * .44f, s * .14f); path.quadTo(s * .72f, s * .42f, s * .68f, s * .92f); path.close(); canvas.drawPath(path, p)
+                c(Color.rgb(5, 13, 24)); canvas.drawOval(s * .33f, s * .3f, s * .55f, s * .46f, p)
+                c(Theme.GOLD); canvas.drawCircle(s * .39f, s * .38f, s * .025f, p); canvas.drawCircle(s * .49f, s * .38f, s * .025f, p)
+                c(Theme.ACCENT); r.set(s * .2f, s * .84f, s * .68f, s * .92f); canvas.drawRect(r, p)
+                c(Color.rgb(255, 233, 168)); r.set(s * .64f, s * .52f, s * .8f, s * .74f); canvas.drawRoundRect(r, s * .03f, s * .03f, p)
+                c(Color.rgb(138, 106, 52)); r.set(s * .62f, s * .49f, s * .82f, s * .54f); canvas.drawRect(r, p)
+            }
             "bricks" -> { for (y in 0 until 3) for (x in 0 until 3) { c(listOf(Theme.BAD, Theme.GOLD, Theme.TEAL)[y]); r.set(s * (.08f + x * .29f), s * (.12f + y * .14f), s * (.34f + x * .29f), s * (.23f + y * .14f)); canvas.drawRect(r, p) }
                 c(Color.rgb(240, 240, 240)); canvas.drawCircle(s * .55f, s * .66f, s * .06f, p); c(ink); r.set(s * .3f, s * .82f, s * .7f, s * .9f); canvas.drawRoundRect(r, s * .04f, s * .04f, p) }
         }

@@ -337,4 +337,51 @@ class GamesRulesTest {
         assertTrue(p.pegs.size < all)
         assertTrue(p.score > 0)
     }
+
+    @Test fun lastLightNight() {
+        val g = LastLight(IntArray(4), Random(1))
+        assertEquals(1, g.have(LastLight.Upgrade.BOLT))
+        g.step(1f)
+        assertEquals(0f, g.time, 0f)  // waits for Start
+        g.start()
+        var cards = 0
+        while (g.time < 150f && !g.over) {
+            var sx = 0f; var sy = 0f
+            for (f in g.foes) { val dx = g.x - f.x; val dy = g.y - f.y; val d2 = dx * dx + dy * dy + 1; if (d2 < 62500f) { sx += dx / d2; sy += dy / d2 } }
+            val l = kotlin.math.hypot(sx, sy)
+            if (l > 0) { g.steerX = sx / l; g.steerY = sy / l }
+            g.choices?.let { c ->
+                cards++
+                assertEquals(3, c.size)
+                assertEquals(3, c.toSet().size)
+                val before = g.have(c[0])
+                val stopped = g.time
+                g.step(1f)
+                assertEquals(stopped, g.time, 0f)  // the night waits for the pick
+                g.choose(0)
+                if (c[0] != LastLight.Upgrade.HERBS && c[0] != LastLight.Upgrade.POUCH) assertEquals(before + 1, g.have(c[0]))
+            }
+            g.step(LastLight.STEP)
+            assertTrue(g.hp <= g.maxHp)
+            assertTrue(g.foes.size <= LastLight.MAX_FOES + 60)
+            g.hits.clear(); g.deaths.clear(); g.rings.clear()
+        }
+        assertTrue(g.kills > 20)
+        assertTrue(cards > 2)
+        assertTrue(g.level > 3)
+        assertTrue(g.taken.count { it.weapon } <= 4)
+        assertTrue(g.gold > 0)
+    }
+
+    @Test fun lastLightShopAndLosing() {
+        assertEquals(150f, LastLight(intArrayOf(5, 0, 0, 0)).maxHp, 0f)
+        assertEquals(80, LastLight.Boost.TOUGH.cost(1))
+        // Standing still never ends well.
+        val g = LastLight(IntArray(4), Random(2))
+        g.start()
+        var guard = 0
+        while (!g.over && guard++ < 60 * 700) { g.choices?.let { g.choose(0) }; g.step(LastLight.STEP); g.hits.clear(); g.deaths.clear(); g.rings.clear() }
+        assertTrue(g.over)
+        assertEquals(g.won, g.time >= LastLight.NIGHT)
+    }
 }
