@@ -1,9 +1,12 @@
 -- Map.lua
 -- What the app's Map tab draws, besides your own position (TS1): the zone's name
 -- and the places on it. Sent as
---   TM1|mapID|zone|parent zone|width|height|ghost<newline><kind>,<x>,<y>,<label><newline>...
+--   TM1|mapID|zone|parent zone|width|height|ghost[|spots]<newline><kind>,<x>,<y>,<label><newline>...
 -- with x and y from 0 to 1 on the zone map, like the position; <ghost> is 1 while you
--- are a ghost (after releasing your spirit), else 0. Kinds:
+-- are a ghost (after releasing your spirit), else 0. <spots> only in Classic Era and
+-- Anniversary, which have no quest areas on the game's map: "<game>:<area>,<area>..."
+-- (game 1 Classic Era, 2 Anniversary; the zone's AreaTable IDs), so the app can draw
+-- the quests' circles from its own list. Kinds:
 --   q quest objective area   Q quest ready to turn in   a quest to pick up
 --   w your map pin
 --   c your corpse, while you are a ghost: in a zone next to this one off the map's edge
@@ -157,6 +160,32 @@ end
 local sizeSource = "not asked yet"
 local sizeNote = "nothing measured yet"
 
+-- Classic Era and Anniversary have no quest areas on the game's map (they came with
+-- Wrath). There the app draws circles from its own list of quest spots, which names
+-- zones by their AreaTable ID: the IDs whose name is this map's name. Never on Forever.
+local spotsGame = (function()
+    local v = select(4, GetBuildInfo()) or 0
+    if v < 16000 then return 1 end
+    if v >= 20000 and v < 30000 then return 2 end
+end)()
+local areaIDs = {}
+
+local function spotsField(mapID, info)
+    if not spotsGame or not C_Map.GetAreaInfo then return "" end
+    if areaIDs[mapID] == nil then
+        local ids, name = {}, info and info.name
+        if name and not secret(name) then
+            pcall(function()
+                for id = 1, 5000 do
+                    if #ids < 4 and C_Map.GetAreaInfo(id) == name then ids[#ids + 1] = id end
+                end
+            end)
+        end
+        areaIDs[mapID] = table.concat(ids, ",")
+    end
+    return "|" .. spotsGame .. ":" .. areaIDs[mapID]
+end
+
 -- The map message for where you are now, or nil when the game has no map here.
 function ns.MapPayload()
     local mapID = C_Map.GetBestMapForUnit("player")
@@ -191,7 +220,7 @@ function ns.MapPayload()
         width, height, sizeSource = 0, 0, "unknown so far"
     end
     local head = "TM1|" .. mapID .. "|" .. label(info and info.name):gsub("|", "/") .. "|" .. label(parent and parent.name):gsub("|", "/")
-        .. string.format("|%d|%d|%d", width, height, ghost() and 1 or 0)
+        .. string.format("|%d|%d|%d", width, height, ghost() and 1 or 0) .. spotsField(mapID, info)
     local room = ns.StripCapacity() - #head - 1
     local out, used = {}, 0
     for _, e in ipairs(places(mapID)) do

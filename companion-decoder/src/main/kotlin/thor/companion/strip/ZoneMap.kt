@@ -14,6 +14,8 @@ data class ZoneMap(
     val width: Int = 0, val height: Int = 0,
     /** You are a ghost (released your spirit): the c place, when there is one, is your corpse, maybe off the map's edge. */
     val ghost: Boolean = false,
+    /** Classic Era and Anniversary only: "<game>:<area>,<area>..." for the app's own quest spots (see [QuestSpots]); else empty. */
+    val spots: String = "",
 ) {
     /** Your corpse while you are a ghost: on this map, or in a zone next to it off the map's edge; null when the game doesn't say. */
     val corpse: MapPlace? get() = if (ghost) places.firstOrNull { it.kind == 'c' } else null
@@ -33,7 +35,7 @@ data class ZoneMap(
                 MapPlace(f[0][0], x, y, f[3])
             }
             return ZoneMap(mapId, head.getOrElse(1) { "" }, head.getOrElse(2) { "" }, places,
-                head.getOrNull(3)?.toIntOrNull() ?: 0, head.getOrNull(4)?.toIntOrNull() ?: 0, head.getOrNull(5) == "1")
+                head.getOrNull(3)?.toIntOrNull() ?: 0, head.getOrNull(4)?.toIntOrNull() ?: 0, head.getOrNull(5) == "1", head.getOrElse(6) { "" })
         }
     }
 }

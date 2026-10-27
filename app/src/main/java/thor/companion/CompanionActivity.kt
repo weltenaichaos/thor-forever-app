@@ -51,6 +51,8 @@ import thor.companion.strip.PartAssembler
 import thor.companion.strip.Pixels
 import thor.companion.strip.Quest
 import thor.companion.strip.QuestLog
+import thor.companion.strip.QuestSpots
+import thor.companion.strip.withQuestSpots
 import thor.companion.strip.QuestPages
 import thor.companion.strip.SpellPlan
 import thor.companion.strip.SpellToLearn
@@ -117,6 +119,18 @@ class CompanionActivity : Activity() {
     private var state: GameState? = null
     private val chat = ChatLog()
     private var zoneMap: ZoneMap? = null
+    /** The map as the addon sent it; [zoneMap] is it with the app's quest circles (Classic Era, Anniversary). */
+    private var sentMap: ZoneMap? = null
+    /** The app's quest spots per game (1 Classic Era, 2 Anniversary), read once when first needed. */
+    private val questSpots = HashMap<Int, QuestSpots?>()
+
+    private fun questSpots(game: Int): QuestSpots? = questSpots.getOrPut(game) {
+        runCatching { QuestSpots(assets.open("thor/companion/quest-spots-$game.txt").bufferedReader().readText()) }
+            .onFailure { android.util.Log.w("ThorCompanion", "no quest spots for game $game: $it") }.getOrNull()
+    }
+
+    /** [sentMap] with the quest circles of the quests in [quests] (only in Classic Era and Anniversary). */
+    private fun mapWithSpots(): ZoneMap? = sentMap?.withQuestSpots(quests, ::questSpots)
     private var character: CharacterInfo? = null
     private var gear: List<GearItem> = emptyList()
     private val trail = Trail()
@@ -598,7 +612,7 @@ class CompanionActivity : Activity() {
 
     /** Shows what [lastMessages] holds (on the UI thread), in place of whatever was shown. */
     private fun applyKept() {
-        state = null; character = null; gear = emptyList(); zoneMap = null; spells = null
+        state = null; character = null; gear = emptyList(); zoneMap = null; sentMap = null; spells = null
         questFirst = null; quests = null; bagsFresh = false
         professions = null; recipePages.clear(); bank = null; craftRecipe = null; craftDone.clear(); craftRunning = null
         val pages = QuestPages()
@@ -608,7 +622,7 @@ class CompanionActivity : Activity() {
                 key.startsWith("TR1|") -> RecipePage.parse(m)?.let { recipePages[key] = it }
                 m.startsWith("TF1|") -> professions = Professions.parse(m)
                 m.startsWith("TK1|") -> bank = BankCounts.parse(m)
-                m.startsWith("TM1|") -> zoneMap = ZoneMap.parse(m)
+                m.startsWith("TM1|") -> sentMap = ZoneMap.parse(m)
                 m.startsWith("TP1|") -> character = CharacterInfo.parse(m)
                 m.startsWith("TQ1|") -> gear = Gear.parse(m).orEmpty()
                 m.startsWith("TL1|") -> questFirst = QuestLog.parse(m)
@@ -620,6 +634,7 @@ class CompanionActivity : Activity() {
         lastMessages["TB1|"]?.let { GameState.parse(it, state)?.let { s -> state = s } }
         questPages = pages
         quests = questFirst?.let { pages.whole(it) }
+        zoneMap = mapWithSpots()
     }
 
     /**
@@ -1341,8 +1356,9 @@ class CompanionActivity : Activity() {
 
     private fun onMap(map: ZoneMap) {
         connected()
-        if (map == zoneMap) return
-        zoneMap = map
+        if (map == sentMap) return
+        sentMap = map
+        zoneMap = mapWithSpots()
         if (!followCorpse(map) && panel == Panel.MAP) render()
         updateCompass()
     }
@@ -1436,6 +1452,11 @@ class CompanionActivity : Activity() {
         connected()
         if (log == quests) return
         quests = log
+        val withSpots = mapWithSpots()
+        if (withSpots != zoneMap) {
+            zoneMap = withSpots
+            if (panel == Panel.MAP) render()
+        }
         if (panel == Panel.QUESTS || panel == Panel.CHARACTER) render()
     }
 

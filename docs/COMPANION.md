@@ -36,7 +36,7 @@ These are written for Thor Forever instead:
   installs the addon (`core/CompanionAddon.java`).
 - `CompanionBridge.kt` connects the companion to the game screen and opens it on the other
   screen.
-- The addon (0.32.0 here) splits what it sends over four small colour squares in the corners
+- The addon (0.33.0 here) splits what it sends over four small colour squares in the corners
   of the screen (`Corners.lua`, the default `/thor shape corners`), each only there while it
   sends: your position (`TP2`) top left, the chat, chat box and tap answers bottom left, the
   status bottom right, everything else top right (the data square, 20 x 16 cells). The app
@@ -50,6 +50,10 @@ These are written for Thor Forever instead:
   cooldowns, spells) go out together in one (`Y...`), so the start-up card fills sooner. `/thor dense on` (a test) uses eight
   colour levels instead of four, so the squares get a third smaller; a long press on the
   app's status line says how well each corner reads.
+- In Classic Era and Anniversary the game has no quest areas on its map. There the addon adds the
+  zone's AreaTable IDs to its map message (`TM1|...|<game>:<area>,...`), and the app draws circles
+  from `assets/thor/companion/quest-spots-<game>.txt` for the quests in your log (built by
+  `tools/quest-spots/build.py` from pfQuest, MIT). Forever's map message has no such field.
 - It builds the bags, gear, character, quests and cooldowns again
   only when the game says they changed, or every few seconds (`ns.Remember` in `Strip.lua`);
   it skips its idle wait for urgent changes; and it shows the first part of a message after a

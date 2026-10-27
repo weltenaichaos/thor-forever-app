@@ -1,0 +1,7 @@
+The quest spots (app/src/main/assets/thor/companion/quest-spots-*.txt) are built from
+the database of pfQuest, https://github.com/shagu/pfQuest (commit 104f356), under the
+MIT License: Copyright (c) 2017-2021 Eric Mauser (Shagu). The full licence text is in
+notices/pfQuest-LICENSE.txt.
+
+To rebuild them: git clone https://github.com/shagu/pfQuest, then
+    python3 tools/quest-spots/build.py <pfQuest checkout> app/src/main/assets/thor/companion
