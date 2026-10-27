@@ -286,6 +286,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
             glow(canvas, px, py - 9 * ps, 15f * ps, GEM_GLOW[k], 120)
             sprite(canvas, "gem$k", px, py - (9 + sin(played * 3 + g.x) * 1.5f) * ps, 20f * ps, 24f * ps, k = ps) { gem(it, k) }
         }
+        for (pu in game.pickups) pickup(canvas, pu)
         // Rings that lie on the ground.
         if (game.ringRadius > 0f) holyRing(canvas, game.ringRadius)
         effectsOnGround(canvas)
@@ -330,6 +331,8 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         while (wisps.size > 40) wisps.removeAt(0)
         for (r in game.rings) waves += Wave(r.x, r.y, r.radius, r.wave, played)
         game.rings.clear()
+        for (p in game.used) announce("${p.title}!")
+        game.used.clear()
     }
 
     // ---- The ground: one big seamless picture per night, laid flat and tilted ----
@@ -589,7 +592,8 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         val s = ps
         val bob = sin(played * 4 + f.phase) * 1.5f
         if (f.kind != Kind.BANSHEE) longShadow(canvas, if (f.kind == Kind.NECROMANCER) 3f else 1f)
-        if (f.slow > 0) glow(canvas, px, py - 16 * s, f.kind.radius * 2f * s, Theme.TEAL, 110)
+        if (f.frozen > 0) glow(canvas, px, py - 16 * s, f.kind.radius * 2.6f * s, Color.rgb(191, 243, 255), 190)
+        else if (f.slow > 0) glow(canvas, px, py - 16 * s, f.kind.radius * 2f * s, Theme.TEAL, 110)
         val left = game.x < f.x
         when (f.kind) {
             Kind.GHOUL -> sprite(canvas, "ghoul$flash", px, py - (19 + bob * 0.5f) * s, 44f * s, 52f * s, flip = left, lit = !flash, k = s) { LastLightArt.ghoul(it, flash) }
@@ -597,7 +601,8 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
             Kind.SKELETON -> sprite(canvas, "skeleton$flash", px, py - 21 * s, 56f * s, 56f * s, flip = left, lit = !flash, k = s) { LastLightArt.skeleton(it, flash) }
             Kind.BAT -> {
                 val up = sin(played * 16 + f.phase) > 0
-                sprite(canvas, "bat$up$flash", px, py - 40 * s, 70f * s, 64f * s, lit = !flash, k = s) { LastLightArt.bat(it, up, flash) }
+                // A roomy box (the wings reach far out), drawn a little bigger than before.
+                sprite(canvas, "bat$up$flash", px, py - 40 * s, 92f * s, 80f * s, lit = !flash, k = s) { c -> c.scale(1.15f, 1.15f); LastLightArt.bat(c, up, flash) }
             }
             Kind.NECROMANCER -> sprite(canvas, "necromancer$flash", px, py - (48 + bob * 2f) * s, 160f * s, 180f * s, flip = left, lit = !flash, k = s) { LastLightArt.necromancer(it, flash) }
         }
@@ -890,6 +895,84 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         stroke.color = Color.argb(190, 241, 228, 194); canvas.drawCircle(thumbX, thumbY, 30f, stroke)
     }
 
+    // ---- Power-ups on the ground (mockups/survivors-v6, at half the picture's size) ----
+
+    private fun powerColour(p: LastLight.Power) = when (p) {
+        LastLight.Power.NOVA, LastLight.Power.GOLD -> Theme.GOLD
+        LastLight.Power.FROST -> Color.rgb(159, 216, 255)
+        LastLight.Power.MAGNET -> Color.rgb(255, 122, 122)
+        LastLight.Power.POTION -> Color.rgb(255, 106, 106)
+        LastLight.Power.FURY -> Color.rgb(255, 138, 58)
+    }
+
+    private fun pickup(canvas: Canvas, pu: LastLight.Pickup) {
+        if (!project(pu.x, pu.y) || !onScreen(40f)) return
+        val col = powerColour(pu.power)
+        val s = ps
+        val pulse = 0.85f + 0.15f * sin(played * 5f + pu.x)
+        // A soft light on the ground and a beam going up.
+        fill.color = Theme.withAlpha(col, 80); canvas.drawOval(px - 13 * s, py - 4 * s, px + 13 * s, py + 4 * s, fill)
+        fill.shader = LinearGradient(0f, py, 0f, py - 55 * s, Color.argb(130, 255, 246, 208), Color.argb(0, 255, 246, 208), Shader.TileMode.CLAMP)
+        canvas.drawRect(px - 5 * s, py - 55 * s, px + 5 * s, py, fill); fill.shader = null
+        val bob = sin(played * 3f + pu.y) * 2f * s
+        glow(canvas, px, py - 16 * s + bob, 16f * s * pulse, col, 110)
+        sprite(canvas, "power${pu.power.name}", px, py - 16 * s + bob, 32f * s, 32f * s, k = s) { c -> c.scale(0.8f, 0.8f); powerIcon(c, pu.power) }
+    }
+
+    /** A power-up's picture, about 30 units across, centred on 0, 0. */
+    private fun powerIcon(c: Canvas, p: LastLight.Power) {
+        sp.style = Paint.Style.FILL; sp.shader = null
+        fun line(colour: Int, w: Float) { sp.style = Paint.Style.STROKE; sp.strokeWidth = w; sp.color = colour }
+        when (p) {
+            LastLight.Power.NOVA -> {
+                for (i in 0 until 8) {
+                    c.save(); c.rotate(i * 45f)
+                    sPath.reset(); sPath.moveTo(0f, -10f); sPath.lineTo(2.5f, -15f); sPath.lineTo(0f, -19f); sPath.lineTo(-2.5f, -15f); sPath.close()
+                    sp.color = Theme.GOLD; c.drawPath(sPath, sp); outline(c, sPath, Color.rgb(138, 90, 20), 0.8f)
+                    c.restore()
+                }
+                sp.color = Color.rgb(255, 243, 196); c.drawCircle(0f, 0f, 9f, sp)
+                line(Color.rgb(138, 90, 20), 1.4f); c.drawCircle(0f, 0f, 9f, sp)
+                sp.style = Paint.Style.FILL; sp.color = Color.rgb(255, 233, 168); c.drawCircle(0f, 0f, 5f, sp)
+            }
+            LastLight.Power.FROST -> {
+                for (a in floatArrayOf(0f, 60f, 120f)) {
+                    c.save(); c.rotate(a)
+                    sPath.reset(); sPath.moveTo(0f, -15f); sPath.lineTo(4f, -6f); sPath.lineTo(0f, 15f); sPath.lineTo(-4f, -6f); sPath.close()
+                    sp.color = Color.rgb(223, 244, 255); c.drawPath(sPath, sp); outline(c, sPath, Color.rgb(42, 106, 154), 1f)
+                    c.restore()
+                }
+                sp.color = Color.WHITE; c.drawCircle(0f, 0f, 4f, sp)
+            }
+            LastLight.Power.MAGNET -> {
+                line(Color.rgb(232, 90, 90), 6f)
+                sPath.reset(); sPath.moveTo(-9f, 8f); sPath.lineTo(-9f, -2f); sPath.arcTo(-9f, -11f, 9f, 7f, 180f, 180f, false); sPath.lineTo(9f, 8f); c.drawPath(sPath, sp)
+                sp.style = Paint.Style.FILL; sp.color = Color.rgb(232, 240, 248); c.drawRect(-12f, 6f, -6f, 12f, sp); c.drawRect(6f, 6f, 12f, 12f, sp)
+            }
+            LastLight.Power.POTION -> {
+                sp.color = Color.rgb(160, 112, 64); c.drawRoundRect(-3f, -15f, 3f, -10f, 1f, 1f, sp)
+                sPath.reset(); sPath.moveTo(-3f, -10f); sPath.lineTo(-3f, -6f); sPath.quadTo(-11f, -2f, -11f, 5f); sPath.quadTo(-11f, 13f, 0f, 13f); sPath.quadTo(11f, 13f, 11f, 5f); sPath.quadTo(11f, -2f, 3f, -6f); sPath.lineTo(3f, -10f); sPath.close()
+                sp.color = Color.rgb(208, 32, 48); c.drawPath(sPath, sp); outline(c, sPath, Color.rgb(58, 10, 16), 1.3f)
+                sp.color = Color.rgb(255, 80, 96); c.drawOval(-9f, 2f, 9f, 12f, sp)
+                sp.color = Color.argb(150, 255, 255, 255); c.drawOval(-7f, -4.5f, -3f, 2.5f, sp)
+            }
+            LastLight.Power.FURY -> {
+                line(Color.rgb(138, 90, 42), 2.6f); c.drawLine(-10f, 10f, 8f, -8f, sp); c.drawLine(10f, 10f, -8f, -8f, sp)
+                sp.style = Paint.Style.FILL; sp.color = Color.rgb(223, 232, 240)
+                sPath.reset(); sPath.moveTo(4f, -12f); sPath.quadTo(12f, -14f, 13f, -4f); sPath.quadTo(8f, -6f, 4f, -4f); sPath.close(); c.drawPath(sPath, sp); outline(c, sPath, Color.rgb(58, 58, 72), 1f)
+                sPath.reset(); sPath.moveTo(-4f, -12f); sPath.quadTo(-12f, -14f, -13f, -4f); sPath.quadTo(-8f, -6f, -4f, -4f); sPath.close(); c.drawPath(sPath, sp); outline(c, sPath, Color.rgb(58, 58, 72), 1f)
+            }
+            LastLight.Power.GOLD -> {
+                sPath.reset(); sPath.moveTo(-9f, -4f); sPath.quadTo(-12f, 12f, 0f, 12f); sPath.quadTo(12f, 12f, 9f, -4f); sPath.quadTo(4f, -8f, 0f, -6f); sPath.quadTo(-4f, -8f, -9f, -4f); sPath.close()
+                sp.color = Color.rgb(160, 112, 58); c.drawPath(sPath, sp); outline(c, sPath, Color.rgb(58, 34, 16), 1.2f)
+                sp.color = Color.rgb(192, 138, 82)
+                sPath.reset(); sPath.moveTo(-6f, -6f); sPath.lineTo(-3f, -12f); sPath.lineTo(0f, -8f); sPath.lineTo(3f, -12f); sPath.lineTo(6f, -6f); sPath.close(); c.drawPath(sPath, sp); outline(c, sPath, Color.rgb(58, 34, 16), 1f)
+                sp.color = Theme.GOLD; c.drawCircle(0f, 3f, 4f, sp); line(Color.rgb(138, 90, 20), 1f); c.drawCircle(0f, 3f, 4f, sp)
+            }
+        }
+        sp.style = Paint.Style.FILL; sp.shader = null
+    }
+
     // ---- WoW-like bars: your frame, the boss frame, the timer, XP and the action bar ----
 
     private fun hpBar(t: Float, b: Float, good: Boolean) = LinearGradient(0f, t, 0f, b,
@@ -933,6 +1016,14 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         fill.color = Color.argb(76, 255, 255, 255); canvas.drawRoundRect(91f, 63f, 91f + 188f * k, 67f, 2f, 2f, fill)
         shadowed(canvas, "${game.hp.toInt().coerceAtLeast(if (game.hp > 0) 1 else 0)} / ${game.maxHp.toInt()}", 185f, 73.5f, 11f)
         portrait(canvas, 58f, 60f, look(game.night).ground) { c, x, y -> sprite(c, "face${h.name}", x, y + 28f, 140f, 200f, lit = true) { it.scale(2f, 2f); LastLightArt.hero(it, h) } }
+        // Battle Fury under your frame, with the seconds left.
+        if (game.fury > 0f) {
+            fill.color = Color.rgb(10, 12, 18); canvas.drawRoundRect(92f, 92f, 124f, 124f, 4f, 4f, fill)
+            glow(canvas, 108f, 108f, 20f, Color.rgb(255, 138, 58), 150)
+            sprite(canvas, "buffFURY", 108f, 108f, 26f, 26f) { c -> c.scale(0.8f, 0.8f); powerIcon(c, LastLight.Power.FURY) }
+            stroke.strokeWidth = 1.6f; stroke.color = Color.rgb(138, 122, 90); canvas.drawRoundRect(92f, 92f, 124f, 124f, 4f, 4f, stroke)
+            shadowed(canvas, "${kotlin.math.ceil(game.fury).toInt()}s", 108f, 140f, 12f)
+        }
 
         // The boss frame (top right), while the Necromancer walks.
         game.foes.firstOrNull { it.kind == Kind.NECROMANCER }?.let { boss ->

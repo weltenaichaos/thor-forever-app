@@ -374,6 +374,26 @@ class GamesRulesTest {
         assertTrue(g.gold > 0)
     }
 
+    @Test fun lastLightPowerUps() {
+        val g = LastLight(IntArray(4), Random(3), LastLight.Hero.MAGE)
+        g.start()
+        repeat(60 * 20) { g.choices?.let { g.choose(0) }; g.step(LastLight.STEP) }
+        assertTrue(g.foes.isNotEmpty())
+        // Holy Nova: every ordinary foe in reach falls.
+        g.drop(LastLight.Power.NOVA, g.x, g.y)
+        g.step(LastLight.STEP); g.step(LastLight.STEP)
+        assertTrue(g.pickups.none { it.power == LastLight.Power.NOVA })
+        assertTrue(g.foes.none { it.kind != LastLight.Kind.NECROMANCER && kotlin.math.hypot(it.x - g.x, it.y - g.y) < 300f })
+        // Battle Fury lasts 10 seconds and makes you quicker.
+        val walk = g.speed
+        g.drop(LastLight.Power.FURY, g.x, g.y); g.step(LastLight.STEP)
+        assertTrue(g.fury > 9f && g.speed > walk)
+        // Gold Purse: 25 more gold.
+        val gold = g.gold
+        g.drop(LastLight.Power.GOLD, g.x, g.y); g.step(LastLight.STEP)
+        assertTrue(g.gold >= gold + 25)
+    }
+
     @Test fun lastLightShopAndLosing() {
         assertEquals(150f, LastLight(intArrayOf(5, 0, 0, 0), hero = LastLight.Hero.HUNTER).maxHp, 0f)
         assertEquals(80, LastLight.Boost.TOUGH.cost(1))

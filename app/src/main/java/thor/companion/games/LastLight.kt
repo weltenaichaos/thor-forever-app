@@ -93,10 +93,18 @@ class LastLight(
         fun cost(level: Int) = price * (level + 1)
     }
 
+    /** Power-ups lying on the ground (mockups/survivors-v6, Jesse 2026-10-27): walk over one to use it. */
+    enum class Power(val title: String) {
+        NOVA("Holy Nova"), FROST("Frost Rune"), MAGNET("Gem Magnet"), POTION("Healing Potion"), FURY("Battle Fury"), GOLD("Gold Purse")
+    }
+    class Pickup(val x: Float, val y: Float, val power: Power) { var age = 0f }
+
     class Foe(val kind: Kind, var x: Float, var y: Float, var hp: Float) {
         val maxHp = hp
         /** Seconds left of the white flash, of the frost slow, and of being pushed back. */
         var flash = 0f; var slow = 0f; var push = 0f
+        /** Seconds left frozen by a Frost Rune: it can't move or hurt. */
+        var frozen = 0f
         var px = 0f; var py = 0f
         /** A bat's own wobble. */
         val phase = (x * 7 + y * 13) % 6.28f
@@ -118,11 +126,17 @@ class LastLight(
     val hits = mutableListOf<Hit>()
     val deaths = mutableListOf<Burst>()
     val rings = mutableListOf<Ring>()
+    /** Power-ups used since the board last looked. */
+    val used = mutableListOf<Power>()
 
     val foes = mutableListOf<Foe>()
     val gems = mutableListOf<Gem>()
     val bolts = mutableListOf<Bolt>()
     val bombs = mutableListOf<Bomb>()
+    val pickups = mutableListOf<Pickup>()
+    /** Seconds left of Battle Fury: weapons twice as fast, walking faster. */
+    var fury = 0f
+        private set
 
     /** Where the hero is, and where they look (-1 left, 1 right). */
     var x = 0f; var y = 0f
@@ -209,8 +223,8 @@ class LastLight(
     // ---- Numbers that come from upgrades ----
 
     private val damageScale get() = (1f + have(Upgrade.EDGE) * 0.10f + shop[Boost.SHARP.ordinal] * 0.05f)
-    private val coolScale get() = (1f - have(Upgrade.HOURGLASS) * 0.08f) * hero.cool
-    val speed get() = 175f * hero.speed * (1f + have(Upgrade.BOOTS) * 0.10f + shop[Boost.QUICK.ordinal] * 0.05f)
+    private val coolScale get() = (1f - have(Upgrade.HOURGLASS) * 0.08f) * hero.cool * (if (fury > 0f) 0.5f else 1f)
+    val speed get() = 175f * hero.speed * (1f + have(Upgrade.BOOTS) * 0.10f + shop[Boost.QUICK.ordinal] * 0.05f) * (if (fury > 0f) 1.25f else 1f)
     val reach get() = 70f + have(Upgrade.MAGNET) * 30f + shop[Boost.REACH.ordinal] * 15f
     val bladeCount get() = when (have(Upgrade.BLADES)) { 0 -> 0; 1 -> 2; 2, 3 -> 3; 4 -> 4; else -> 5 }
     val bladeRadius get() = 78f + (if (have(Upgrade.BLADES) >= 3) 16f else 0f)
@@ -239,12 +253,14 @@ class LastLight(
             aimX = steerX / len; aimY = steerY / len
         }
         if (hurt > 0) hurt -= dt
+        if (fury > 0) fury = maxOf(0f, fury - dt)
         regenClock += dt
         if (regenClock >= 1f) { regenClock -= 1f; hp = minOf(maxHp, hp + have(Upgrade.STEW) * 0.4f + hero.regen) }
         spawn(dt)
         moveFoes(dt)
         weapons(dt)
         pickGems(dt)
+        pickPowers(dt)
         if (hp <= 0f) { hp = 0f; over = true }
     }
 
@@ -320,12 +336,13 @@ class LastLight(
             val f = it.next()
             if (f.flash > 0) f.flash -= dt
             if (f.slow > 0) f.slow -= dt
+            if (f.frozen > 0) f.frozen -= dt
             if (f.bladeWait > 0) f.bladeWait -= dt
             val dx = x - f.x; val dy = y - f.y
             val dist = hypot(dx, dy)
             // Foes left far behind come back in on the other side.
             if (dist > FORGET && f.kind != Kind.NECROMANCER) { val (nx, ny) = edge(); f.x = nx; f.y = ny; continue }
-            var sp = f.kind.speed * (if (f.slow > 0) 0.5f else 1f)
+            var sp = if (f.frozen > 0) 0f else f.kind.speed * (if (f.slow > 0) 0.5f else 1f)
             var mx = 0f; var my = 0f
             if (dist > 0.01f) { mx = dx / dist; my = dy / dist }
             if (f.kind == Kind.BAT) { val w = sin(time * 6f + f.phase) * 0.6f; val ox = -my * w; val oy = mx * w; mx += ox; my += oy }
@@ -348,7 +365,7 @@ class LastLight(
                 }
             }
             // Touching the hero hurts.
-            if (dist < f.kind.radius + HERO_R) { hp -= f.kind.dps * dt; hurt = 0.25f }
+            if (dist < f.kind.radius + HERO_R && f.frozen <= 0f) { hp -= f.kind.dps * dt; hurt = 0.25f }
         }
     }
 
@@ -404,7 +421,7 @@ class LastLight(
             if (hypot(wolfX - x, wolfY - y) > 500f) { wolfX = x - 40f; wolfY = y + 22f }
             biteClock -= dt
             if (target != null && d < target.kind.radius + 18f && biteClock <= 0f) {
-                biteClock = 0.5f
+                biteClock = if (fury > 0f) 0.25f else 0.5f
                 damage(target, (10f + lv * 5f) * (if (lv >= 5) 2f else 1f) * damageScale, dx / d.coerceAtLeast(1f), dy / d.coerceAtLeast(1f))
             }
             if (lv >= 5) {
@@ -520,7 +537,12 @@ class LastLight(
                 if (f.kind == Kind.NECROMANCER) {
                     for (k in 0 until 8) gems += Gem(f.x + cos(k * 0.785f) * 30, f.y + sin(k * 0.785f) * 30, 25)
                     goldFound += 5
-                } else gems += Gem(f.x, f.y, f.kind.gem)
+                    // Every Necromancer leaves a power-up.
+                    drop(Power.entries[random.nextInt(Power.entries.size)], f.x, f.y + 40f)
+                } else {
+                    gems += Gem(f.x, f.y, f.kind.gem)
+                    if (random.nextFloat() < POWER_CHANCE && pickups.size < MAX_PICKUPS) drop(Power.entries[random.nextInt(Power.entries.size)], f.x, f.y)
+                }
                 true
             }
         }
@@ -551,6 +573,42 @@ class LastLight(
                 if (d <= sp + HERO_R) { gi.remove(); gain(g.value); continue }
                 g.x += dx / d * sp; g.y += dy / d * sp
             }
+        }
+    }
+
+    /** Puts power-up [p] on the ground at [px], [py]. */
+    internal fun drop(p: Power, px: Float, py: Float) { pickups += Pickup(px, py, p) }
+
+    private fun pickPowers(dt: Float) {
+        val pi = pickups.iterator()
+        while (pi.hasNext()) {
+            val p = pi.next()
+            p.age += dt
+            val d = hypot(p.x - x, p.y - y)
+            // Ones left far behind are gone.
+            if (d > FORGET) { pi.remove(); continue }
+            if (d < HERO_R + 22f) { pi.remove(); use(p.power) }
+        }
+    }
+
+    private fun use(p: Power) {
+        used += p
+        when (p) {
+            Power.NOVA -> {
+                rings += Ring(x, y, NOVA_REACH, Wave.HOLY)
+                for (f in foes.toList()) {
+                    if (hypot(f.x - x, f.y - y) > NOVA_REACH) continue
+                    if (f.kind == Kind.NECROMANCER) damage(f, f.maxHp * 0.25f, 0f, 0f) else { f.hp = 0f; f.flash = 0.12f }
+                }
+            }
+            Power.FROST -> {
+                rings += Ring(x, y, NOVA_REACH, Wave.FROST)
+                for (f in foes) if (hypot(f.x - x, f.y - y) < NOVA_REACH + 200f) f.frozen = 4f
+            }
+            Power.MAGNET -> gems.forEach { it.pulled = true }
+            Power.POTION -> hp = minOf(maxHp, hp + maxHp * 0.5f)
+            Power.FURY -> fury = 10f
+            Power.GOLD -> goldFound += 25
         }
     }
 
@@ -605,5 +663,10 @@ class LastLight(
         const val BOMB_FLIGHT = 0.45f
         const val HAMMER_FLIGHT = 0.24f
         const val ARROW_SPEED = 800f
+        /** A beaten foe leaves a power-up this often (about one in 70); never more than a few lie around. */
+        const val POWER_CHANCE = 1f / 70f
+        const val MAX_PICKUPS = 4
+        /** How far Holy Nova and Frost Rune reach: about everything on screen. */
+        const val NOVA_REACH = 900f
     }
 }
