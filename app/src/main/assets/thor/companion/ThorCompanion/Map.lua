@@ -1,11 +1,13 @@
 -- Map.lua
 -- What the app's Map tab draws, besides your own position (TS1): the zone's name
 -- and the places on it. Sent as
---   TM1|mapID|zone|parent zone|width|height|ghost<newline><kind>,<x>,<y>,<label><newline>...
+--   TM1|mapID|zone|parent zone|width|height|ghost[|spots]<newline><kind>,<x>,<y>,<label><newline>...
 -- with x and y from 0 to 1 on the zone map, like the position; <ghost> is 1 while you
--- are a ghost (after releasing your spirit), else 0. Kinds:
+-- are a ghost (after releasing your spirit), else 0. <spots> only in Classic Era and
+-- Anniversary, which have no quest areas on the game's map: "<game>:<area>,<area>..."
+-- (game 1 Classic Era, 2 Anniversary; the zone's AreaTable IDs), so the app can draw
+-- the quests' circles from its own list. Kinds:
 --   q quest objective area   Q quest ready to turn in   a quest to pick up
---     (in Classic Era and Anniversary from Questie, when it is installed)
 --   w your map pin
 --   c your corpse, while you are a ghost: in a zone next to this one off the map's edge
 --     (x or y below 0 or above 1, where it is from here), labelled with that zone
@@ -85,95 +87,6 @@ local function ghost()
     return UnitIsGhost and UnitIsGhost("player") and true or false
 end
 
--- Classic Era and Anniversary have no quest areas on the game's map (they came with
--- Wrath), so the game gives no q places there. When Questie is installed, its own
--- quest database says where each objective is: read only, the same data it draws on
--- the world map. One q place per group of spawns (the app draws a circle round it),
--- Q where a finished quest is handed in. Never on Forever: its game knows its areas.
-local QUESTIE_MAX, GROUP = 12, 0.08
-
-local function questsHaveNoAreas()
-    local v = select(4, GetBuildInfo()) or 0
-    return v < 16000 or (v >= 20000 and v < 30000)
-end
-
-local function questie()
-    local L = _G.QuestieLoader
-    if type(L) ~= "table" or not L.ImportModule then return end
-    local player, zones = L:ImportModule("QuestiePlayer"), L:ImportModule("ZoneDB")
-    if type(player.currentQuestlog) ~= "table" or not zones.GetUiMapIdByAreaId then return end
-    return player.currentQuestlog, zones
-end
-
--- The points of spawns (zone -> {{x, y}, ...}, x and y 0 to 100) that lie on this map.
-local function pointsOn(mapID, zones, spawns, into)
-    for zone, list in pairs(spawns or {}) do
-        if zones:GetUiMapIdByAreaId(zone) == mapID then
-            for _, s in pairs(list) do
-                if type(s) == "table" and s[1] and s[2] and s[1] > 0 and s[2] > 0 then into[#into + 1] = { s[1] / 100, s[2] / 100 } end
-            end
-        end
-    end
-end
-
--- The middles of the (at most two) biggest groups of points.
-local function groups(points)
-    local out = {}
-    for _, p in ipairs(points) do
-        local g
-        for _, o in ipairs(out) do
-            if math.abs(o.x - p[1]) < GROUP and math.abs(o.y - p[2]) < GROUP then g = o break end
-        end
-        if g then
-            g.n = g.n + 1
-            g.sx, g.sy = g.sx + p[1], g.sy + p[2]
-            g.x, g.y = g.sx / g.n, g.sy / g.n
-        else
-            out[#out + 1] = { x = p[1], y = p[2], sx = p[1], sy = p[2], n = 1 }
-        end
-    end
-    table.sort(out, function(a, b) return a.n > b.n end)
-    return { out[1], out[2] }
-end
-
-local function questiePlaces(mapID, add)
-    if not questsHaveNoAreas() then return end
-    local log, zones = questie()
-    if not log then return end
-    local count = 0
-    local ids = {}
-    for id, quest in pairs(log) do if type(quest) == "table" then ids[#ids + 1] = id end end
-    table.sort(ids)
-    for _, id in ipairs(ids) do
-        if count >= QUESTIE_MAX then return end
-        local quest = log[id]
-        local title = quest.name or (C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(id))
-        local complete = quest.IsComplete and quest:IsComplete() == 1
-        if complete then
-            local points = {}
-            local db = _G.QuestieLoader:ImportModule("QuestieDB")
-            for _, npcID in ipairs(quest.Finisher and quest.Finisher.NPC or {}) do
-                local npc = db.GetNPC and db:GetNPC(npcID)
-                if npc then pointsOn(mapID, zones, npc.spawns, points) end
-            end
-            local g = groups(points)[1]
-            if g then add("Q", g, title) count = count + 1 end
-        else
-            for _, objective in pairs(quest.Objectives or {}) do
-                if type(objective) == "table" and not objective.Completed then
-                    local points = {}
-                    for _, spawn in pairs(objective.spawnList or {}) do
-                        if type(spawn) == "table" then pointsOn(mapID, zones, spawn.Spawns, points) end
-                    end
-                    for _, g in ipairs(groups(points)) do
-                        if count < QUESTIE_MAX then add("q", g, title) count = count + 1 end
-                    end
-                end
-            end
-        end
-    end
-end
-
 local function places(mapID)
     local entries = {}
     -- Most useful first: the list is cut when it is too long for the square.
@@ -195,7 +108,6 @@ local function places(mapID)
             add(done and "Q" or "q", q, C_QuestLog.GetTitleForQuestID(q.questID))
         end
     end)
-    each(entries, function(add) questiePlaces(mapID, add) end)
     each(entries, function(add)
         C_QuestLine.RequestQuestLinesForMap(mapID)
         for _, q in ipairs(C_QuestLine.GetAvailableQuestLines(mapID) or {}) do
@@ -248,6 +160,32 @@ end
 local sizeSource = "not asked yet"
 local sizeNote = "nothing measured yet"
 
+-- Classic Era and Anniversary have no quest areas on the game's map (they came with
+-- Wrath). There the app draws circles from its own list of quest spots, which names
+-- zones by their AreaTable ID: the IDs whose name is this map's name. Never on Forever.
+local spotsGame = (function()
+    local v = select(4, GetBuildInfo()) or 0
+    if v < 16000 then return 1 end
+    if v >= 20000 and v < 30000 then return 2 end
+end)()
+local areaIDs = {}
+
+local function spotsField(mapID, info)
+    if not spotsGame or not C_Map.GetAreaInfo then return "" end
+    if areaIDs[mapID] == nil then
+        local ids, name = {}, info and info.name
+        if name and not secret(name) then
+            pcall(function()
+                for id = 1, 5000 do
+                    if #ids < 4 and C_Map.GetAreaInfo(id) == name then ids[#ids + 1] = id end
+                end
+            end)
+        end
+        areaIDs[mapID] = table.concat(ids, ",")
+    end
+    return "|" .. spotsGame .. ":" .. areaIDs[mapID]
+end
+
 -- The map message for where you are now, or nil when the game has no map here.
 function ns.MapPayload()
     local mapID = C_Map.GetBestMapForUnit("player")
@@ -282,7 +220,7 @@ function ns.MapPayload()
         width, height, sizeSource = 0, 0, "unknown so far"
     end
     local head = "TM1|" .. mapID .. "|" .. label(info and info.name):gsub("|", "/") .. "|" .. label(parent and parent.name):gsub("|", "/")
-        .. string.format("|%d|%d|%d", width, height, ghost() and 1 or 0)
+        .. string.format("|%d|%d|%d", width, height, ghost() and 1 or 0) .. spotsField(mapID, info)
     local room = ns.StripCapacity() - #head - 1
     local out, used = {}, 0
     for _, e in ipairs(places(mapID)) do
