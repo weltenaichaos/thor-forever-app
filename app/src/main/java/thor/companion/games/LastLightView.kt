@@ -47,7 +47,7 @@ import kotlin.math.sin
  */
 class LastLightView(context: Context, private val prefs: SharedPreferences) : ActionView(context) {
     var game = fresh()
-        private set
+        internal set  // the long-play test sets its own night
     /** This night's gold was added already. */
     private var paid = false
     private var opened: Night? = null
@@ -272,7 +272,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
     private fun onScreen(margin: Float) = px > -margin && px < W + margin && py > -margin && py < H + margin * 1.6f
 
     override fun drawWorld(canvas: Canvas) {
-        if (spritesFor != sc) { sprites.values.forEach { it.recycle() }; sprites.clear(); spritesFor = sc }
+        if (spritesFor != sc) { sprites.clear(); spritesFor = sc }
         if (!game.started) { picker(canvas); return }
         ground(canvas)
         fill.shader = warm; canvas.drawRect(0f, 0f, W, H, fill); fill.shader = null
@@ -381,6 +381,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
     }
 
     private fun paintGround(n: Night): Bitmap {
+        spritesMade++; onPainted?.invoke("ground${n.name}")
         val lk = look(n)
         val px = (TILE * sc * 0.6f).toInt().coerceIn(8, 1400)
         val b = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
@@ -672,6 +673,11 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
 
     private val sprites = HashMap<String, Bitmap>()
     private var spritesFor = 0f
+    private var spritesMade = 0
+
+    override fun pictures() = super.pictures() + Pictures(sprites.size, sprites.values.sumOf { it.allocationByteCount.toLong() }, spritesMade)
+    /** For the long-play test: the damage numbers, wisps and waves now on screen. */
+    internal fun effectCount() = numbers.size + wisps.size + waves.size
     private val light = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP) }
 
     /**
@@ -684,6 +690,7 @@ class LastLightView(context: Context, private val prefs: SharedPreferences) : Ac
         val b = sprites.getOrPut(key) {
             val nw = w / k; val nh = h / k
             val pw = (nw * sc).toInt().coerceIn(2, 1024); val ph = (nh * sc).toInt().coerceIn(2, 1024)
+            spritesMade++; onPainted?.invoke(key)
             Bitmap.createBitmap(pw, ph, Bitmap.Config.ARGB_8888).also {
                 val c = Canvas(it); c.scale(pw / nw, ph / nh); c.translate(nw / 2, nh / 2); paint(c)
                 if (lit) {
