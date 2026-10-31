@@ -60,7 +60,20 @@ class Arcade(
     }
 
     /** Opens [id] straight away (the screenshot test). */
-    internal fun openGame(id: String) { open = id; board = null; render() }
+    internal fun openGame(id: String) {
+        // "light:night", "light:cards" and "light:hunter": Last Light part way through a night
+        // (the last one as the Hunter with his wolf, in the second night).
+        val stage = id.substringAfter(':', "")
+        open = id.substringBefore(':'); board = null; render()
+        (board as? LastLightView)?.let {
+            when (stage) {
+                "" -> return
+                "hunter" -> it.preview(200f, false, LastLight.Hero.HUNTER, LastLight.Night.GRAVEYARD)
+                else -> it.preview(if (stage == "cards") 150f else 200f, stage == "cards")
+            }
+            it.paused = false; render()
+        }
+    }
 
     private fun renderList() {
         fill(false)
@@ -260,6 +273,7 @@ class Arcade(
         is GlideView -> v.game.alive && v.game.started
         is FishingView -> v.game.started && v.game.state != Fishing.State.OVER
         is PegsView -> !v.game.over && v.game.balls < 10
+        is LastLightView -> v.game.started && !v.game.over
         else -> false
     }
 
@@ -282,6 +296,7 @@ class Arcade(
             is GlideView -> v.game = Glide()
             is FishingView -> v.game = Fishing()
             is PegsView -> v.game = Pegs()
+            is LastLightView -> v.newNight()
         }
         if (v is ActionView) v.paused = false
         v.resume()
@@ -338,6 +353,7 @@ class Arcade(
             is GlideView -> if (!v.game.alive && v.game.metres.toInt() > prefs.getInt("best_gryphon", 0)) e.putInt("best_gryphon", v.game.metres.toInt())
             is FishingView -> if (v.game.kg > prefs.getFloat("best_fishing", 0f)) e.putFloat("best_fishing", v.game.kg)
             is PegsView -> if (v.game.over && v.game.score > prefs.getInt("best_pegs", 0)) e.putInt("best_pegs", v.game.score)
+            is LastLightView -> if (v.game.over && v.game.time.toInt() > prefs.getInt("best_light", 0)) e.putInt("best_light", v.game.time.toInt())
         }
         e.apply()
     }
@@ -377,6 +393,7 @@ class Arcade(
             "gryphon" -> GlideView(context, Glide()) { prefs.getInt("best_gryphon", 0) }
             "fishing" -> FishingView(context, Fishing()) { prefs.getFloat("best_fishing", 0f) }
             "pegs" -> PegsView(context, Pegs()) { prefs.getInt("best_pegs", 0) }
+            "light" -> LastLightView(context, prefs)
             "blocks" -> BlockDropView(context, saved?.let { BlockDrop.load(it) } ?: BlockDrop()) { prefs.getInt("best_blocks", 0) }
             else -> SolitaireView(context, saved?.let { Klondike.load(it) } ?: Klondike()).also { if (it.game.won) counted = it.game }
         }
@@ -420,6 +437,16 @@ class Arcade(
         "gryphon" -> prefs.getInt("best_gryphon", 0).let { if (it > 0) "Best ${GameView.number(it)} m" else "Play" }
         "fishing" -> prefs.getFloat("best_fishing", 0f).let { if (it > 0f) "Best %.1f kg".format(it) else "Play" }
         "pegs" -> prefs.getInt("best_pegs", 0).let { if (it > 0) "Best ${GameView.number(it)}" else "Play" }
+        "light" -> {
+            val cleared = prefs.getInt("light_open", 1) - 1
+            val best = prefs.getInt("best_light", 0)
+            when {
+                cleared >= LastLight.Night.entries.size -> "Saw every dawn"
+                cleared > 0 -> "$cleared of ${LastLight.Night.entries.size} nights cleared"
+                best > 0 -> "Best ${GameView.clock(best * 1000L)}"
+                else -> "Play"
+            }
+        }
         "blocks" -> prefs.getInt("best_blocks", 0).let { if (it > 0) "Best ${GameView.number(it)}" else "Play" }
         else -> "Play"
     }
@@ -450,6 +477,7 @@ class Arcade(
             Entry("fishing", "Fishing Bobber", false, true),
             Entry("snake", "Snake", false, true),
             Entry("bricks", "Brick Breaker", false, true),
+            Entry("light", "Last Light", false, true),
         )
     }
 }

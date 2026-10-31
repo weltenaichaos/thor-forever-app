@@ -107,6 +107,12 @@ abstract class ActionView(context: Context) : GameView(context) {
     private val dst = RectF()
     private val sprites = HashMap<String, Bitmap>()
     private var spritesFor = 0f
+    private var spritesMade = 0
+    /** For the long-play test: told the name of each picture painted. */
+    internal var onPainted: ((String) -> Unit)? = null
+
+    /** For the long-play test: the small pictures kept now, their bytes, and how many were ever made. */
+    internal open fun pictures() = Pictures(sprites.size, sprites.values.sumOf { it.allocationByteCount.toLong() }, spritesMade)
 
     /** "+20" rising from [x], [y] and fading. */
     protected fun popup(words: String, x: Float, y: Float, colour: Int = Theme.GOLD) {
@@ -160,7 +166,7 @@ abstract class ActionView(context: Context) : GameView(context) {
      * middle, [dark] at the edge. Drawn from a small picture made once per size and colour.
      */
     protected fun orb(canvas: Canvas, x: Float, y: Float, radius: Float, light: Int, colour: Int, dark: Int) {
-        val bmp = sprite("orb$radius/$light/$colour/$dark", radius) { c, px ->
+        val bmp = sprite("orb${bucket(radius)}/$light/$colour/$dark", bucket(radius)) { c, px ->
             fx.shader = RadialGradient(px * 0.7f, px * 0.6f, px, intArrayOf(light, colour, dark), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP)
             c.drawCircle(px, px, px, fx); fx.shader = null
             fx.color = Color.WHITE; fx.alpha = 200
@@ -172,7 +178,7 @@ abstract class ActionView(context: Context) : GameView(context) {
 
     /** A soft round glow of [radius] in [colour], fading out to its edge. */
     protected fun glow(canvas: Canvas, x: Float, y: Float, radius: Float, colour: Int, alpha: Int = 255) {
-        val bmp = sprite("glow$radius/$colour", radius) { c, px ->
+        val bmp = sprite("glow${bucket(radius)}/$colour", bucket(radius)) { c, px ->
             fx.shader = RadialGradient(px, px, px, intArrayOf(Color.argb(200, Color.red(colour), Color.green(colour), Color.blue(colour)), 0),
                 null, Shader.TileMode.CLAMP)
             c.drawCircle(px, px, px, fx); fx.shader = null
@@ -183,11 +189,28 @@ abstract class ActionView(context: Context) : GameView(context) {
         fx.alpha = 255
     }
 
+    /**
+     * The size a glow's or orb's picture is made at: [radius] rounded up to one of a few steps
+     * (whole units up to 16, then about 12% apart). Games that draw things at every size (Last
+     * Light's tilted ground) would otherwise make a new picture for nearly every frame and run
+     * out of memory; the picture is simply stretched a little to the size asked for.
+     */
+    private fun bucket(radius: Float): Float {
+        if (radius <= 16f) return kotlin.math.ceil(maxOf(radius, 1f))
+        var r = 16f
+        while (r < radius) r *= 1.12f
+        return kotlin.math.ceil(r)
+    }
+
     private fun sprite(key: String, radius: Float, paintIt: (Canvas, Float) -> Unit): Bitmap {
-        if (spritesFor != sc) { sprites.values.forEach { it.recycle() }; sprites.clear(); spritesFor = sc }
+        // A safety net: never keep more than a few hundred small pictures.
+        if (spritesFor != sc) { sprites.clear(); spritesFor = sc }
+        // Dropped, not recycled: one of them may still be on its way to the screen.
+        if (sprites.size > MAX_SPRITES) sprites.clear()
         return sprites.getOrPut(key) {
             val px = maxOf(2f, radius * sc)
             val size = (px * 2).toInt() + 2
+            spritesMade++; onPainted?.invoke(key)
             Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { paintIt(Canvas(it), size / 2f) }
         }
     }
@@ -238,5 +261,11 @@ abstract class ActionView(context: Context) : GameView(context) {
     companion object {
         const val WORLD_W = 1000f
         const val WORLD_H = 620f
+        private const val MAX_SPRITES = 400
     }
+}
+
+/** Painted pictures a game keeps: how many, their bytes, and how many were made since it began. */
+internal class Pictures(val kept: Int, val bytes: Long, val made: Int) {
+    operator fun plus(o: Pictures) = Pictures(kept + o.kept, bytes + o.bytes, made + o.made)
 }

@@ -337,4 +337,76 @@ class GamesRulesTest {
         assertTrue(p.pegs.size < all)
         assertTrue(p.score > 0)
     }
+
+    @Test fun lastLightNight() {
+        for (h in LastLight.Hero.entries) assertEquals(1, LastLight(hero = h).have(h.first))
+        val g = LastLight(IntArray(4), Random(1), LastLight.Hero.MAGE)
+        assertEquals(1, g.have(LastLight.Upgrade.BOLT))
+        g.step(1f)
+        assertEquals(0f, g.time, 0f)  // waits for Start
+        g.start()
+        var cards = 0
+        while (g.time < 150f && !g.over) {
+            var sx = 0f; var sy = 0f
+            for (f in g.foes) { val dx = g.x - f.x; val dy = g.y - f.y; val d2 = dx * dx + dy * dy + 1; if (d2 < 62500f) { sx += dx / d2; sy += dy / d2 } }
+            val l = kotlin.math.hypot(sx, sy)
+            if (l > 0) { g.steerX = sx / l; g.steerY = sy / l }
+            g.choices?.let { c ->
+                cards++
+                assertEquals(3, c.size)
+                assertEquals(3, c.toSet().size)
+                val before = g.have(c[0])
+                val stopped = g.time
+                g.step(1f)
+                assertEquals(stopped, g.time, 0f)  // the night waits for the pick
+                g.choose(0)
+                if (c[0] != LastLight.Upgrade.HERBS && c[0] != LastLight.Upgrade.POUCH) assertEquals(before + 1, g.have(c[0]))
+            }
+            g.step(LastLight.STEP)
+            assertTrue(g.hp <= g.maxHp)
+            assertTrue(g.foes.size <= LastLight.MAX_FOES + 60)
+            g.hits.clear(); g.deaths.clear(); g.rings.clear()
+        }
+        assertTrue(g.kills > 20)
+        assertTrue(cards > 2)
+        assertTrue(g.level > 3)
+        assertTrue(g.taken.count { it.weapon } <= 4)
+        assertTrue(g.gold > 0)
+    }
+
+    @Test fun lastLightPowerUps() {
+        val g = LastLight(IntArray(4), Random(3), LastLight.Hero.MAGE)
+        g.start()
+        repeat(60 * 20) { g.choices?.let { g.choose(0) }; g.step(LastLight.STEP) }
+        assertTrue(g.foes.isNotEmpty())
+        // Holy Nova: every ordinary foe in reach falls.
+        g.drop(LastLight.Power.NOVA, g.x, g.y)
+        g.step(LastLight.STEP); g.step(LastLight.STEP)
+        assertTrue(g.pickups.none { it.power == LastLight.Power.NOVA })
+        assertTrue(g.foes.none { it.kind != LastLight.Kind.NECROMANCER && kotlin.math.hypot(it.x - g.x, it.y - g.y) < 300f })
+        // Battle Fury lasts 10 seconds and makes you quicker.
+        val walk = g.speed
+        g.drop(LastLight.Power.FURY, g.x, g.y); g.step(LastLight.STEP)
+        assertTrue(g.fury > 9f && g.speed > walk)
+        // Gold Purse: 25 more gold.
+        val gold = g.gold
+        g.drop(LastLight.Power.GOLD, g.x, g.y); g.step(LastLight.STEP)
+        assertTrue(g.gold >= gold + 25)
+    }
+
+    @Test fun lastLightShopAndLosing() {
+        assertEquals(150f, LastLight(intArrayOf(5, 0, 0, 0), hero = LastLight.Hero.HUNTER).maxHp, 0f)
+        assertEquals(80, LastLight.Boost.TOUGH.cost(1))
+        // The nights open one after another, each longer than the one before.
+        val nights = LastLight.Night.entries
+        for (i in 1 until nights.size) { assertEquals(nights[i], nights[i - 1].next); assertTrue(nights[i].length > nights[i - 1].length) }
+        assertEquals(null, nights.last().next)
+        // Standing still never ends well.
+        val g = LastLight(IntArray(4), Random(2))
+        g.start()
+        var guard = 0
+        while (!g.over && guard++ < 60 * 700) { g.choices?.let { g.choose(0) }; g.step(LastLight.STEP); g.hits.clear(); g.deaths.clear(); g.rings.clear() }
+        assertTrue(g.over)
+        assertEquals(g.won, g.time >= g.night.length)
+    }
 }
