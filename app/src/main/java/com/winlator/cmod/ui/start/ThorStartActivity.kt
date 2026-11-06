@@ -89,6 +89,7 @@ import com.winlator.cmod.container.Shortcut
 import com.winlator.cmod.core.AddonInstaller
 import com.winlator.cmod.core.AddonStore
 import com.winlator.cmod.core.CompanionAddon
+import com.winlator.cmod.core.FrameGen
 import com.winlator.cmod.core.GameUpdateCheck
 import com.winlator.cmod.core.ThorGame
 import com.winlator.cmod.core.ThorSetup
@@ -176,6 +177,18 @@ class ThorStartActivity : ComponentActivity() {
         if (uri != null) installAddon(uri)
     }
 
+    /** The frame generation page (the Frame gen button): mode, quality, performance mode and Lossless.dll. */
+    private var showFrameGen by mutableStateOf(false)
+    private var frameGenMode by mutableStateOf(0)
+    private var frameGenFlow by mutableStateOf(FrameGen.DEFAULT_FLOW)
+    private var frameGenPerf by mutableStateOf(true)
+    private var frameGenDll by mutableStateOf(false)
+    private var frameGenInBuild by mutableStateOf(false)
+    private var frameGenStatus by mutableStateOf("")
+    private val dllPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importLosslessDll(uri)
+    }
+
     /** offer is null when the add-on has no file for this game (or error says why not). */
     private data class StoreOffer(val offer: AddonStore.Offer?, val error: String? = null)
 
@@ -236,6 +249,7 @@ class ThorStartActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (isFinishing) return
+        loadFrameGen()
         if (!downloading) load()
         checkForAppUpdate()
         // Back from Android's "install unknown apps" setting.
@@ -831,6 +845,63 @@ class ThorStartActivity : ComponentActivity() {
         fpsCap = next
     }
 
+    private fun loadFrameGen() {
+        frameGenMode = FrameGen.getMode(this)
+        frameGenFlow = FrameGen.getFlow(this)
+        frameGenPerf = FrameGen.getPerformance(this)
+        frameGenDll = FrameGen.hasDll(this)
+        frameGenInBuild = FrameGen.isInBuild(this)
+    }
+
+    /** For the start screen's pictures (StartScreenShotsTest): the frame generation page as if the layer were in the build. */
+    internal fun previewFrameGen(dll: Boolean, mode: Int) {
+        frameGenInBuild = true
+        frameGenDll = dll
+        frameGenMode = mode
+        frameGenStatus = ""
+        showFrameGen = true
+    }
+
+    private fun frameGenLabel(mode: Int = frameGenMode) = if (mode >= 2) "${mode}x" else "Off"
+
+    private fun nextFrameGenMode() {
+        if (!frameGenDll) { frameGenStatus = "Choose Lossless.dll first (last row)."; return }
+        val modes = FrameGen.MODES
+        val next = modes[(modes.indexOf(frameGenMode) + 1).mod(modes.size)]
+        FrameGen.setMode(this, next)
+        frameGenMode = next
+        frameGenStatus = if (next >= 2) "Frame generation ${next}x: it starts with the next Play." else "Frame generation off."
+    }
+
+    private fun nextFrameGenFlow() {
+        val flows = FrameGen.FLOWS
+        val next = flows[(flows.indexOf(frameGenFlow) + 1).mod(flows.size)]
+        FrameGen.setFlow(this, next)
+        frameGenFlow = next
+        frameGenStatus = ""
+    }
+
+    private fun toggleFrameGenPerf() {
+        frameGenPerf = !frameGenPerf
+        FrameGen.setPerformance(this, frameGenPerf)
+        frameGenStatus = ""
+    }
+
+    private fun importLosslessDll(uri: android.net.Uri) {
+        frameGenStatus = "Copying Lossless.dll..."
+        Thread {
+            val result = runCatching {
+                contentResolver.openInputStream(uri).use { input ->
+                    FrameGen.importDll(this, input ?: throw java.io.IOException("Could not open the file"))
+                }
+            }
+            runOnUiThread {
+                frameGenDll = FrameGen.hasDll(this)
+                frameGenStatus = result.fold({ "Lossless.dll is ready. Pick 2x or 3x in the first row." }, { e -> e.message ?: "Could not copy the file." })
+            }
+        }.start()
+    }
+
     private fun nextOverlay() {
         val container = game?.shortcut?.container ?: return
         val next = (overlay + 1) % OVERLAYS.size
@@ -855,7 +926,7 @@ class ThorStartActivity : ComponentActivity() {
             // its width on narrow screens), so the buttons stay a fitting size on the Thor.
             val u = minOf(maxHeight / 20f, maxWidth / 34f).coerceAtLeast(12.dp)
             // The add-on pages use a smaller logo, so their lists have more room.
-            val subPage = showStore || showAddons || (showAppUpdate && appUpdate != null)
+            val subPage = showStore || showAddons || showFrameGen || (showAppUpdate && appUpdate != null)
             val logo = if (subPage) u * 3 / 5 else u
             val headerHeight = logo * 17 / 4
             val px = onePx()
@@ -874,6 +945,10 @@ class ThorStartActivity : ComponentActivity() {
                     val body = TextStyle(fontFamily = FontFamily(Font(R.font.wine_tahoma)), fontSize = textSize(u * 3 / 5), lineHeight = textSize(u))
                     if (showStore) {
                         StorePage(u, body)
+                        return@Column
+                    }
+                    if (showFrameGen) {
+                        FrameGenPage(u, body)
                         return@Column
                     }
                     if (showAddons) {
@@ -900,11 +975,12 @@ class ThorStartActivity : ComponentActivity() {
                     val play = remember { FocusRequester() }
                     // Five settings slots in one centred block; Play is big in the middle above them,
                     // with Update and Quit beside it.
-                    val gap = u / 2
                     val sw = u * 22 / 5
-                    // A sixth button, Game, while more than one game version is installed.
+                    // A seventh button, Game, while more than one game version is installed.
                     val gameButton = gameName()
-                    val slots = if (gameButton.isEmpty()) 5 else 6
+                    val slots = if (gameButton.isEmpty()) 6 else 7
+                    // Seven buttons only fit the Thor's screen with smaller gaps.
+                    val gap = if (slots >= 7) u / 3 else u / 2
                     val blockWidth = sw * slots + gap * (slots - 1)
                     val pw = u * 9
                     val side = (blockWidth - pw - gap * 2) / 2
@@ -931,6 +1007,7 @@ class ThorStartActivity : ComponentActivity() {
                             // Longer names (Forever Beta, Anniversary Test) get smaller letters to fit.
                             fontSize = when { gameButton.length > 13 -> u * 2 / 5; gameButton.length > 9 -> u / 2; else -> u * 3 / 5 })
                         StartButton("FPS cap", if (fpsCap == 0) "Off" else fpsCap.toString(), u, sw, enabled = enabled, onClick = ::nextFpsCap)
+                        StartButton("Frame gen", frameGenLabel(), u, sw, onClick = { loadFrameGen(); frameGenStatus = ""; showFrameGen = true })
                         StartButton("Overlay", OVERLAYS[overlay.coerceIn(0, OVERLAYS.size - 1)], u, sw, enabled = enabled, onClick = ::nextOverlay)
                         StartButton("Add-ons", addons.size.toString(), u, sw, enabled = enabled, onClick = { addonStatus = ""; showAddons = true })
                         StartButton("Companion", if (companionOn) "On" else "Off", u, sw, onClick = ::toggleCompanion)
@@ -1016,6 +1093,39 @@ class ThorStartActivity : ComponentActivity() {
             StartButton(null, "Back", u, u * 13 / 2, height = u * 7 / 5, fontSize = u * 11 / 20, onClick = { showAddons = false })
         }
         LaunchedEffect(Unit) { runCatching { install.requestFocus() } }
+    }
+
+    /** Frame generation: mode, quality, performance mode and the player's Lossless.dll, with Back below. */
+    @Composable
+    private fun ColumnScope.FrameGenPage(u: Dp, body: TextStyle) {
+        BackHandler { showFrameGen = false }
+        val first = remember { FocusRequester() }
+        val inBuild = frameGenInBuild
+        val hint = when {
+            frameGenStatus.isNotEmpty() -> frameGenStatus
+            !inBuild -> "This build of the app has no frame generation."
+            !frameGenDll -> "First choose Lossless.dll from your own Lossless Scaling (Steam). It stays on this Thor."
+            else -> "Draws an extra picture between two real ones. Smoother, a little more input lag."
+        }
+        PageTitle("Frame generation", hint, u, body, highlight = frameGenStatus.isNotEmpty())
+        PageList(u) {
+            StoreRow("Frame generation", "Off, 2x (30 shows as 60) or 3x (30 shows as 90)", frameGenLabel(), u, body,
+                enabled = inBuild, stripe = false, actionColor = Teal, focusRequester = first, onClick = ::nextFrameGenMode)
+            StoreRow("Quality", "Lower is lighter on the graphics chip, a bit blurrier in motion", "$frameGenFlow%", u, body,
+                enabled = inBuild, stripe = true, actionColor = Teal, onClick = ::nextFrameGenFlow)
+            StoreRow("Performance mode", "A faster, simpler way of drawing the extra pictures", if (frameGenPerf) "On" else "Off", u, body,
+                enabled = inBuild, stripe = false, actionColor = Teal, onClick = ::toggleFrameGenPerf)
+            val dllFile = FrameGen.dll(this@ThorStartActivity)
+            StoreRow("Lossless Scaling file",
+                if (frameGenDll) "Lossless.dll, ${dllFile.length() / (1024 * 1024)} MB, checked and ready"
+                else "Not chosen yet. Copy Lossless.dll from your PC to the Thor first",
+                if (frameGenDll) "Choose again" else "Choose file", u, body, enabled = inBuild, stripe = true, actionColor = Teal,
+                onClick = { dllPicker.launch(arrayOf("application/octet-stream", "application/x-msdownload", "application/x-msdos-program", "*/*")) })
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(u / 2)) {
+            StartButton(null, "Back", u, u * 13 / 2, height = u * 7 / 5, fontSize = u * 11 / 20, onClick = { showFrameGen = false })
+        }
+        LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     }
 
     /** The store's add-ons, one row each: Install or Uninstall on the right (tap or A). */
@@ -1199,7 +1309,8 @@ class ThorStartActivity : ComponentActivity() {
      * a tap, so swiping through the list never installs or uninstalls anything.
      */
     @Composable
-    private fun StoreRow(name: String, description: String, action: String, u: Dp, body: TextStyle, enabled: Boolean, stripe: Boolean, onClick: () -> Unit) {
+    private fun StoreRow(name: String, description: String, action: String, u: Dp, body: TextStyle, enabled: Boolean, stripe: Boolean,
+                         actionColor: Color? = null, focusRequester: FocusRequester? = null, onClick: () -> Unit) {
         var focused by remember { mutableStateOf(false) }
         val px = onePx()
         Row(
@@ -1216,6 +1327,7 @@ class ThorStartActivity : ComponentActivity() {
             Spacer(Modifier.width(u / 2))
             Box(
                 Modifier.width(u * 21 / 5).height(u * 11 / 10)
+                    .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
                     .onFocusChanged { focused = it.isFocused }
                     .onKeyEvent {
                         if (enabled && it.type == KeyEventType.KeyUp && it.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_BUTTON_A) {
@@ -1226,7 +1338,7 @@ class ThorStartActivity : ComponentActivity() {
                     .border(px, if (focused) GoldLight else if (enabled) Edge else Color.Transparent),
                 contentAlignment = Alignment.Center
             ) {
-                Text(action, style = body, color = if (action == "Install") Teal else TextColor, maxLines = 1)
+                Text(action, style = body, color = actionColor ?: if (action == "Install") Teal else TextColor, maxLines = 1)
             }
         }
     }
