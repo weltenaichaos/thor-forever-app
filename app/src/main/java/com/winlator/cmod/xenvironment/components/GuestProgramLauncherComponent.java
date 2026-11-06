@@ -498,7 +498,11 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         // Frame generation (the start screen's Frame gen button): its layer goes last in the list.
         File frameGenLayerDir = new File(rootDir, "usr/share/vulkan/explicit_layer.d");
         String frameGenExe = shortcut != null ? shortcut.getExecutable() : null;
-        if (FrameGen.prepareLaunch(context, frameGenLayerDir, frameGenExe, execEnvVars)) {
+        int frameGenCap = 0;
+        try {
+            frameGenCap = Integer.parseInt(shortcut != null ? shortcut.getExtra("nativeFpsLimit", "0") : "0");
+        } catch (NumberFormatException ignored) {}
+        if (FrameGen.prepareLaunch(context, frameGenLayerDir, frameGenExe, frameGenCap, execEnvVars)) {
             String layers = execEnvVars.get("VK_INSTANCE_LAYERS");
             execEnvVars.put("VK_INSTANCE_LAYERS", layers == null || layers.isEmpty()
                     ? FrameGen.LAYER_NAME : layers + ":" + FrameGen.LAYER_NAME);

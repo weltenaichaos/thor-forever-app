@@ -66,6 +66,20 @@ public final class FrameGen {
     public static boolean getPerformance(Context context) { return prefs(context).getBoolean(KEY_PERF, true); }
     public static void setPerformance(Context context, boolean on) { prefs(context).edit().putBoolean(KEY_PERF, on).apply(); }
 
+    /** True when the next WoW start gets frame generation. */
+    public static boolean isActive(Context context) {
+        return getMode(context) >= 2 && isInBuild(context) && hasDll(context);
+    }
+
+    /**
+     * The FPS cap for the screen. With frame generation the cap counts the game's real frames
+     * (the layer holds them to it), so the screen may show mode times as many.
+     */
+    public static int displayLimit(Context context, int cap) {
+        if (cap <= 0 || !isActive(context)) return cap;
+        return cap * getMode(context);
+    }
+
     /** The layer library, built by CI into the APK; missing in local builds. */
     public static File layerLibrary(Context context) {
         return new File(context.getApplicationInfo().nativeLibraryDir, LAYER_LIB);
@@ -148,13 +162,14 @@ public final class FrameGen {
 
     /**
      * Sets up (or clears) frame generation for a launch. layerDir is the container's explicit
-     * layer folder (on VK_LAYER_PATH). executable is the shortcut's .exe or null. Returns true
+     * layer folder (on VK_LAYER_PATH). executable is the shortcut's .exe or null, fpsCap the start
+     * screen's FPS cap (0 = none). Returns true
      * when the layer is to be turned on: the caller then adds LAYER_NAME to VK_INSTANCE_LAYERS.
      */
-    public static boolean prepareLaunch(Context context, File layerDir, String executable, EnvVars env) {
+    public static boolean prepareLaunch(Context context, File layerDir, String executable, int fpsCap, EnvVars env) {
         File manifest = new File(layerDir, MANIFEST);
         int mode = getMode(context);
-        boolean on = mode >= 2 && isInBuild(context) && hasDll(context);
+        boolean on = isActive(context);
         if (!on) {
             if (manifest.exists() && !manifest.delete()) Log.w(TAG, "Could not remove " + manifest);
             Log.d(TAG, "Frame generation off (mode " + mode + ", in build " + isInBuild(context) + ", dll " + hasDll(context) + ")");
@@ -189,6 +204,8 @@ public final class FrameGen {
             toml.append("# Written by Thor Forever at every launch; changes here are overwritten.\n");
             toml.append("version = 1\n\n[global]\n");
             toml.append("dll = \"").append(dll(context).getAbsolutePath()).append("\"\n");
+            // The start screen's FPS cap holds the game's real frames; the screen shows mode times as many.
+            if (fpsCap > 0) toml.append("fps_limit = ").append(fpsCap).append('\n');
             for (String name : exes) {
                 toml.append("\n[[game]]\n");
                 toml.append("exe = \"").append(name).append("\"\n");
