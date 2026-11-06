@@ -657,6 +657,25 @@ class CompanionActivity : Activity() {
         }
     }
 
+    /**
+     * The character playing has the name of the one the kept messages are of, but is another
+     * (the game's own ID differs: made new with that name, or on another realm or game). Their
+     * kept messages and crafting list go (runs on the reading thread, before the new one's
+     * character sheet is kept); what came from the game since it said who is playing stays.
+     * Before, the old character's professions stayed on the Craft tab (Jesse, 2026-11-05).
+     */
+    private fun newCharacterSameName() {
+        android.util.Log.i("ThorCompanion", "another character named $keptFor: the kept data goes")
+        for (k in lastMessages.keys.toList()) if (k !in fresh) lastMessages.remove(k)
+        saveLast()
+        getPreferences(MODE_PRIVATE).edit().remove(craftKey("craftList")).remove(craftKey("lastCraft"))
+            .remove(craftKey("lastEnchant")).remove(craftKey("lastWasEnchant")).apply()
+        runOnUiThread {
+            applyKept()
+            startLoading()
+        }
+    }
+
     private fun saveTrail() {
         if (trailUnsaved == 0) return
         trailUnsaved = 0
@@ -1101,6 +1120,12 @@ class CompanionActivity : Activity() {
             val name = message.split('|').getOrNull(1)
             if (name != null && name != "error" && name != "?" && name != keptFor) switchCharacter(name)
         }
+        if (message.startsWith("TP1|")) {
+            // The same name, but another character (made new with an old one's name): what was kept is the old one's.
+            val now = CharacterInfo.parse(message)?.guid
+            val before = lastMessages["TP1|"]?.let { CharacterInfo.parse(it)?.guid }
+            if (now != null && before != null && now != before) newCharacterSameName()
+        }
         remember(message)
         keptKey(message)?.let { fresh += it }
         when {
@@ -1469,6 +1494,26 @@ class CompanionActivity : Activity() {
         connected()
         if (p == professions) return
         professions = p
+        // Kept recipe pages the addon doesn't have (an older character's, or a profession given up) go.
+        p.recipeBooks?.let { books ->
+            var dropped = false
+            for ((k, page) in recipePages) {
+                val pages = books[page.profession]
+                if (pages == null || page.page > pages) {
+                    recipePages.remove(k)
+                    lastMessages.remove(k)
+                    dropped = true
+                }
+            }
+            for (k in lastMessages.keys.toList()) {
+                if (k.startsWith("TR1|") && !recipePages.containsKey(k)) {
+                    val f = k.split('|')
+                    val pages = books[f.getOrNull(1)]
+                    if (pages == null || (f.getOrNull(2)?.toIntOrNull() ?: 1) > pages) { lastMessages.remove(k); dropped = true }
+                }
+            }
+            if (dropped) saveLast()
+        }
         if (panel == Panel.CRAFT) render()
     }
 
@@ -1626,7 +1671,15 @@ class CompanionActivity : Activity() {
             seen -> "Checking who is playing…"
             else -> "Looking for the game…"
         }, Theme.GOLD_TEXT, 18f).apply { typeface = Theme.heading(context); setPadding(0, 0, 0, 0) })
-        val c = character
+        // Race, class and zone only once the game's checksums say the kept ones are still right
+        // (a new character with an old one's name showed the old one's).
+        fun confirmed(kind: String, sum: Int): Boolean {
+            if (kind in fresh) return true
+            val sent = s?.sums?.get(sum) ?: return false
+            return sent != 0 && lastMessages[kind]?.let { GameState.hash(it) } == sent
+        }
+        val c = character?.takeIf { confirmed("TP1|", 6) }
+        val zone = zoneMap?.zone.orEmpty().takeIf { confirmed("TM1|", 5) }.orEmpty()
         val sub = when {
             g == Game.CLOSED -> "Start WoW Forever; the app follows it from there."
             g == Game.STARTING -> "Log in and choose a character."
@@ -1636,7 +1689,7 @@ class CompanionActivity : Activity() {
                     g == Game.LOADING -> "Almost there: the addons are loading."
                     !known -> "In the world: the data is coming in."
                     else -> listOfNotNull(s?.level?.let { "Level $it" }, c?.race, c?.className).joinToString(" ")
-                        .let { l -> listOf(l, zoneMap?.zone.orEmpty()).filter { it.isNotEmpty() }.joinToString("  ·  ") }
+                        .let { l -> listOf(l, zone).filter { it.isNotEmpty() }.joinToString("  ·  ") }
                 },
                 switchedFrom?.let { "$it's data is put away" },
             ).filter { it.isNotEmpty() }.joinToString("\n")
@@ -1647,7 +1700,7 @@ class CompanionActivity : Activity() {
             !known -> "Found the game; its status says which character is in (it comes right after loading, or within 10 s)."
             switchedFrom != null -> "Switched from $switchedFrom; their data is put away"
             else -> listOfNotNull(s?.level?.let { "Level $it" }, c?.race, c?.className).joinToString(" ").let { l ->
-                listOf(l, zoneMap?.zone.orEmpty()).filter { it.isNotEmpty() }.joinToString("  ·  ")
+                listOf(l, zone).filter { it.isNotEmpty() }.joinToString("  ·  ")
             }
         }
         if (sub.isNotEmpty()) box.addView(line(sub, DIM, 13f).apply { setPadding(0, dp(4), 0, dp(10)) })

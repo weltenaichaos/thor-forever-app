@@ -19,6 +19,14 @@ class CharacterTest {
     }
 
     @Test
+    fun theCharactersOwnIdFromAddon034() {
+        assertEquals("Player-4904-0ABC1234", CharacterInfo.parse("TP1|Mage|MAGE|Human|1|2|0|5.0||1,2,3,4|5|Player-4904-0ABC1234")!!.guid)
+        assertNull(CharacterInfo.parse("TP1|Mage|MAGE|Human|1|2|0|5.0||1,2,3,4|5")!!.guid)
+        assertNull(CharacterInfo.parse("TP1|Mage|MAGE|Human|1|2|0|5.0||1,2,3,4|5|")!!.guid)
+        assertNull(CharacterInfo.parse("TP1|Mage|MAGE|Human|1|2|0|5.0||1,2,3,4|5|?")!!.guid)
+    }
+
+    @Test
     fun secretStatsAreNull() {
         val c = CharacterInfo.parse("TP1|Mage|MAGE|Human|?|?|0|?|Guild|?,?,?,?|?")!!
         assertNull(c.xp)

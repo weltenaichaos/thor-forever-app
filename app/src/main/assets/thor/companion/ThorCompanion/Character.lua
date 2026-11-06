@@ -1,6 +1,8 @@
 -- Character.lua
 -- The app's Character tab:
---   TP1|class|classFile|race|xp|xpMax|rested|itemLevel|guild|str,agi,sta,int|armor
+--   TP1|class|classFile|race|xp|xpMax|rested|itemLevel|guild|str,agi,sta,int|armor|guid
+--   (guid: the character's own, from 0.34.0: a new character with an old one's name is
+--   someone else to the app, which keeps each character's data under the name)
 --   TQ1|slot:itemID:itemLevel[:durability%],...      (what you wear)
 -- Item names come with the bag item names (TN2). Values the game keeps secret
 -- (stats in combat) arrive as "?"; the stats are only read out of combat.
@@ -36,7 +38,8 @@ ns.CharacterPayload = ns.Remember(function()
     end
     return table.concat({ "TP1", plain(className), plain(classFile), plain(race),
         plain(try(UnitXP, "player")), plain(try(UnitXPMax, "player")), plain(try(GetXPExhaustion) or 0),
-        equipped and string.format("%.1f", equipped) or "?", plain(guild or ""), lastStats, lastArmor }, "|")
+        equipped and string.format("%.1f", equipped) or "?", plain(guild or ""), lastStats, lastArmor,
+        plain(try(UnitGUID, "player") or "") }, "|")
 end, { "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "UPDATE_EXHAUSTION", "PLAYER_UPDATE_RESTING", "PLAYER_GUILD_UPDATE",
     "PLAYER_EQUIPMENT_CHANGED", "UNIT_STATS", "UNIT_RESISTANCES", "UNIT_INVENTORY_CHANGED", "PLAYER_REGEN_ENABLED" }, 5)
 

@@ -25,6 +25,14 @@ class ProfessionsTest {
     }
 
     @Test
+    fun theRecipePagesTheAddonHas() {
+        // From 0.34.0 always there: none, or pages by profession; an older addon sends no r line.
+        assertEquals(emptyMap(), Professions.parse("TF1|5\np\tMining\t1\t75\nr")!!.recipeBooks)
+        assertEquals(mapOf("Smelting" to 1, "Tailoring" to 3), Professions.parse("TF1|5\nr\tSmelting\t1\tTailoring\t3")!!.recipeBooks)
+        assertNull(Professions.parse("TF1|5\np\tMining\t1\t75")!!.recipeBooks)
+    }
+
+    @Test
     fun readsRecipesAndWhatYouCanMake() {
         val page = RecipePage.parse("TR1|Blacksmithing|60|150|1|1|1000\n" +
             "h\t0\t0\t0\t0\t\tMaterials\n" +

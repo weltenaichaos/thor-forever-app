@@ -36,7 +36,7 @@ These are written for Thor Forever instead:
   installs the addon (`core/CompanionAddon.java`).
 - `CompanionBridge.kt` connects the companion to the game screen and opens it on the other
   screen.
-- The addon (0.33.0 here) splits what it sends over four small colour squares in the corners
+- The addon (0.34.0 here) splits what it sends over four small colour squares in the corners
   of the screen (`Corners.lua`, the default `/thor shape corners`), each only there while it
   sends: your position (`TP2`) top left, the chat, chat box and tap answers bottom left, the
   status bottom right, everything else top right (the data square, 20 x 16 cells). The app
@@ -84,6 +84,14 @@ These are written for Thor Forever instead:
   Enchant button does for gear, until the count is done or the materials run out. Item details now
   compare something you can wear with what you wear in that slot (`ItemCompare.kt`).
   `/thor prof` says what the addon found.
+- Each character's data is kept apart (the app under the name, the addon's recipes, results and
+  bank under name and realm). From 0.34.0 the character sheet (`TP1`) ends with the character's
+  GUID, and the addon's saved part keeps it too: a new character with an old one's name (made
+  again on the game's release, or on another realm) gets nothing of the old one's, in the app
+  (kept messages, crafting list, last craft and enchantment) or the addon. A saved part from
+  0.33.0 or older has no GUID and starts empty once; the recipes come back the next time each
+  profession window is open. `TF1` lists the recipe pages the addon has (`r` line), and the app
+  drops kept pages that aren't among them, so a profession you no longer have leaves the Craft tab.
 
 - **☰ More** (only here) at the end of the status line opens Games, Settings and Exit.
   Exit asks first and closes only the companion (`CompanionBridge`), the game keeps running.
