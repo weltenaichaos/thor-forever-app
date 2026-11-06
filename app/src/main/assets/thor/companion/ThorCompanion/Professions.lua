@@ -7,6 +7,9 @@
 --   k<tab><profession><tab><key>                       the key that opens that profession's window (an
 --                                                      index into ns.ActionKeys, see the open keys below)
 --   f<tab>1                                            the Make keys are bound (see the Make keys below)
+--   r[<tab><profession><tab><pages>...]                the recipe pages this character has, by profession
+--                                                      (always there from 0.34.0: the app drops kept pages
+--                                                      that aren't in it, an older character's for one)
 --   TR1|<profession>|<level>|<max>|<page>|<pages>|<read at>
 --   <kind><tab><itemID><tab><made min><tab><made max><tab><ready at><tab><materials><tab><name>[<tab><fits>]
 --                                                      the recipes, in the profession window's order
@@ -54,16 +57,24 @@ local function who()
     return (UnitName("player") or "?") .. "-" .. (GetRealmName and GetRealmName() or "")
 end
 
--- This character's saved part: { recipes = { [profession] = {...} }, results = {...}, bank = {...} }.
+-- This character's saved part: { recipes = { [profession] = {...} }, results = {...}, bank = {...}, guid = ... }.
+-- It is kept under name and realm, so a new character with an old one's name got the old one's
+-- recipes (seen on the game's release, Jesse 2026-11-05): the part also keeps the character's
+-- GUID, and one with another GUID, or none (kept by 0.33.0 and older, whose it is can't be told),
+-- starts empty. The recipes come back the next time each profession window is open.
 local function mine()
     ThorCompanionDB = ThorCompanionDB or {}
     ThorCompanionDB.prof = ThorCompanionDB.prof or {}
     local key = who()
     local m = ThorCompanionDB.prof[key]
+    local guid = UnitGUID and UnitGUID("player")
+    if guid ~= nil and secret(guid) then guid = nil end
+    if m and guid and m.guid ~= guid then m = nil end
     if not m then
         m = { recipes = {}, results = {}, bank = { at = 0, counts = {} } }
         ThorCompanionDB.prof[key] = m
     end
+    m.guid = m.guid or guid
     return m
 end
 
@@ -722,9 +733,9 @@ local function build()
     if run then out[#out + 1] = table.concat({ "c", run.seq, run.made, run.want, run.status, run.reason, run.name }, "\t") end
     for _, l in ipairs(list) do out[#out + 1] = table.concat({ "p", l.name, l.rank, l.max }, "\t") end
     for _, r in ipairs(m.results) do out[#out + 1] = table.concat({ "e", r.at, r.text }, "\t") end
-    head = table.concat(out, "\n")
     -- The recipes, a profession at a time, cut into pages that fit the square.
     pages = {}
+    local books = { "r" }
     local names = {}
     for name in pairs(m.recipes) do names[#names + 1] = name end
     table.sort(names)
@@ -741,7 +752,11 @@ local function build()
             pages[#pages + 1] = string.format("TR1|%s|%d|%d|%d|%d|%d", name, p.rank or 0, p.max or 0, n, #cut, p.at or 0)
                 .. "\n" .. table.concat(rows, "\n")
         end
+        books[#books + 1] = name
+        books[#books + 1] = #cut
     end
+    out[#out + 1] = table.concat(books, "\t")
+    head = table.concat(out, "\n")
     local counts = {}
     for id, c in pairs(m.bank.counts or {}) do if c > 0 then counts[#counts + 1] = id .. ":" .. c end end
     table.sort(counts)

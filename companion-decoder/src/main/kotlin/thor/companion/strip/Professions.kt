@@ -24,9 +24,12 @@ data class CraftResult(val at: Long, val text: String)
  * [open] is the profession window open in the game (`w\t<profession>`), null when none is.
  * [makeKeys]: the addon has its Make keys bound (`f\t1`), so Make needs no typing.
  * [openKeys]: the key (an index into [ActionKeys]) that opens each profession's window (`k\t<profession>\t<key>`).
+ * [recipeBooks]: how many recipe pages (TR1) the addon has of each profession (`r\t<profession>\t<pages>...`,
+ * addon 0.34.0); the app drops kept pages that aren't among them. Null from an older addon.
  */
 data class Professions(val now: Long, val list: List<Profession>, val results: List<CraftResult>, val open: String? = null,
-    val openKeys: Map<String, Int> = emptyMap(), val makeKeys: Boolean = false, val progress: CraftProgress? = null) {
+    val openKeys: Map<String, Int> = emptyMap(), val makeKeys: Boolean = false, val progress: CraftProgress? = null,
+    val recipeBooks: Map<String, Int>? = null) {
     companion object {
         fun parse(payload: String): Professions? {
             if (!payload.startsWith("TF1|")) return null
@@ -38,6 +41,7 @@ data class Professions(val now: Long, val list: List<Profession>, val results: L
             val keys = mutableMapOf<String, Int>()
             var makeKeys = false
             var progress: CraftProgress? = null
+            var books: MutableMap<String, Int>? = null
             for (row in rows.drop(1)) {
                 val f = row.split('\t')
                 when {
@@ -46,11 +50,14 @@ data class Professions(val now: Long, val list: List<Profession>, val results: L
                     f[0] == "w" && f.size >= 2 -> open = f[1]
                     f[0] == "k" && f.size >= 3 -> f[2].toIntOrNull()?.let { keys[f[1]] = it }
                     f[0] == "f" -> makeKeys = true
+                    f[0] == "r" -> books = (books ?: mutableMapOf()).also { b ->
+                        for (i in 1 until f.size - 1 step 2) f[i + 1].toIntOrNull()?.let { b[f[i]] = it }
+                    }
                     f[0] == "c" && f.size >= 7 -> progress = CraftProgress(f[1].toIntOrNull() ?: 0, f[2].toIntOrNull() ?: 0,
                         f[3].toIntOrNull() ?: 0, f[4], f[5], f.drop(6).joinToString("\t"))
                 }
             }
-            return Professions(now, list, results, open, keys, makeKeys, progress)
+            return Professions(now, list, results, open, keys, makeKeys, progress, books)
         }
 
         /**

@@ -2,8 +2,9 @@ package thor.companion.strip
 
 /**
  * The character sheet from the addon's
- * `TP1|class|classFile|race|xp|xpMax|rested|itemLevel|guild|str,agi,sta,int|armor`
+ * `TP1|class|classFile|race|xp|xpMax|rested|itemLevel|guild|str,agi,sta,int|armor|guid`
  * (see addon/ThorCompanion/Character.lua). Secret or missing values are null.
+ * [guid] is the character's own (addon 0.34.0; null before): two characters with the same name have different ones.
  */
 data class CharacterInfo(
     val className: String?,
@@ -17,6 +18,7 @@ data class CharacterInfo(
     /** Strength, agility, stamina, intellect. */
     val stats: List<Int?>,
     val armor: Int?,
+    val guid: String? = null,
 ) {
     companion object {
         fun parse(payload: String): CharacterInfo? {
@@ -26,6 +28,7 @@ data class CharacterInfo(
             return CharacterInfo(
                 text(1), text(2), text(3), f[4].toLongOrNull(), f[5].toLongOrNull(), f[6].toLongOrNull(),
                 f[7].toDoubleOrNull(), text(8), f[9].split(',').map { it.toIntOrNull() }, f[10].toIntOrNull(),
+                f.getOrNull(11)?.takeIf { it.isNotEmpty() && it != "?" },
             )
         }
     }
