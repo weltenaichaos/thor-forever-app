@@ -66,6 +66,11 @@ class StartScreenShotsTest {
 
     @Test fun start() = shoot("start-1-screen")
 
+    /** The frame generation page, before Lossless.dll is chosen and once it is ready at 2x. */
+    @Test fun frameGenFirstTime() = shoot("start-5-frame-gen-first-time") { previewFrameGen(dll = false, mode = 0) }
+
+    @Test fun frameGenReady() = shoot("start-6-frame-gen-ready") { previewFrameGen(dll = true, mode = 2) }
+
     /** Only the small button at the top right and a line in the middle: nothing opens by itself. */
     @Test fun newVersion() = shoot("start-2-new-version") {
         previewAppUpdate("0.5.0", "Thor Forever 0.5.0", hint, notes, page = false)

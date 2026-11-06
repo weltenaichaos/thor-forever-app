@@ -19,6 +19,7 @@ import com.winlator.cmod.contents.ContentsManager;
 import com.winlator.cmod.core.Callback;
 import com.winlator.cmod.core.EnvVars;
 import com.winlator.cmod.core.FileUtils;
+import com.winlator.cmod.core.FrameGen;
 import com.winlator.cmod.core.GPUInformation;
 import com.winlator.cmod.core.KeyValueSet;
 import com.winlator.cmod.core.ProcessHelper;
@@ -492,6 +493,19 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             } else {
                 execEnvVars.remove("VK_INSTANCE_LAYERS");
             }
+        }
+
+        // Frame generation (the start screen's Frame gen button): its layer goes last in the list.
+        File frameGenLayerDir = new File(rootDir, "usr/share/vulkan/explicit_layer.d");
+        String frameGenExe = shortcut != null ? shortcut.getExecutable() : null;
+        int frameGenCap = 0;
+        try {
+            frameGenCap = Integer.parseInt(shortcut != null ? shortcut.getExtra("nativeFpsLimit", "0") : "0");
+        } catch (NumberFormatException ignored) {}
+        if (FrameGen.prepareLaunch(context, frameGenLayerDir, frameGenExe, frameGenCap, execEnvVars)) {
+            String layers = execEnvVars.get("VK_INSTANCE_LAYERS");
+            execEnvVars.put("VK_INSTANCE_LAYERS", layers == null || layers.isEmpty()
+                    ? FrameGen.LAYER_NAME : layers + ":" + FrameGen.LAYER_NAME);
         }
 
         String emulator = container.getEmulator();

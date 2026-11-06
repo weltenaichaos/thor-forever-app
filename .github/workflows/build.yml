@@ -114,8 +114,63 @@ jobs:
           path: turnip-out/
           if-no-files-found: error
 
+  # The frame generation layer (framegen/README.md): GameNative's lsfg-vk-android with our
+  # patches from framegen/patches/. Cached, so it only rebuilds when the base, NDK or a patch changes.
+  framegen:
+    runs-on: ubuntu-24.04
+    env:
+      ANDROID_NDK_VERSION: 27.3.13750724
+      LSFG_REPO: https://github.com/GameNative/lsfg-vk-android.git
+      LSFG_COMMIT: abc77c8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore layer from cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: framegen-out
+          key: framegen-${{ env.LSFG_COMMIT }}-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('framegen/patches/*.patch', 'framegen/thirdparty/**') }}
+
+      - name: Build layer
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build file
+          SDKMANAGER="$(ls -d "${ANDROID_HOME}"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -n1)"
+          yes | "${SDKMANAGER}" --licenses >/dev/null || true
+          "${SDKMANAGER}" --install "ndk;${ANDROID_NDK_VERSION}" >/dev/null
+          export ANDROID_NDK="${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}"
+          git clone -q "$LSFG_REPO" lsfg
+          git -C lsfg checkout -q "$LSFG_COMMIT"
+          # PancakeTAS/dxbc is gone from GitHub: our copy of the pinned commit is in framegen/thirdparty.
+          git -C lsfg submodule update --init --recursive thirdparty/pe-parse thirdparty/toml11 thirdparty/volk
+          rm -rf lsfg/thirdparty/dxbc
+          cp -r framegen/thirdparty/dxbc lsfg/thirdparty/dxbc
+          for p in framegen/patches/*.patch; do
+            echo "Applying $p"
+            git -C lsfg apply --verbose "$GITHUB_WORKSPACE/$p"
+          done
+          (cd lsfg && ANDROID_ABI=arm64-v8a ANDROID_PLATFORM=android-28 bash ./scripts/build/android.sh Release)
+          mkdir -p framegen-out
+          cp lsfg/build-android-arm64-v8a/dist/liblsfg-vk-arm64-v8a.so framegen-out/liblsfg-vk.so
+          file framegen-out/liblsfg-vk.so
+          echo "lsfg-vk-android $(git -C lsfg rev-parse HEAD), NDK $ANDROID_NDK_VERSION, patches: $(cd framegen/patches && ls *.patch | tr '\n' ' ')" > framegen-out/BUILD-INFO.txt
+
+      - name: Show layer
+        run: |
+          cat framegen-out/BUILD-INFO.txt
+          sha256sum framegen-out/liblsfg-vk.so
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: framegen-thor
+          path: framegen-out/
+          if-no-files-found: error
+
   build:
-    needs: turnip
+    needs: [turnip, framegen]
     runs-on: ubuntu-latest
 
     steps:
@@ -165,6 +220,19 @@ jobs:
           JSON
           tar -C "$d" -cf - meta.json libvulkan_freedreno.so | zstd -19 -q -o app/src/main/assets/graphics_driver/adrenotools-thor-turnip-26.2.3.tzst
           ls -la app/src/main/assets/graphics_driver/
+
+      - name: Download frame generation layer
+        uses: actions/download-artifact@v4
+        with:
+          name: framegen-thor
+          path: ${{ runner.temp }}/framegen
+
+      - name: Bundle frame generation layer
+        run: |
+          set -euo pipefail
+          cat "$RUNNER_TEMP/framegen/BUILD-INFO.txt"
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp "$RUNNER_TEMP/framegen/liblsfg-vk.so" app/src/main/jniLibs/arm64-v8a/liblsfg-vk.so
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew

@@ -28,6 +28,7 @@ import com.winlator.cmod.R;
 import com.winlator.cmod.XServerDisplayActivity;
 import com.winlator.cmod.container.Container;
 import com.winlator.cmod.container.Shortcut;
+import com.winlator.cmod.core.FrameGen;
 import com.winlator.cmod.widget.XServerRendererView;
 
 import java.io.File;
@@ -266,18 +267,18 @@ public class FpsLimiterControl extends LinearLayout {
         }
 
         XServerRendererView renderer = activity.getXServerView();
-        if (renderer != null) renderer.setFpsLimit(chosen);
+        if (renderer != null) renderer.setFpsLimit(FrameGen.displayLimit(getContext(), chosen));
     }
 
     private void applyCurrentLimit() {
         XServerDisplayActivity activity = findActivity();
         if (activity != null && activity.getXServerView() != null) {
-            activity.getXServerView().setFpsLimit(getChosenLimit());
+            activity.getXServerView().setFpsLimit(FrameGen.displayLimit(getContext(), getChosenLimit()));
         }
     }
 
     private void applyEffectiveLimit(XServerRendererView renderer) {
-        renderer.setFpsLimit(getChosenLimit());
+        renderer.setFpsLimit(FrameGen.displayLimit(getContext(), getChosenLimit()));
     }
 
     private int getChosenLimit() {
