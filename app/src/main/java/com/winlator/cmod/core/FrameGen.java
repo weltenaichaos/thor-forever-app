@@ -199,6 +199,8 @@ public final class FrameGen {
             String launched = wowExe(executable);
             if (launched != null) exes.add(launched);
             for (String name : WOW_EXES) exes.add(name);
+            // Linux keeps only the first 15 characters of a process name (WowClassic-ARM6).
+            for (String name : new java.util.ArrayList<>(exes)) if (name.length() > 15) exes.add(name.substring(0, 15));
             int flow = getFlow(context);
             StringBuilder toml = new StringBuilder();
             toml.append("# Written by Thor Forever at every launch; changes here are overwritten.\n");
