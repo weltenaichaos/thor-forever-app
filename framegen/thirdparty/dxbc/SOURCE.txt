@@ -1,0 +1,1 @@
+DXVK's DXBC to SPIR-V translator as extracted for lsfg-vk (PancakeTAS/dxbc, now gone from GitHub), at commit 78ab59a8aaeb43cd1b0a5e91ba86722433a10b78, copied from the mirror github.com/Username404-59/dxbc. zlib license, see LICENSE.md.

@@ -130,7 +130,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: framegen-out
-          key: framegen-${{ env.LSFG_COMMIT }}-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('framegen/patches/*.patch') }}
+          key: framegen-${{ env.LSFG_COMMIT }}-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('framegen/patches/*.patch', 'framegen/thirdparty/**') }}
 
       - name: Build layer
         if: steps.cache.outputs.cache-hit != 'true'
@@ -144,7 +144,10 @@ jobs:
           export ANDROID_NDK="${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}"
           git clone -q "$LSFG_REPO" lsfg
           git -C lsfg checkout -q "$LSFG_COMMIT"
-          git -C lsfg submodule update --init --recursive
+          # PancakeTAS/dxbc is gone from GitHub: our copy of the pinned commit is in framegen/thirdparty.
+          git -C lsfg submodule update --init --recursive thirdparty/pe-parse thirdparty/toml11 thirdparty/volk
+          rm -rf lsfg/thirdparty/dxbc
+          cp -r framegen/thirdparty/dxbc lsfg/thirdparty/dxbc
           for p in framegen/patches/*.patch; do
             echo "Applying $p"
             git -C lsfg apply --verbose "$GITHUB_WORKSPACE/$p"

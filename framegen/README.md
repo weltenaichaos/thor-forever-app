@@ -12,6 +12,7 @@ the game's memory, code or files.
 | Base | [GameNative/lsfg-vk-android](https://github.com/GameNative/lsfg-vk-android) at `abc77c8` (MIT), the Android build of [lsfg-vk](https://github.com/PancakeTAS/lsfg-vk) |
 | `patches/0001-d2r-fixes-layers-1-13.patch` | Our own fixes from the Diablo II: Resurrected work on the AYN Thor ([FEX-D2-reforged](https://github.com/weltenaichaos/FEX-D2-reforged), `tools/lsfg/d2r.patch` at `25248d1`): crash and queue lock fixes, a pacer that doesn't lock at 15 FPS, presents from the layer's own thread, generation started at the game's blit, no generated frame across a freeze, and the UI split (off unless the graphics layer hands over a frame without the UI) |
 | `patches/00xx-*.patch` | WoW fixes, added here |
+| `thirdparty/dxbc` | DXVK's DXBC to SPIR-V translator (zlib) at the commit the base pins. Its GitHub home (PancakeTAS/dxbc) is gone, so we keep our own copy |
 
 CI (`.github/workflows/build.yml`, job `framegen`) clones the base, applies `patches/*.patch` in
 order, builds `liblsfg-vk.so` with the NDK and puts it into the APK. The app writes the layer's
